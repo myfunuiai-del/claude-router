@@ -1,0 +1,88 @@
+{
+  "active_provider": "openrouter",
+  "providers": {
+    "coarena": {
+      "name": "Coarena Auto-Switch",
+      "type": "anthropic",
+      "base_url": "https://coarena.ai/api",
+      "default_model": "gemini-4-carbon",
+      "models": [
+        "gemini-4-carbon",
+        "gemini-3-8-flash",
+        "gpt-5.6-sol",
+        "deepseek-v4-1-flash-1017",
+        "kimi-k3-1-pro"
+      ],
+      "keys": [
+        "your_api_key_here"
+      ]
+    },
+    "agentrouter": {
+      "name": "AgentRouter ($216 Credit)",
+      "type": "anthropic",
+      "base_url": "https://agentrouter.org/v1",
+      "default_model": "gpt-5.6-sol",
+      "models": [
+        "gpt-5.6-sol",
+        "claude-3-5-sonnet-20241022"
+      ],
+      "keys": [
+        "your_api_key_here"
+      ]
+    },
+    "openrouter": {
+      "name": "OpenRouter Pool",
+      "type": "anthropic",
+      "base_url": "https://openrouter.ai/api/v1",
+      "default_model": "baidu/ernie-5.5-flash-preview:free",
+      "models": [
+        "google/gemma-4-31b-it:free",
+        "baidu/ernie-5.5-flash-preview:free",
+        "nvidia/nemotron-3.5-lightning:free",
+        "cohere/north-mini-code:free",
+        "particle-ai/particle-1:free",
+        "recursive/flint-v1.0:free"
+      ],
+      "keys": [
+        "your_api_key_here"
+      ]
+    },
+    "groq": {
+      "name": "Groq LPU Pool",
+      "type": "openai",
+      "base_url": "https://api.groq.com/openai/v1",
+      "default_model": "openai/gpt-oss-120b",
+      "models": [
+        "openai/gpt-oss-120b",
+        "qwen/qwen3.8-27b",
+        "openai/gpt-oss-20b"
+      ],
+      "keys": [
+        "your_api_key_here"
+      ]
+    },
+    "gonkabroker": {
+      "name": "GonkaBroker Claude Proxy",
+      "type": "anthropic",
+      "base_url": "https://proxy.gonkabroker.com/v1",
+      "default_model": "zai-org/GLM-5.3-Flash",
+      "models": [
+        "zai-org/GLM-5.3-Flash",
+        "deepseek-ai/DeepSeek-V4-Flash-0731",
+        "MiniMaxAI/MiniMax-M2.7"
+      ],
+      "keys": [
+        "your_api_key_here"
+      ]
+    }
+  },
+  "routed_providers": [
+    "openrouter",
+    "groq",
+    "coarena",
+    "agentrouter"
+  ],
+  "unrouted_providers": [
+    "gonkabroker"
+  ]
+}
