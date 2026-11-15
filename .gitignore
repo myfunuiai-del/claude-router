@@ -1,0 +1,10 @@
+# Sensitive configurations with real API keys
+config.json
+
+# Logs & temp files
+*.log
+__pycache__/
+*.pyc
+
+# System / editor files
+.DS_Store

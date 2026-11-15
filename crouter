@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Claude Router CLI Management Tool
+ROUTER_DIR="$HOME/.gemini/claude-router"
+PROXY_SCRIPT="$ROUTER_DIR/proxy_v2.py"
+PORT=8999
+STATUS_URL="http://127.0.0.1:$PORT/status"
+
+is_running() {
+    curl -s --max-time 1 "$STATUS_URL" >/dev/null 2>&1
+    return $?
+}
+
+start_router() {
+    if is_running; then
+        echo "[Claude Router] Already running on port $PORT."
+        return 0
+    fi
+    echo "[Claude Router] Starting router on port $PORT..."
+    mkdir -p "$ROUTER_DIR"
+    nohup python3 "$PROXY_SCRIPT" "$PORT" > "$ROUTER_DIR/proxy_v2.log" 2>&1 &
+    
+    # Wait for ready (up to 3 seconds)
+    for _ in {1..30}; do
+        if is_running; then
+            echo "[Claude Router] Started successfully! Web UI: http://127.0.0.1:$PORT/ui"
+            return 0
+        fi
+        sleep 0.1
+    done
+    echo "[Claude Router] Failed to start or verify within 3 seconds. Check logs at: $ROUTER_DIR/proxy_v2.log"
+    return 1
+}
+
+stop_router() {
+    echo "[Claude Router] Stopping router on port $PORT..."
+    pkill -f "proxy_v2.py $PORT" 2>/dev/null || true
+    pkill -f "$PROXY_SCRIPT" 2>/dev/null || true
+    sleep 0.5
+    if is_running; then
+        echo "[Claude Router] Warning: Router still responding."
+    else
+        echo "[Claude Router] Stopped successfully."
+    fi
+}
+
+status_router() {
+    if is_running; then
+        echo "[Claude Router] Status: RUNNING on port $PORT (HTTP 200 OK)"
+        echo "[Claude Router] Dashboard: http://127.0.0.1:$PORT/ui"
+        curl -s "$STATUS_URL" | python3 -m json.tool 2>/dev/null || true
+    else
+        echo "[Claude Router] Status: STOPPED (Port $PORT not responding)"
+    fi
+}
+
+case "$1" in
+    start)
+        start_router
+        ;;
+    stop)
+        stop_router
+        ;;
+    restart)
+        stop_router
+        start_router
+        ;;
+    status)
+        status_router
+        ;;
+    ui)
+        echo "Dashboard URL: http://127.0.0.1:$PORT/ui"
+        ;;
+    *)
+        echo "Usage: crouter {start|stop|restart|status|ui}"
+        echo "       Default action checks status and starts if offline."
+        if ! is_running; then
+            start_router
+        else
+            status_router
+        fi
+        ;;
+esac

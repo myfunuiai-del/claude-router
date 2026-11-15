@@ -1,0 +1,345 @@
+#!/usr/bin/env python3
+import os
+import sys
+import json
+import gzip
+import urllib.request
+import urllib.error
+import importlib.util
+
+# Dynamic loader for neighbor modules
+def _load_module_to_globals(filename, target_globals):
+    filepath = os.path.join(os.path.dirname(__file__), filename)
+    mod_name = filename.replace('.', '_').replace('-', '_')
+    spec = importlib.util.spec_from_file_location(mod_name, filepath)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    for k in dir(mod):
+        if not k.startswith('__'):
+            target_globals[k] = getattr(mod, k)
+    return mod
+
+_config_mod = _load_module_to_globals("proxy_v2.config-1.py", globals())
+_transform_mod = _load_module_to_globals("proxy_v2.transform-1.py", globals())
+
+def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model):
+    """Attempts to forward the request to provider p_id.
+    Returns True if successful and response was written to client, False if failed/exhausted.
+    """
+    global current_coarena_idx, current_openrouter_idx, current_groq_idx, current_gonka_idx
+    global fallback_to_agentrouter, last_fallback_time
+    cfg = load_proxy_config()
+    all_providers = cfg.get("providers", {})
+    p_info = all_providers.get(p_id, {})
+
+    if p_id == "coarena":
+        candidates = [orig_model]
+        if orig_model in MODEL_FALLBACKS:
+            candidates.extend(MODEL_FALLBACKS[orig_model])
+        coa_def = p_info.get("default_model", "gemini-4-carbon")
+        if coa_def not in candidates:
+            candidates.append(coa_def)
+
+        target_path = handler.path
+        if target_path.startswith('/coarena'):
+            target_path = target_path[8:]
+        if not target_path.startswith('/api'):
+            target_path = '/api' + target_path
+        elif target_path.startswith('/api/api'):
+            target_path = target_path[4:]
+        upstream_url = "https://coarena.ai" + target_path
+
+        coarena_keys = p_info.get("keys") or get_coarena_keys()
+        if not coarena_keys:
+            return False
+
+        for model_to_try in candidates:
+            coarena_model = model_to_try
+            if body_obj is not None:
+                b_copy = dict(body_obj)
+                b_copy['model'] = coarena_model
+                if 'max_tokens' in b_copy and isinstance(b_copy['max_tokens'], int):
+                    if b_copy['max_tokens'] < 4096:
+                        b_copy['max_tokens'] = 4096
+                body = json.dumps(b_copy).encode('utf-8')
+            else:
+                body = raw_body
+
+            for attempt in range(len(coarena_keys)):
+                idx = (current_coarena_idx + attempt) % len(coarena_keys)
+                key = coarena_keys[idx]
+                req_headers = {}
+                for h, v in handler.headers.items():
+                    if h.lower() not in ['host', 'content-length', 'authorization', 'x-api-key', 'accept-encoding']:
+                        req_headers[h] = v
+                req_headers['Accept-Encoding'] = 'identity'
+                req_headers['Authorization'] = f"Bearer {key}"
+                req_headers['x-api-key'] = key
+
+                req = urllib.request.Request(upstream_url, data=body, headers=req_headers, method='POST')
+                try:
+                    with urllib.request.urlopen(req, timeout=12) as resp:
+                        resp_data = resp.read()
+                        if resp.headers.get('Content-Encoding', '').lower() == 'gzip':
+                            try:
+                                resp_data = gzip.decompress(resp_data)
+                            except Exception:
+                                pass
+                        current_coarena_idx = idx
+                        save_active_state(p_info.get("name", "Coarena"), coarena_model, f"Coarena Account #{idx+1}")
+                        resp_data = append_signature_to_response(resp_data, p_info.get("name", "Coarena"), coarena_model)
+                        handler.send_response(resp.status)
+                        for k, val in resp.headers.items():
+                            if k.lower() not in ['transfer-encoding', 'content-encoding', 'content-length', 'connection']:
+                                handler.send_header(k, val)
+                        handler.send_header('Content-Length', str(len(resp_data)))
+                        handler.end_headers()
+                        handler.wfile.write(resp_data)
+                        return True
+                except urllib.error.HTTPError as e:
+                    sys.stderr.write(f"[Proxy] Coarena key #{idx+1} HTTP error {e.code}. Trying next key...\n")
+                    continue
+                except Exception as e:
+                    sys.stderr.write(f"[Proxy] Coarena key #{idx+1} network error: {e}. Trying next...\n")
+                    continue
+        return False
+
+    elif p_id == "agentrouter":
+        ar_keys = p_info.get("keys") or [get_agentrouter_key()]
+        ar_model = p_info.get("default_model", "gpt-5.6-sol")
+        ar_base = p_info.get("base_url", "https://agentrouter.org/v1").rstrip("/")
+        ar_url = f"{ar_base}/messages"
+
+        for attempt, key in enumerate(ar_keys):
+            if body_obj is not None:
+                b_copy = dict(body_obj)
+                b_copy['model'] = ar_model
+                if 'tools' in b_copy: del b_copy['tools']
+                if 'tool_choice' in b_copy: del b_copy['tool_choice']
+                if 'thinking' in b_copy: del b_copy['thinking']
+                ar_body = json.dumps(b_copy).encode('utf-8')
+            else:
+                ar_body = raw_body
+
+            ar_headers = {
+                'Authorization': f"Bearer {key}",
+                'User-Agent': 'codex_cli_rs/0.101.0',
+                'Originator': 'codex_cli_rs',
+                'Content-Type': 'application/json',
+                'Accept-Encoding': 'identity'
+            }
+            req = urllib.request.Request(ar_url, data=ar_body, headers=ar_headers, method='POST')
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    resp_data = resp.read()
+                    save_active_state(p_info.get("name", "AgentRouter"), ar_model, f"AgentRouter Key #{attempt+1}")
+                    resp_data = append_signature_to_response(resp_data, p_info.get("name", "AgentRouter"), ar_model)
+                    handler.send_response(resp.status)
+                    for k, val in resp.headers.items():
+                        if k.lower() not in ['transfer-encoding', 'content-encoding', 'content-length', 'connection']:
+                            handler.send_header(k, val)
+                    handler.send_header('Content-Length', str(len(resp_data)))
+                    handler.end_headers()
+                    handler.wfile.write(resp_data)
+                    return True
+            except Exception as e:
+                sys.stderr.write(f"[Proxy] AgentRouter attempt #{attempt+1} error: {e}\n")
+                continue
+        return False
+
+    elif p_id in all_providers:
+        p_keys = p_info.get("keys", [])
+        if not p_keys:
+            return False
+        p_base = p_info.get("base_url", "").rstrip("/")
+        p_type = p_info.get("type", "anthropic")
+        p_models = p_info.get("models", [])
+        p_def_model = p_info.get("default_model", orig_model)
+
+        clean_orig = orig_model
+        if clean_orig.startswith(f"@{p_id}/"):
+            clean_orig = clean_orig[len(f"@{p_id}/"):]
+        elif clean_orig.startswith("@") and "/" in clean_orig:
+            clean_orig = clean_orig.split("/", 1)[1]
+
+        matched_model = None
+        if clean_orig in p_models:
+            matched_model = clean_orig
+        else:
+            c_tail = clean_orig.split("/")[-1]
+            for m in p_models:
+                if c_tail == m.split("/")[-1]:
+                    matched_model = m
+                    break
+
+        target_model = matched_model or p_def_model or clean_orig
+
+        if p_type == "anthropic":
+            fwd_url = f"{p_base}/v1/messages" if p_base.endswith("/api") else f"{p_base}/messages"
+            if body_obj is not None:
+                b_copy = dict(body_obj)
+                b_copy['model'] = target_model
+                if p_id == "openrouter" and isinstance(b_copy.get('max_tokens'), int) and b_copy['max_tokens'] > 2048:
+                    b_copy['max_tokens'] = 2048
+                fwd_body = json.dumps(b_copy).encode('utf-8')
+            else:
+                fwd_body = raw_body
+
+            for attempt, key in enumerate(p_keys):
+                fwd_headers = {
+                    'Authorization': f"Bearer {key}",
+                    'x-api-key': key,
+                    'anthropic-version': '2023-06-01',
+                    'Originator': 'codex_cli_rs',
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (compatible; AI-Proxy/2.0)',
+                    'Accept-Encoding': 'identity'
+                }
+                custom_hdrs = p_info.get("custom_headers")
+                if custom_hdrs and isinstance(custom_hdrs, dict):
+                    fwd_headers.update(custom_hdrs)
+                req = urllib.request.Request(fwd_url, data=fwd_body, headers=fwd_headers, method='POST')
+                try:
+                    with urllib.request.urlopen(req, timeout=30) as resp:
+                        resp_data = resp.read()
+                        save_active_state(p_info.get("name", p_id), target_model, f"Key #{attempt+1}")
+                        resp_data = append_signature_to_response(resp_data, p_info.get("name", p_id), target_model)
+                        handler.send_response(resp.status)
+                        for k, val in resp.headers.items():
+                            if k.lower() not in ['transfer-encoding', 'content-encoding', 'content-length', 'connection']:
+                                handler.send_header(k, val)
+                        handler.send_header('Content-Length', str(len(resp_data)))
+                        handler.end_headers()
+                        handler.wfile.write(resp_data)
+                        return True
+                except urllib.error.HTTPError as e:
+                    sys.stderr.write(f"[Proxy] {p_id} key #{attempt+1} HTTP error {e.code}. Trying next key...\n")
+                    continue
+                except Exception as e:
+                    sys.stderr.write(f"[Proxy] {p_id} key #{attempt+1} error: {e}\n")
+                    continue
+            return False
+
+        elif p_type == "openai":
+            is_stream = body_obj.get("stream", False) if body_obj else False
+            openai_body_obj = anthropic_to_openai_body(body_obj, target_model) if body_obj else {}
+            fwd_body = json.dumps(openai_body_obj).encode('utf-8')
+            fwd_url = f"{p_base}/chat/completions"
+
+            for attempt, key in enumerate(p_keys):
+                fwd_headers = {
+                    'Authorization': f"Bearer {key}",
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                    'Accept-Encoding': 'identity'
+                }
+                req = urllib.request.Request(fwd_url, data=fwd_body, headers=fwd_headers, method='POST')
+                try:
+                    with urllib.request.urlopen(req, timeout=30) as resp:
+                        resp_data = resp.read()
+                        save_active_state(p_info.get("name", p_id), target_model, f"Key #{attempt+1}")
+                        text = resp_data.decode('utf-8', errors='ignore')
+                        if is_stream or "data:" in text:
+                            anth_resp = convert_openai_stream_to_anthropic(text, p_info.get("name", p_id), target_model)
+                            handler.send_response(200)
+                            handler.send_header('Content-Type', 'text/event-stream; charset=utf-8')
+                            handler.send_header('Content-Length', str(len(anth_resp)))
+                            handler.end_headers()
+                            handler.wfile.write(anth_resp)
+                            return True
+                        else:
+                            try:
+                                o_json = json.loads(text)
+                                anth_resp = convert_openai_json_to_anthropic(o_json, p_info.get("name", p_id), target_model)
+                                handler.send_response(200)
+                                handler.send_header('Content-Type', 'application/json')
+                                handler.send_header('Content-Length', str(len(anth_resp)))
+                                handler.end_headers()
+                                handler.wfile.write(anth_resp)
+                                return True
+                            except Exception:
+                                pass
+                        handler.send_response(resp.status)
+                        handler.send_header('Content-Length', str(len(resp_data)))
+                        handler.end_headers()
+                        handler.wfile.write(resp_data)
+                        return True
+                except urllib.error.HTTPError as e:
+                    sys.stderr.write(f"[Proxy] {p_id} key #{attempt+1} HTTP error {e.code}. Trying next key...\n")
+                    continue
+                except Exception as e:
+                    sys.stderr.write(f"[Proxy] {p_id} key #{attempt+1} error: {e}\n")
+                    continue
+            return False
+
+    return False
+
+def route_to_agentrouter(handler, raw_body, body_obj):
+    """Helper to seamlessly route to AgentRouter gpt-5.6-sol"""
+    return try_forward_provider(handler, "agentrouter", raw_body, body_obj, "gpt-5.6-sol")
+
+def dispatch_inference(handler, raw_body):
+    """Parses incoming request, checks dedicated direct route or dynamic pipeline failover."""
+    orig_model = "unknown"
+    body_obj = None
+    try:
+        body_obj = json.loads(raw_body.decode('utf-8'))
+        orig_model = body_obj.get('model', 'unknown')
+        body_obj = clean_history_tags(body_obj)
+    except Exception:
+        pass
+
+    # 1. DEDICATED DIRECT ROUTE: Matches any provider endpoint (/{p_id} or /{p_id}/*)
+    cfg = load_proxy_config()
+    all_providers = cfg.get("providers", {})
+    target_dedicated_provider = None
+    for p_id in all_providers:
+        prefix = f"/{p_id}"
+        if handler.path == prefix or handler.path.startswith(f"{prefix}/") or handler.path.startswith(f"{prefix}?"):
+            target_dedicated_provider = p_id
+            break
+
+    if target_dedicated_provider:
+        sys.stderr.write(f"[Proxy Direct Route] Request targeted specifically to '{target_dedicated_provider}' (Path: {handler.path})\n")
+        if try_forward_provider(handler, target_dedicated_provider, raw_body, body_obj, orig_model):
+            return
+        sys.stderr.write(f"[Proxy Direct Route] Dedicated provider '{target_dedicated_provider}' failed. Cascading to active pipeline...\n")
+
+    # 1.5 SMART MODEL-TO-PROVIDER ROUTE: If requested model belongs to a specific provider
+    if orig_model and orig_model != "unknown":
+        clean_model = orig_model.split("/")[-1] if "/" in orig_model else orig_model
+        for p_id, p_info in all_providers.items():
+            p_models = p_info.get("models", [])
+            if orig_model in p_models or any(clean_model == m.split("/")[-1] for m in p_models):
+                sys.stderr.write(f"[Proxy Model Route] Model '{orig_model}' matched provider '{p_id}'. Routing directly...\n")
+                if try_forward_provider(handler, p_id, raw_body, body_obj, orig_model):
+                    return
+                sys.stderr.write(f"[Proxy Model Route] Provider '{p_id}' failed for model '{orig_model}'. Falling back to pipeline...\n")
+                break
+
+    # 2. Dynamic Priority Pipeline (routed_providers)
+    routed_providers = cfg.get("routed_providers", [])
+    if not routed_providers:
+        routed_providers = ["coarena"]
+
+    success = False
+    for prio_idx, p_id in enumerate(routed_providers):
+        sys.stderr.write(f"[Proxy Pipeline] [Priority #{prio_idx+1}] Routing to '{p_id}'...\n")
+        if try_forward_provider(handler, p_id, raw_body, body_obj, orig_model):
+            success = True
+            break
+        sys.stderr.write(f"[Proxy Pipeline] [Priority #{prio_idx+1}] '{p_id}' failed. Cascading to next...\n")
+
+    if not success:
+        # Fallback to AgentRouter if not already attempted
+        if "agentrouter" not in routed_providers:
+            sys.stderr.write("[Proxy Pipeline] All active pipeline providers failed. Trying fallback AgentRouter...\n")
+            if try_forward_provider(handler, "agentrouter", raw_body, body_obj, orig_model):
+                return
+
+        handler.send_response(502)
+        handler.send_header('Content-Type', 'application/json')
+        msg = json.dumps({"error": {"message": "All servers in the active routed pipeline failed or timed out."}}).encode()
+        handler.send_header('Content-Length', str(len(msg)))
+        handler.end_headers()
+        handler.wfile.write(msg)

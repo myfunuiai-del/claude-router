@@ -1,0 +1,486 @@
+let activeModalProvider = null;
+let activeDiscoveredModels = [];
+
+async function testModels(pId) {
+  const p = currentConfig?.providers?.[pId];
+  if (!p) return;
+  const btn = document.getElementById(`ping-btn-${pId}`);
+  const summaryBox = document.getElementById(`ping-${pId}`);
+  const models = p.models || [];
+  if (!models.length) return;
+
+  if (btn) btn.innerText = '⏳...';
+  models.forEach(m => {
+    const el = document.getElementById(`chip-status-${pId}-${m}`);
+    if (el) { el.innerHTML = '⏳'; el.title = 'Pinging...'; }
+  });
+
+  let completed = 0, okCount = 0;
+  const updateSummary = () => {
+    if (summaryBox) summaryBox.innerText = `${okCount}/${models.length} active (${completed}/${models.length} checked)`;
+  };
+  updateSummary();
+
+  const pingPromises = models.map(m => {
+    return fetch('/api/ui/test-models', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: pId, model: m, discover_only: false })
+    }).then(res => res.json()).then(data => {
+      completed++;
+      const resObj = (data.models || [])[0];
+      const el = document.getElementById(`chip-status-${pId}-${m}`);
+      if (resObj && resObj.active) {
+        okCount++;
+        if (el) { el.innerHTML = '🟢'; el.title = resObj.status; }
+      } else {
+        if (el) { el.innerHTML = '🔴'; el.title = resObj?.status || 'Failed'; }
+      }
+      updateSummary();
+    }).catch(err => {
+      completed++;
+      const el = document.getElementById(`chip-status-${pId}-${m}`);
+      if (el) { el.innerHTML = '🔴'; el.title = 'Network error / Timeout'; }
+      updateSummary();
+    });
+  });
+
+  try {
+    await Promise.all(pingPromises);
+    if (summaryBox) summaryBox.innerText = `${okCount}/${models.length} active (200 OK)`;
+    showToast(`${p.name || pId} ping complete: ${okCount}/${models.length} active`);
+  } finally {
+    if (btn) btn.innerText = 'Ping';
+  }
+}
+
+function getFallbackPresets(pId) {
+  const p = currentConfig?.providers?.[pId];
+  const type = p?.type || '';
+  if (type === 'openai') return ['openai/gpt-oss-120b', 'gpt-4o', 'gpt-4o-mini', 'o3-mini'];
+  return ['gpt-5.6-sol', 'claude-3-5-sonnet-20241022', 'gemini-4-carbon', 'deepseek-chat', 'kimi-k3-1-pro'];
+}
+
+async function openModelsSelector(pId) {
+  activeModalProvider = pId;
+  const modal = document.getElementById('models-modal');
+  const title = document.getElementById('models-modal-title');
+  const customInput = document.getElementById('custom-model-input');
+  const filterInput = document.getElementById('model-filter-input');
+  const container = document.getElementById('search-list-container');
+  if (title) title.innerText = `MODELS: ${currentConfig.providers[pId]?.name || pId}`;
+  if (customInput) customInput.value = '';
+  if (filterInput) filterInput.value = '';
+  if (container) container.innerHTML = '<div style="padding:10px; color:var(--text-muted); text-align:center;">Discovering models...</div>';
+  if (modal) modal.classList.add('active');
+
+  const existing = currentConfig.providers[pId]?.models || [];
+  const presets = getFallbackPresets(pId);
+
+  try {
+    const res = await fetch('/api/ui/test-models', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: pId, discover_only: true })
+    });
+    const data = await res.json();
+    const discovered = data.all_discovered || [];
+    activeDiscoveredModels = Array.from(new Set([...existing, ...discovered, ...presets]));
+    renderDiscoveredList(activeDiscoveredModels);
+  } catch (e) {
+    activeDiscoveredModels = Array.from(new Set([...existing, ...presets]));
+    renderDiscoveredList(activeDiscoveredModels);
+  }
+}
+
+function closeModelsModal() {
+  const modal = document.getElementById('models-modal');
+  if (modal) modal.classList.remove('active');
+}
+
+function filterDiscoveredList() {
+  const q = document.getElementById('model-filter-input').value.toLowerCase().trim();
+  const filtered = activeDiscoveredModels.filter(m => m.toLowerCase().includes(q));
+  renderDiscoveredList(filtered);
+}
+
+function renderDiscoveredList(list) {
+  const c = document.getElementById('search-list-container');
+  if (!c) return;
+  if (!list || list.length === 0) {
+    c.innerHTML = '<div style="padding:10px; color:var(--text-muted); text-align:center;">No matching models.</div>';
+    return;
+  }
+  const p = currentConfig.providers[activeModalProvider];
+  const savedSet = new Set(p?.models || []);
+  c.innerHTML = '';
+  list.forEach(m => {
+    const isAdded = savedSet.has(m);
+    const row = document.createElement('div');
+    row.className = 'search-row';
+    row.innerHTML = `
+      <span>${m}</span>
+      <div>
+        ${isAdded 
+          ? `<button class="btn btn-xs btn-danger" onclick="openConfirmDeleteModel('${activeModalProvider}', '${m}', true)">Remove</button>`
+          : `<button class="btn btn-xs btn-primary" onclick="addSpecificModel('${activeModalProvider}', '${m}')">+ Add</button>`
+        }
+      </div>
+    `;
+    c.appendChild(row);
+  });
+}
+
+async function addSpecificModel(pId, modelName) {
+  const res = await fetch('/api/ui/provider-models', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: pId, action: 'add', model: modelName })
+  });
+  const data = await res.json();
+  if (res.ok) {
+    showToast(`Added ${modelName}`);
+    currentConfig = data.config;
+    renderLanes();
+    filterDiscoveredList();
+  }
+}
+
+async function removeModel(pId, modelName, fromModal=false) {
+  const res = await fetch('/api/ui/provider-models', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: pId, action: 'remove', model: modelName })
+  });
+  const data = await res.json();
+  if (res.ok) {
+    showToast(`Removed ${modelName}`);
+    currentConfig = data.config;
+    renderLanes();
+    if (fromModal) filterDiscoveredList();
+  }
+}
+
+async function addCustomModelManual() {
+  const input = document.getElementById('custom-model-input');
+  if (!input) return;
+  const val = input.value.trim();
+  if (!val) return;
+  await addSpecificModel(activeModalProvider, val);
+  input.value = '';
+}
+
+function openServerModal(pId=null) {
+  const modal = document.getElementById('server-modal');
+  const title = document.getElementById('modal-title-text');
+  const editId = document.getElementById('edit-id');
+  const idInput = document.getElementById('server-id');
+  const nameInput = document.getElementById('server-name');
+  const baseInput = document.getElementById('server-base');
+  const typeInput = document.getElementById('server-type');
+  const modelInput = document.getElementById('server-default-model');
+  const keyInput = document.getElementById('server-key');
+  const hdrsInput = document.getElementById('server-custom-headers');
+
+  if (pId && currentConfig?.providers[pId]) {
+    const p = currentConfig.providers[pId];
+    if (title) title.innerText = 'Edit ' + (p.name || pId);
+    if (editId) editId.value = pId;
+    if (idInput) { idInput.value = pId; idInput.disabled = true; }
+    if (nameInput) nameInput.value = p.name || '';
+    if (baseInput) baseInput.value = p.base_url || '';
+    if (typeInput) typeInput.value = p.type || 'anthropic';
+    if (modelInput) modelInput.value = p.default_model || '';
+    if (keyInput) { keyInput.value = ''; keyInput.placeholder = '(Retain keys)'; }
+    if (hdrsInput) hdrsInput.value = p.custom_headers ? JSON.stringify(p.custom_headers) : '';
+  } else {
+    if (title) title.innerText = 'Add Server';
+    if (editId) editId.value = '';
+    if (idInput) { idInput.value = ''; idInput.disabled = false; }
+    if (nameInput) nameInput.value = '';
+    if (baseInput) baseInput.value = '';
+    if (typeInput) typeInput.value = 'anthropic';
+    if (modelInput) modelInput.value = '';
+    if (keyInput) { keyInput.value = ''; keyInput.placeholder = 'sk-...'; }
+    if (hdrsInput) hdrsInput.value = '';
+  }
+  if (modal) modal.classList.add('active');
+}
+
+function closeServerModal() {
+  const modal = document.getElementById('server-modal');
+  if (modal) modal.classList.remove('active');
+}
+
+async function saveServer(e) {
+  e.preventDefault();
+  const sId = document.getElementById('server-id').value.trim().toLowerCase();
+  const sName = document.getElementById('server-name').value.trim();
+  const sBase = document.getElementById('server-base').value.trim();
+  const sType = document.getElementById('server-type').value;
+  const sModel = document.getElementById('server-default-model').value.trim();
+  const sKey = document.getElementById('server-key').value.trim();
+  const sHdrs = document.getElementById('server-custom-headers')?.value.trim();
+
+  const payload = {
+    id: sId,
+    name: sName,
+    base_url: sBase,
+    type: sType,
+    default_model: sModel,
+    models: [sModel]
+  };
+  if (sKey) payload.keys = [sKey];
+  if (sHdrs) payload.custom_headers = sHdrs;
+
+  const res = await fetch('/api/ui/providers', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const data = await res.json();
+  if (res.ok) {
+    showToast('Server saved');
+    closeServerModal();
+    currentConfig = data.config;
+    renderLanes();
+    renderDropdown();
+  }
+}
+
+// Confirmation Modal before Deletion (100% Pure HTML Modal - Zero Browser Popups)
+function openConfirmModal(titleText, bodyHtml, confirmBtnText, onConfirm) {
+  const modal = document.getElementById('confirm-modal');
+  const title = document.getElementById('confirm-modal-title');
+  const body = document.getElementById('confirm-modal-body');
+  const btn = document.getElementById('confirm-modal-btn');
+  if (title) title.innerText = titleText;
+  if (body) body.innerHTML = bodyHtml;
+  if (btn) {
+    btn.innerText = confirmBtnText;
+    btn.onclick = () => {
+      closeConfirmModal();
+      onConfirm();
+    };
+  }
+  if (modal) modal.classList.add('active');
+}
+
+function openConfirmDelete(pId) {
+  const name = currentConfig?.providers?.[pId]?.name || pId;
+  openConfirmModal('Delete Server', `Are you sure you want to delete server <strong>${name}</strong>?<br><span style="color:var(--text-muted); font-size:11px; margin-top:4px; display:inline-block;">You will have 10 seconds to undo this action.</span>`, 'Delete Server', () => startServerDeletion(pId));
+}
+
+function openConfirmDeleteKey(pId, index) {
+  const name = currentConfig?.providers?.[pId]?.name || pId;
+  openConfirmModal('Revoke API Key', `Are you sure you want to revoke <strong>Key #${index+1}</strong> from <strong>${name}</strong>?<br><span style="color:var(--text-muted); font-size:11px; margin-top:4px; display:inline-block;">You will have 10 seconds to undo this action.</span>`, 'Revoke Key', () => startKeyDeletion(pId, index));
+}
+
+function openConfirmDeleteModel(pId, modelName, fromModal=false) {
+  const name = currentConfig?.providers?.[pId]?.name || pId;
+  openConfirmModal('Remove Model', `Are you sure you want to remove model <strong>${modelName}</strong> from <strong>${name}</strong>?<br><span style="color:var(--text-muted); font-size:11px; margin-top:4px; display:inline-block;">You will have 10 seconds to undo this action.</span>`, 'Remove Model', () => startModelDeletion(pId, modelName, fromModal));
+}
+
+function closeConfirmModal() {
+  const modal = document.getElementById('confirm-modal');
+  if (modal) modal.classList.remove('active');
+}
+
+// 10-Second Undo Deletion System (Unified for Servers, Keys, and Models)
+let pendingDeletion = null;
+let undoCountdownTimer = null;
+let undoProgressInterval = null;
+
+function startServerDeletion(pId) {
+  if (pendingDeletion) commitPendingDeletion();
+  const pObj = currentConfig?.providers?.[pId];
+  if (!pObj) return;
+
+  const serverName = pObj.name || pId;
+  const isRouted = currentConfig.routed_providers?.includes(pId);
+  const routedIndex = isRouted ? currentConfig.routed_providers.indexOf(pId) : -1;
+  const unroutedIndex = !isRouted ? currentConfig.unrouted_providers?.indexOf(pId) : -1;
+
+  pendingDeletion = {
+    type: 'server',
+    pId: pId,
+    name: serverName,
+    data: JSON.parse(JSON.stringify(pObj)),
+    isRouted: isRouted,
+    routedIndex: routedIndex,
+    unroutedIndex: unroutedIndex
+  };
+
+  delete currentConfig.providers[pId];
+  if (currentConfig.routed_providers) currentConfig.routed_providers = currentConfig.routed_providers.filter(x => x !== pId);
+  if (currentConfig.unrouted_providers) currentConfig.unrouted_providers = currentConfig.unrouted_providers.filter(x => x !== pId);
+  renderLanes();
+  renderDropdown();
+
+  showUndoToast(`Deleted '${serverName}'`);
+}
+
+function startKeyDeletion(pId, index) {
+  if (pendingDeletion) commitPendingDeletion();
+  const pObj = currentConfig?.providers?.[pId];
+  if (!pObj || !pObj.keys || pObj.keys[index] === undefined) return;
+
+  const keyVal = pObj.keys[index];
+  pendingDeletion = {
+    type: 'key',
+    pId: pId,
+    index: index,
+    keyVal: keyVal
+  };
+
+  pObj.keys.splice(index, 1);
+  renderLanes();
+
+  showUndoToast(`Revoked Key #${index+1}`);
+}
+
+function startModelDeletion(pId, modelName, fromModal=false) {
+  if (pendingDeletion) commitPendingDeletion();
+  const pObj = currentConfig?.providers?.[pId];
+  if (!pObj || !pObj.models) return;
+
+  const prevModels = [...pObj.models];
+  pendingDeletion = {
+    type: 'model',
+    pId: pId,
+    modelName: modelName,
+    fromModal: fromModal,
+    prevModels: prevModels
+  };
+
+  pObj.models = pObj.models.filter(m => m !== modelName);
+  renderLanes();
+  if (fromModal) filterDiscoveredList();
+
+  showUndoToast(`Removed model '${modelName}'`);
+}
+
+function showUndoToast(msg) {
+  const toast = document.getElementById('undo-toast');
+  const msgEl = document.getElementById('undo-toast-msg');
+  const bar = document.getElementById('undo-progress-bar');
+  if (!toast || !msgEl || !bar) return;
+
+  msgEl.innerText = msg;
+  toast.classList.remove('expiring');
+  toast.classList.add('show');
+  bar.style.width = '100%';
+
+  const durationMs = 10000;
+  const startTime = Date.now();
+
+  if (undoProgressInterval) clearInterval(undoProgressInterval);
+  undoProgressInterval = setInterval(() => {
+    const elapsed = Date.now() - startTime;
+    const remainingPct = Math.max(0, 100 - (elapsed / durationMs) * 100);
+    bar.style.width = remainingPct + '%';
+
+    if (elapsed >= 7500) {
+      toast.classList.add('expiring');
+    }
+
+    if (elapsed >= durationMs) {
+      clearInterval(undoProgressInterval);
+      undoProgressInterval = null;
+    }
+  }, 100);
+
+  if (undoCountdownTimer) clearTimeout(undoCountdownTimer);
+  undoCountdownTimer = setTimeout(() => {
+    commitPendingDeletion();
+  }, durationMs);
+}
+
+function hideUndoToast() {
+  const toast = document.getElementById('undo-toast');
+  if (toast) {
+    toast.classList.remove('show');
+    toast.classList.remove('expiring');
+  }
+  if (undoProgressInterval) {
+    clearInterval(undoProgressInterval);
+    undoProgressInterval = null;
+  }
+  if (undoCountdownTimer) {
+    clearTimeout(undoCountdownTimer);
+    undoCountdownTimer = null;
+  }
+}
+
+function triggerUndoAction() {
+  if (!pendingDeletion) return;
+  const item = pendingDeletion;
+  pendingDeletion = null;
+  hideUndoToast();
+
+  if (item.type === 'server') {
+    currentConfig.providers[item.pId] = item.data;
+    const pool = item.isRouted ? currentConfig.routed_providers : currentConfig.unrouted_providers;
+    if (pool) {
+      const idx = item.isRouted ? item.routedIndex : item.unroutedIndex;
+      idx >= 0 ? pool.splice(idx, 0, item.pId) : pool.push(item.pId);
+    }
+    renderLanes();
+    renderDropdown();
+    showToast(`↺ Restored '${item.name}'`);
+    saveDomOrderAndSync();
+  } else if (item.type === 'key') {
+    const pObj = currentConfig?.providers?.[item.pId];
+    if (pObj) {
+      if (!pObj.keys) pObj.keys = [];
+      pObj.keys.splice(item.index, 0, item.keyVal);
+      renderLanes();
+    }
+    showToast(`↺ Restored Key #${item.index+1}`);
+  } else if (item.type === 'model') {
+    const pObj = currentConfig?.providers?.[item.pId];
+    if (pObj) {
+      pObj.models = item.prevModels;
+      renderLanes();
+      if (item.fromModal) filterDiscoveredList();
+    }
+    showToast(`↺ Restored '${item.modelName}'`);
+  }
+}
+
+async function commitPendingDeletion() {
+  if (!pendingDeletion) return;
+  const item = pendingDeletion;
+  pendingDeletion = null;
+  hideUndoToast();
+
+  try {
+    let url, method = 'DELETE', body;
+    if (item.type === 'server') {
+      url = '/api/ui/providers';
+      body = { provider: item.pId };
+    } else if (item.type === 'key') {
+      url = '/api/ui/keys';
+      body = { provider: item.pId, index: item.index };
+    } else if (item.type === 'model') {
+      url = '/api/ui/provider-models';
+      method = 'POST';
+      body = { provider: item.pId, action: 'remove', model: item.modelName };
+    }
+    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (res.ok) {
+      currentConfig = data.config;
+      renderLanes();
+      if (item.type === 'server') renderDropdown();
+      if (item.type === 'model' && item.fromModal) filterDiscoveredList();
+    }
+  } catch (err) {
+    showToast('Error completing deletion', true);
+  }
+}
+
+function deleteServer(pId) {
+  openConfirmDelete(pId);
+}
+
