@@ -38,8 +38,9 @@ It unifies multiple AI providers into a single high-availability Anthropic-compa
 ### 1. Clone or Copy Files
 Place the project files into `~/.gemini/claude-router`:
 ```bash
-git clone https://github.com/your-username/claude-router.git ~/.gemini/claude-router
+git clone https://github.com/myfunuiai-del/claude-router.git ~/.gemini/claude-router
 cd ~/.gemini/claude-router
+cp config.example.json config.json
 ```
 
 ### 2. Add `crouter` Management CLI
