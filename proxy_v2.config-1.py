@@ -32,14 +32,55 @@ def load_proxy_config():
             sys.stderr.write(f"[Config] Error reading {CONFIG_FILE}: {e}\n")
     return {"active_provider": "coarena", "providers": {}}
 
+def sync_to_claude_settings(cfg):
+    """Automatically syncs all providers and models to Claude Code UI dropdown (~/.claude/agy_providers.json)."""
+    try:
+        claude_dir = os.path.expanduser("~/.claude")
+        if not os.path.exists(claude_dir):
+            return
+        agy_providers_path = os.path.join(claude_dir, "agy_providers.json")
+        providers_out = []
+        for p_id, p_info in cfg.get("providers", {}).items():
+            base_url = f"http://127.0.0.1:{PORT}/{p_id}"
+            models = p_info.get("models", [])
+            def_m = p_info.get("default_model") or (models[0] if models else "")
+            model_list = [{"id": m} for m in models]
+            if not model_list and def_m:
+                model_list = [{"id": def_m}]
+            p_entry = {
+                "id": p_id,
+                "name": f"{p_info.get('name', p_id)} ({len(p_info.get('keys', []))} API Keys)",
+                "base_url": base_url,
+                "api_key": "auto",
+                "auth_mode": "bearer",
+                "models": model_list
+            }
+            providers_out.append(p_entry)
+
+        agy_data = {"providers": providers_out}
+        if os.path.exists(agy_providers_path):
+            try:
+                with open(agy_providers_path, "r", encoding="utf-8") as f:
+                    cur = json.load(f)
+                    if "sessions" in cur:
+                        agy_data["sessions"] = cur["sessions"]
+            except Exception:
+                pass
+
+        with open(agy_providers_path, "w", encoding="utf-8") as f:
+            json.dump(agy_data, f, indent=2)
+    except Exception as e:
+        sys.stderr.write(f"[Claude Sync] Warning: Could not sync to Claude settings: {e}\n")
+
 def save_proxy_config(cfg):
-    """Save config safely to JSON file."""
+    """Save config safely to JSON file and sync to Claude Code UI dropdown."""
     with config_lock:
         try:
             tmp = CONFIG_FILE + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, indent=2)
             os.replace(tmp, CONFIG_FILE)
+            sync_to_claude_settings(cfg)
             return True
         except Exception as e:
             sys.stderr.write(f"[Config] Error saving {CONFIG_FILE}: {e}\n")
@@ -97,6 +138,9 @@ def save_active_state(server, model, account):
         pass
 
 save_active_state("Coarena", "gemini-4-carbon", "Coarena Account #1")
+
+# Initial startup sync to Claude settings
+sync_to_claude_settings(load_proxy_config())
 
 # Recovery & failover tracking
 fallback_to_agentrouter = False
