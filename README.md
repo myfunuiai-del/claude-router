@@ -1,5 +1,9 @@
 # ⚡ Claude Router: Bulletproof Multi-Provider AI Gateway & Failover Proxy
 
+<p align="center">
+  <img src="assets/claude-router-logo.jpg" alt="Claude Router Logo" width="650" style="border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);" />
+</p>
+
 A lightweight, zero-dependency local proxy gateway designed for **Claude Code**, **Antigravity**, **Aider**, and any AI CLI/IDE tool. 
 
 It unifies multiple AI providers into a single high-availability Anthropic-compatible endpoint (`http://127.0.0.1:8999/api`), featuring automatic cascading failover, mobile-first web dashboard, dynamic key pooling, and protocol translation.
