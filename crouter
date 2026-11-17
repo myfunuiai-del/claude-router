@@ -10,39 +10,59 @@ open_browser() {
     local target_url="$1"
     [ -z "$target_url" ] && target_url="$UI_URL"
     
-    # Try opening in AntiGem in-app terminal browser first
+    # Open and bring AntiGem in-app browser screen to foreground
     python3 -c '
 import json, os, urllib.request, sys
 target = sys.argv[1]
 dev_id = "e74b5ede909c4c94"
 try:
     with open(os.path.expanduser("~/.gemini/config/mcp_config.json")) as f:
-        dev_id = json.load(f).get("mcpServers", {}).get("browser_mcp", {}).get("headers", {}).get("X-Device-Id") or dev_id
+        servers = json.load(f).get("mcpServers", {})
+        dev_id = (
+            servers.get("jarvis_mcp", {}).get("headers", {}).get("X-Device-Id")
+            or servers.get("browser_mcp", {}).get("headers", {}).get("X-Device-Id")
+            or dev_id
+        )
 except Exception:
     pass
 
-req = urllib.request.Request(
-    "http://127.0.0.1:8765/browser",
-    data=json.dumps({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/call",
-        "params": {
-            "name": "browser_open_url",
-            "arguments": {"url": target}
-        }
-    }).encode("utf-8"),
-    headers={"Content-Type": "application/json", "X-Device-Id": dev_id}
-)
+def mcp_call(url, name, args):
+    req = urllib.request.Request(
+        url,
+        data=json.dumps({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": args}
+        }).encode("utf-8"),
+        headers={"Content-Type": "application/json", "X-Device-Id": dev_id}
+    )
+    with urllib.request.urlopen(req, timeout=4) as resp:
+        return resp.status == 200
+
+# 1. Preferred: jarvis_open_url opens the URL AND switches the app to the browser screen
 try:
-    urllib.request.urlopen(req, timeout=3)
-    sys.exit(0)
+    if mcp_call("http://127.0.0.1:8765/jarvis", "jarvis_open_url", {"url": target, "new_tab": False}):
+        sys.exit(0)
 except Exception:
-    sys.exit(1)
+    pass
+
+# 2. Fallback: browser_open_url + switch screen to browser
+try:
+    if mcp_call("http://127.0.0.1:8765/browser", "browser_open_url", {"url": target}):
+        try:
+            mcp_call("http://127.0.0.1:8765/jarvis", "jarvis_open_screen", {"screen": "browser"})
+        except Exception:
+            pass
+        sys.exit(0)
+except Exception:
+    pass
+
+sys.exit(1)
 ' "$target_url" >/dev/null 2>&1
 
     if [ $? -eq 0 ]; then
-        echo "[Claude Router] Opened in terminal in-app browser."
+        echo "[Claude Router] Opened and switched to in-app browser."
         return 0
     fi
 
@@ -64,17 +84,26 @@ is_running() {
 start_router() {
     if is_running; then
         echo "[Claude Router] Already running on port $PORT."
+        if [ -t 1 ]; then
+            open_browser "$UI_URL"
+        fi
         return 0
     fi
     echo "[Claude Router] Starting router on port $PORT..."
     mkdir -p "$ROUTER_DIR"
-    nohup python3 "$PROXY_SCRIPT" "$PORT" > "$ROUTER_DIR/proxy_v2.log" 2>&1 &
+    if command -v setsid >/dev/null 2>&1; then
+        setsid python3 "$PROXY_SCRIPT" "$PORT" > "$ROUTER_DIR/proxy_v2.log" 2>&1 < /dev/null &
+    else
+        nohup python3 "$PROXY_SCRIPT" "$PORT" > "$ROUTER_DIR/proxy_v2.log" 2>&1 &
+    fi
     
     # Wait for ready (up to 3 seconds)
     for _ in {1..30}; do
         if is_running; then
             echo "[Claude Router] Started successfully! Web UI: http://127.0.0.1:$PORT/ui"
-            open_browser "$UI_URL"
+            if [ -t 1 ]; then
+                open_browser "$UI_URL"
+            fi
             return 0
         fi
         sleep 0.1
