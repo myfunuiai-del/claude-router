@@ -54,6 +54,89 @@ async function testModels(pId) {
   }
 }
 
+async function testKeys(pId) {
+  const p = currentConfig?.providers?.[pId];
+  if (!p) return;
+  const keys = p.keys || [];
+  if (!keys.length) {
+    showToast('No API keys to test', true);
+    return;
+  }
+
+  const btn = document.getElementById(`key-ping-btn-${pId}`);
+  const summaryBox = document.getElementById(`key-ping-${pId}`);
+
+  if (btn) {
+    btn.innerText = '⏳...';
+    btn.disabled = true;
+  }
+  keys.forEach((_, idx) => {
+    const el = document.getElementById(`key-status-${pId}-${idx}`);
+    if (el) {
+      el.className = 'key-status is-pending';
+      el.innerText = '⏳ Testing...';
+      el.title = 'Testing API key (up to 60s)...';
+    }
+  });
+
+  let completed = 0, okCount = 0;
+  const updateSummary = () => {
+    if (summaryBox) summaryBox.innerText = `${okCount}/${keys.length} active (${completed}/${keys.length} checked)`;
+  };
+  updateSummary();
+
+  const keyPromises = keys.map((_, idx) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 62000);
+    return fetch('/api/ui/test-key', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: pId, key_index: idx }),
+      signal: controller.signal
+    }).then(res => res.json()).then(data => {
+      clearTimeout(timer);
+      completed++;
+      const el = document.getElementById(`key-status-${pId}-${idx}`);
+      if (data && data.active) {
+        okCount++;
+        if (el) {
+          el.className = 'key-status is-ok';
+          el.innerText = data.label || '🟢 200 OK';
+          el.title = data.model ? `Model: ${data.model}` : 'Active';
+        }
+      } else {
+        if (el) {
+          el.className = 'key-status is-err';
+          el.innerText = data?.label || '🔴 Failed';
+          el.title = data?.detail || data?.label || 'Failed';
+        }
+      }
+      updateSummary();
+    }).catch(() => {
+      clearTimeout(timer);
+      completed++;
+      const el = document.getElementById(`key-status-${pId}-${idx}`);
+      if (el) {
+        el.className = 'key-status is-err';
+        el.innerText = '🔴 Timeout / Error';
+        el.title = 'Network error or 1 min timeout';
+      }
+      updateSummary();
+    });
+  });
+
+  try {
+    await Promise.all(keyPromises);
+    if (summaryBox) summaryBox.innerText = `${okCount}/${keys.length} keys active`;
+    showToast(`${p.name || pId} keys: ${okCount}/${keys.length} active`);
+  } finally {
+    if (btn) {
+      btn.innerText = 'Test';
+      btn.disabled = false;
+    }
+  }
+}
+
 function getFallbackPresets(pId) {
   const p = currentConfig?.providers?.[pId];
   const type = p?.type || '';

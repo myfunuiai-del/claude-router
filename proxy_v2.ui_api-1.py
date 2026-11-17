@@ -2,6 +2,7 @@
 import os
 import sys
 import json
+import time
 import urllib.request
 import urllib.error
 import importlib.util
@@ -268,6 +269,131 @@ def handle_ui_post(handler, raw_body):
             handler.wfile.write(resp)
             return True
 
+        except Exception as e:
+            handler.send_response(500)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            err = json.dumps({"status": "error", "message": str(e)}).encode()
+            handler.send_header('Content-Length', str(len(err)))
+            handler.end_headers()
+            handler.wfile.write(err)
+            return True
+
+    # UI API: Test a single API Key for a provider (60s timeout, concurrent per-key calls from UI)
+    if handler.path == "/api/ui/test-key":
+        try:
+            data = json.loads(raw_body.decode('utf-8'))
+            provider_id = (data.get("provider") or "").strip()
+            key_index = data.get("key_index")
+            cfg = load_proxy_config()
+            p = cfg.get("providers", {}).get(provider_id)
+            if not p:
+                handler.send_response(404)
+                handler.send_header('Content-Type', 'application/json')
+                handler.send_header('Access-Control-Allow-Origin', '*')
+                err = json.dumps({"status": "error", "message": "Provider not found"}).encode()
+                handler.send_header('Content-Length', str(len(err)))
+                handler.end_headers()
+                handler.wfile.write(err)
+                return True
+
+            keys = p.get("keys", [])
+            if not isinstance(key_index, int) or key_index < 0 or key_index >= len(keys):
+                handler.send_response(400)
+                handler.send_header('Content-Type', 'application/json')
+                handler.send_header('Access-Control-Allow-Origin', '*')
+                err = json.dumps({"status": "error", "message": "Invalid key index"}).encode()
+                handler.send_header('Content-Length', str(len(err)))
+                handler.end_headers()
+                handler.wfile.write(err)
+                return True
+
+            api_key = keys[key_index]
+            p_type = p.get("type", "anthropic")
+            base_url = p.get("base_url", "").rstrip("/")
+            custom_hdrs = p.get("custom_headers", {})
+            models = p.get("models", [])
+            test_model = p.get("default_model") or (models[0] if models else "")
+
+            universal_headers = {
+                'Authorization': f'Bearer {api_key}',
+                'x-api-key': api_key,
+                'anthropic-version': '2023-06-01',
+                'Originator': 'codex_cli_rs',
+                'User-Agent': 'codex_cli_rs/0.101.0' if provider_id == 'agentrouter' else 'Mozilla/5.0 (compatible; AI-Proxy/2.0)',
+                'Content-Type': 'application/json',
+                'Accept-Encoding': 'identity'
+            }
+            if custom_hdrs and isinstance(custom_hdrs, dict):
+                universal_headers.update(custom_hdrs)
+
+            if provider_id == "agentrouter":
+                ping_url = f"{base_url}/messages"
+            elif p_type == "openai":
+                ping_url = f"{base_url}/chat/completions"
+            else:
+                if base_url.endswith("/api"):
+                    ping_url = f"{base_url}/v1/messages"
+                elif base_url.endswith("/v1") or base_url.endswith("/api/v1"):
+                    ping_url = f"{base_url}/messages"
+                else:
+                    ping_url = f"{base_url}/v1/messages"
+
+            is_coarena = "coarena" in provider_id.lower() or "coarena.ai" in base_url
+            max_tokens = 4096 if is_coarena else 10
+            body = json.dumps({
+                'model': test_model,
+                'messages': [{'role': 'user', 'content': 'hi'}],
+                'max_tokens': max_tokens
+            }).encode('utf-8')
+
+            t0 = time.time()
+            active = False
+            code = 0
+            label = "🔴 Failed"
+            detail = ""
+            try:
+                t_req = urllib.request.Request(ping_url, data=body, headers=universal_headers, method='POST')
+                with urllib.request.urlopen(t_req, timeout=60) as t_resp:
+                    code = t_resp.status
+                    latency_ms = int((time.time() - t0) * 1000)
+                    if code == 200:
+                        active = True
+                        label = f"🟢 200 OK ({latency_ms}ms)"
+                    else:
+                        label = f"🔴 HTTP {code}"
+            except urllib.error.HTTPError as he:
+                code = he.code
+                latency_ms = int((time.time() - t0) * 1000)
+                try:
+                    detail = he.read().decode('utf-8', errors='ignore')[:180]
+                except Exception:
+                    detail = ""
+                label = f"🔴 {he.code} {he.reason}"
+            except Exception as te:
+                latency_ms = int((time.time() - t0) * 1000)
+                detail = str(te)[:120]
+                label = f"🔴 {str(te)[:28]}"
+
+            resp = json.dumps({
+                "status": "ok",
+                "provider": provider_id,
+                "key_index": key_index,
+                "model": test_model,
+                "active": active,
+                "code": code,
+                "latency_ms": latency_ms,
+                "label": label,
+                "detail": detail
+            }).encode('utf-8')
+
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            handler.send_header('Content-Length', str(len(resp)))
+            handler.end_headers()
+            handler.wfile.write(resp)
+            return True
         except Exception as e:
             handler.send_response(500)
             handler.send_header('Content-Type', 'application/json')

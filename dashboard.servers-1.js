@@ -209,6 +209,9 @@ function createServerCard(id, p, isRouted, index) {
   kSec.innerHTML = `
     <div class="section-label">
       <span>KEYS (${(p.keys || []).length})</span>
+      <div style="display:flex; gap:4px;">
+        <button class="btn btn-xs" id="key-ping-btn-${id}" onclick="testKeys('${id}')">Test</button>
+      </div>
     </div>
   `;
   const kList = document.createElement('div');
@@ -217,7 +220,10 @@ function createServerCard(id, p, isRouted, index) {
     const row = document.createElement('div');
     row.className = 'key-line';
     row.innerHTML = `
-      <span style="color:#79c0ff;">#${idx+1} ${maskKey(k)}</span>
+      <span class="key-line-left">
+        <span style="color:#79c0ff;">#${idx+1} ${maskKey(k)}</span>
+        <span class="key-status" id="key-status-${id}-${idx}"></span>
+      </span>
       <span class="chip-x" title="Revoke Key" onclick="openConfirmDeleteKey('${id}', ${idx})">✕</span>
     `;
     kList.appendChild(row);
@@ -226,6 +232,11 @@ function createServerCard(id, p, isRouted, index) {
     kList.innerHTML = '<span style="font-size:10px; color:var(--text-muted);">No keys</span>';
   }
   kSec.appendChild(kList);
+
+  const keyPingBox = document.createElement('div');
+  keyPingBox.id = `key-ping-${id}`;
+  keyPingBox.className = 'ping-summary';
+  kSec.appendChild(keyPingBox);
   body.appendChild(kSec);
 
   card.appendChild(body);

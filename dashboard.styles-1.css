@@ -137,7 +137,12 @@ input:focus, select:focus { border-color: var(--brand); }
 .chip-x { cursor: pointer; color: var(--text-muted); font-size: 10px; line-height: 1; }
 .chip-x:hover { color: var(--danger-text); }
 .keys-compact-list { display: flex; flex-direction: column; gap: 3px; }
-.key-line { display: flex; justify-content: space-between; align-items: center; background: #0c1219; padding: 3px 6px; border-radius: 3px; border: 1px solid var(--border-subtle); font-family: var(--mono); font-size: 11px; }
+.key-line { display: flex; justify-content: space-between; align-items: center; gap: 6px; background: #0c1219; padding: 3px 6px; border-radius: 3px; border: 1px solid var(--border-subtle); font-family: var(--mono); font-size: 11px; }
+.key-line-left { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.key-status { font-size: 10px; font-family: var(--mono); white-space: nowrap; }
+.key-status.is-pending { color: var(--text-muted); }
+.key-status.is-ok { color: var(--success-text); }
+.key-status.is-err { color: var(--danger-text); }
 
 /* Ping Results - Compact Status */
 .ping-summary { font-size: 10px; padding: 2px 4px; border-radius: 3px; margin-top: 4px; font-family: var(--mono); color: var(--text-muted); }
