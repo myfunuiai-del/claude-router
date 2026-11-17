@@ -379,17 +379,18 @@ def _shrink_text(text, max_chars=800):
     removed = len(text) - head - tail
     return f"{text[:head]}\n...[trimmed {removed} chars by router]...\n{text[-tail:]}"
 
-def _shrink_message_blocks(msg, max_chars=800):
-    """Shrink oversized tool_result, text, and tool_use input payloads inside a single message."""
+def _shrink_message_blocks(msg, max_chars=800, tools_only=False):
+    """Shrink oversized tool_result (and optionally text/tool_use) payloads inside a single message."""
     changed = False
     if not isinstance(msg, dict):
         return False
     c = msg.get("content")
     if isinstance(c, str):
-        new_c = _shrink_text(c, max_chars)
-        if new_c != c:
-            msg["content"] = new_c
-            changed = True
+        if not tools_only:
+            new_c = _shrink_text(c, max_chars)
+            if new_c != c:
+                msg["content"] = new_c
+                changed = True
     elif isinstance(c, list):
         for blk in c:
             if not isinstance(blk, dict):
@@ -409,7 +410,7 @@ def _shrink_message_blocks(msg, max_chars=800):
                             if new_t != sub["text"]:
                                 sub["text"] = new_t
                                 changed = True
-            elif btype == "text" and isinstance(blk.get("text"), str):
+            elif not tools_only and btype == "text" and isinstance(blk.get("text"), str):
                 new_t = _shrink_text(blk["text"], max_chars)
                 if new_t != blk["text"]:
                     blk["text"] = new_t
@@ -435,11 +436,13 @@ def is_trimmable_history(body_obj):
     except Exception:
         return False
 
-def build_history_recovery_variants(body_obj, recent_count=6, max_block_chars=800):
+def build_history_recovery_variants(body_obj, recent_count=8, max_block_chars=800):
     """Build ordered non-mutating recovery variants on 400/403/413 errors:
-    1) recent_messages: keep last few messages from a valid user turn
-    2) last_message_only: keep only the latest message (preserving tool_use/tool_result pair if needed)
-    3) shrink_tool_outputs: truncate large tool outputs and oversized content blocks
+    1) shrink_old_tools_keep_last: full history + untouched last message, shrinking only older large tool outputs
+    2) recent_N_msgs: keep last ~6-8 messages from a clean user boundary
+    3) last_message_only: keep only the latest message (preserving tool_use/tool_result pair if needed)
+    4) shrink_all_large_blocks: full history + last message with all large tool outputs and text blocks shrunk
+    (Stage 5 handled by forwarder: route untouched original full request to next enabled server)
     """
     if not isinstance(body_obj, dict):
         return []
@@ -469,13 +472,23 @@ def build_history_recovery_variants(body_obj, recent_count=6, max_block_chars=80
         v_obj["messages"] = new_msgs
         variants.append((name, v_obj))
 
-    # Stage 1: Keep only last few messages (from a clean user boundary)
+    # Stage 1: Full history + last message untouched; shrink only older large tool outputs
+    if len(msgs) > 1:
+        old_shrunk = copy.deepcopy(msgs)
+        any_old_tool_shrunk = False
+        for m in old_shrunk[:-1]:
+            if _shrink_message_blocks(m, max_chars=max_block_chars, tools_only=True):
+                any_old_tool_shrunk = True
+        if any_old_tool_shrunk:
+            _add_variant("shrink_old_tools_keep_last", old_shrunk)
+
+    # Stage 2: Keep only last ~6-8 messages (from a clean user boundary)
     if len(msgs) > 2:
         start_idx = _find_clean_user_index(msgs, max(0, len(msgs) - recent_count))
         if start_idx > 0:
             _add_variant(f"recent_{len(msgs) - start_idx}_msgs", copy.deepcopy(msgs[start_idx:]))
 
-    # Stage 2: Keep only the last message (valid Anthropic turn)
+    # Stage 3: Keep only the last message (valid Anthropic turn)
     if len(msgs) > 1:
         last_msg = msgs[-1]
         if isinstance(last_msg, dict) and last_msg.get("role") == "user" and not _is_tool_result_msg(last_msg):
@@ -492,13 +505,13 @@ def build_history_recovery_variants(body_obj, recent_count=6, max_block_chars=80
             if last_clean > 0:
                 _add_variant("last_message_only", copy.deepcopy(msgs[last_clean:]))
 
-    # Stage 3: Shrink large tool outputs / oversized blocks
-    shrunk_msgs = copy.deepcopy(msgs)
-    any_shrunk = False
-    for m in shrunk_msgs:
-        if _shrink_message_blocks(m, max_chars=max_block_chars):
-            any_shrunk = True
-    if any_shrunk:
-        _add_variant("shrink_tool_outputs", shrunk_msgs)
+    # Stage 4: Full history + last message with ALL large tool outputs & text blocks shrunk
+    all_shrunk = copy.deepcopy(msgs)
+    any_all_shrunk = False
+    for m in all_shrunk:
+        if _shrink_message_blocks(m, max_chars=max_block_chars, tools_only=False):
+            any_all_shrunk = True
+    if any_all_shrunk:
+        _add_variant("shrink_all_large_blocks", all_shrunk)
 
     return variants

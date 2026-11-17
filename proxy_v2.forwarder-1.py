@@ -307,10 +307,11 @@ def route_to_agentrouter(handler, raw_body, body_obj):
 def try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_model):
     """Try forwarding original request to p_id. On 400/403/413 with trimmable history,
     escalate safely on the same provider without mutating original body_obj:
-      1) Keep only recent messages
-      2) Keep only the last message
-      3) Shrink large tool outputs / content blocks
-    If all fail, return False so caller routes original full request to next server.
+      1) Full history + untouched last message, shrinking only older large tool outputs
+      2) Keep only recent ~6-8 messages
+      3) Keep only the last message
+      4) Full history + last message with all large tool outputs & text blocks shrunk
+    Stage 5: If all fail, return False so caller routes untouched original request to next server.
     """
     if try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recovery=False):
         return True
