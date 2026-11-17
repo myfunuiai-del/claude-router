@@ -645,6 +645,39 @@ def handle_ui_post(handler, raw_body):
             handler.wfile.write(err)
             return True
 
+    # UI API: Live Monitor actions (clear cooldowns / clear telemetry)
+    if handler.path == "/api/ui/live-action":
+        try:
+            data = json.loads(raw_body.decode('utf-8'))
+            action = (data.get("action") or "").strip()
+            msg = "Done"
+            if action == "clear_cooldowns":
+                n = clear_all_cooldowns()
+                msg = f"Cleared {n} active cooldown(s)"
+            elif action == "clear_issues":
+                clear_live_telemetry("issues")
+                msg = "Cleared live issues list"
+            elif action == "clear_all":
+                clear_live_telemetry("all")
+                msg = "Cleared live stats, issues & feed"
+            resp = json.dumps({"status": "ok", "message": msg}).encode('utf-8')
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            handler.send_header('Content-Length', str(len(resp)))
+            handler.end_headers()
+            handler.wfile.write(resp)
+            return True
+        except Exception as e:
+            handler.send_response(500)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            err = json.dumps({"status": "error", "message": str(e)}).encode()
+            handler.send_header('Content-Length', str(len(err)))
+            handler.end_headers()
+            handler.wfile.write(err)
+            return True
+
     # Fast local token counting
     if "count_tokens" in handler.path:
         est = max(1, len(raw_body) // 4)

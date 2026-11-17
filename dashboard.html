@@ -22,6 +22,20 @@
       </div>
     </header>
 
+    <!-- Console | Live Switch Tabs -->
+    <div class="main-tab-bar" role="tablist">
+      <button type="button" class="main-tab active" id="tab-btn-console" onclick="switchMainTab('console')">
+        <span>⚙ Console</span>
+      </button>
+      <button type="button" class="main-tab" id="tab-btn-live" onclick="switchMainTab('live')">
+        <span class="live-pulse-dot" id="live-tab-dot"></span>
+        <span>Live Monitor</span>
+        <span class="tab-issue-badge" id="tab-issue-badge" style="display:none;">0</span>
+      </button>
+    </div>
+
+    <!-- VIEW 1: CONSOLE -->
+    <div id="view-console">
     <!-- Stat Bar -->
     <div class="live-route-bar">
       <div class="live-meta">
@@ -85,6 +99,57 @@
         </div>
       </div>
     </div>
+    </div><!-- /#view-console -->
+
+    <!-- VIEW 2: LIVE MONITOR -->
+    <div id="view-live" style="display:none;">
+      <!-- Live Controls + Now Running Banner -->
+      <div class="panel live-now-panel" id="live-now-panel">
+        <div class="live-now-top">
+          <div class="live-now-status" id="live-now-status">
+            <span class="live-pulse-dot"></span>
+            <span>Connecting to live stream...</span>
+          </div>
+          <div class="live-toolbar">
+            <span class="live-clock" id="live-clock">--:--:--</span>
+            <button type="button" class="btn btn-xs" id="live-pause-btn" onclick="toggleLivePause()">⏸ Pause</button>
+            <button type="button" class="btn btn-xs btn-danger" onclick="clearLiveData('all')" title="Clear live stats, issues & feed">Clear</button>
+          </div>
+        </div>
+        <div id="live-inflight-box" class="live-inflight-box"></div>
+      </div>
+
+      <!-- Live Per-Server Usage Stats -->
+      <div class="panel">
+        <div class="panel-head">
+          <span>📊 LIVE SERVER USAGE</span>
+          <span style="font-size:10px; color:var(--text-muted); font-family:var(--mono);" id="live-servers-meta">0 servers</span>
+        </div>
+        <div id="live-servers-grid" class="live-servers-grid"></div>
+      </div>
+
+      <!-- Live Issues & Active Cooldowns -->
+      <div class="panel live-issues-panel">
+        <div class="panel-head">
+          <span style="color:var(--danger-text);">🚨 LIVE ISSUES &amp; REASONS</span>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <button type="button" class="btn btn-xs" id="live-clear-cd-btn" onclick="clearLiveData('cooldowns')" style="display:none;">Clear Cooldowns</button>
+            <button type="button" class="btn btn-xs" onclick="clearLiveData('issues')">Clear Issues</button>
+          </div>
+        </div>
+        <div id="live-cooldowns-box" class="live-cooldowns-box"></div>
+        <div id="live-issues-list" class="live-list-box"></div>
+      </div>
+
+      <!-- Live Request Feed (with 5-Stage Recovery & Winner) -->
+      <div class="panel">
+        <div class="panel-head">
+          <span>📡 LIVE REQUEST FEED (RECOVERY &amp; WINNER)</span>
+          <span style="font-size:10px; color:var(--text-muted); font-family:var(--mono);" id="live-feed-meta">0 requests</span>
+        </div>
+        <div id="live-feed-list" class="live-list-box"></div>
+      </div>
+    </div><!-- /#view-live -->
   </div>
 
   <!-- Server Modal (Add / Edit) -->
@@ -268,5 +333,6 @@
   <script src="/dashboard.drag-1.js"></script>
   <script src="/dashboard.modals-1.js"></script>
   <script src="/dashboard.servers-1.js"></script>
+  <script src="/dashboard.live-1.js"></script>
 </body>
 </html>

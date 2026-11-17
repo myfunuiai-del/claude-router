@@ -54,7 +54,12 @@ Avoids wasting time retrying dead or rate-limited keys on every single request:
   - Shows live status pills (`🟢 963ms`, `🔴 402`, `🔴 404`, etc.) next to every model before you add it.
   - Tap **`🟢 Only`** to filter the list down to working models only, **`Test All`** to test all visible/filtered models, or tap any individual model's status pill to test/re-test just that model.
 
-### 6. 📜 Live Proxy Logs & 💾 Backup / Restore
+### 6. 📡 `Console | Live Monitor` Switch Tab, Logs & Backup
+- **`Console | Live Monitor` Tabs:** Switch between settings (`Console`) and real-time observability (`Live Monitor`) in one tap:
+  - **⚡ Now Active (In-Flight):** Shows live requests currently being processed (server, model, key `#N`, stage, elapsed seconds).
+  - **📊 Live Server Usage:** Per-server `OK / Fail` counts, success rate bar, average latency (`ms`), recoveries, and last error.
+  - **🚨 Live Issues & Cooldowns:** Real-time error list with clear root-cause explanations (`401` invalid key, `402` paid model/no credit, `429` rate limit, `403` firewall block, `400/413` oversized history, timeouts), active cooldown countdowns, and 1-tap `Clear Cooldowns`.
+  - **📡 Live Request Feed:** Reverse-chronological stream showing **which stage of the 5-stage Recovery / Failover passed** and **which server, model & key passed it** (`✅ Passed by: ...`).
 - **`Logs` Button (Header):** Opens a live log viewer showing the latest 80 proxy log lines with **`Hide /status`** noise filter, **3-second Auto-Refresh**, and active **Cooldown count**.
 - **`Backup` Button (Header):**
   - **Export JSON:** Download a dated config backup (`claude-router-backup-YYYY-MM-DD.json`), with an optional **"Include API Keys"** checkbox.
@@ -168,6 +173,7 @@ export ANTHROPIC_API_KEY="auto"
 ├── dashboard.servers-1.js      # Server cards, ON/OFF toggle, Recovery toggle, key provisioning
 ├── dashboard.drag-1.js         # Touch & mouse drag-and-drop priority reordering
 ├── dashboard.modals-1.js       # Model discovery/tester, key tester, Logs modal, Backup/Restore, 10s Undo engine
+├── dashboard.live-1.js         # Console | Live tab switcher & real-time telemetry/issues/recovery feed UI
 ├── config.example.json         # Safe template config (tracked in Git)
 └── config.json                 # Local live config with your real API keys (ignored by Git)
 ```
@@ -177,6 +183,8 @@ export ANTHROPIC_API_KEY="auto"
 - `GET /status` — Active server, model, account, and last update timestamp
 - `GET /api/ui/config` — Current full router configuration
 - `GET /api/ui/logs?lines=80&hide_status=1` — Tail of `proxy_v2.log` + active key cooldowns
+- `GET /api/ui/live` — Live Monitor snapshot (in-flight requests, per-server stats, issues with root cause, request feed with recovery stage & winner, active cooldowns)
+- `POST /api/ui/live-action` — Clear active cooldowns or live telemetry (`clear_cooldowns`, `clear_issues`, `clear_all`)
 - `POST /api/ui/providers` / `DELETE /api/ui/providers` — Create, edit, or delete a provider
 - `POST /api/ui/provider-toggle` — Toggle a provider `ON` / `OFF` (`enabled: true | false`)
 - `POST /api/ui/route-pool` — Update Active Pipeline order & Standby pool

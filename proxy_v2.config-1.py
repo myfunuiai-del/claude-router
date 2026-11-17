@@ -94,6 +94,226 @@ def get_active_cooldowns():
             del _COOLDOWN_STORE.entries[k]
     return out
 
+def clear_all_cooldowns():
+    """Clear all active key cooldowns immediately."""
+    with _COOLDOWN_STORE.lock:
+        cnt = len(_COOLDOWN_STORE.entries)
+        _COOLDOWN_STORE.entries.clear()
+        return cnt
+
+# Process-wide shared Live Telemetry store across dynamically loaded modules
+if "_claude_router_live_store" not in sys.modules:
+    class _LiveStore:
+        def __init__(self):
+            self.lock = threading.Lock()
+            self.in_flight = {}     # req_id -> dict
+            self.server_stats = {}  # p_id -> stats dict
+            self.issues = []        # newest first, max 60
+            self.feed = []          # newest first, max 40
+            self.seq = 0
+    sys.modules["_claude_router_live_store"] = _LiveStore()
+
+_LIVE_STORE = sys.modules["_claude_router_live_store"]
+
+def classify_error_reason(code, detail=""):
+    """Translate HTTP/network errors into clear human-readable root causes."""
+    d_low = (detail or "").lower()
+    if code == 401:
+        return "Invalid / Revoked API Key (10m cooldown)"
+    if code == 402:
+        return "No Credits or Paid Model (5m model cooldown)"
+    if code == 429:
+        return "Rate Limit Exceeded (3m cooldown)"
+    if code == 403:
+        if "cloudflare" in d_low or "attention required" in d_low or "waf" in d_low or "<!doctype" in d_low:
+            return "Firewall / WAF Block"
+        return "Forbidden / Firewall Block"
+    if code == 400:
+        if "context" in d_low or "token" in d_low or "too long" in d_low:
+            return "Context / Token Limit Exceeded"
+        return "Bad Request / Payload or History Rejected"
+    if code == 404:
+        return "Model or Endpoint Not Found"
+    if code == 413:
+        return "Payload Too Large (Oversized History)"
+    if code in (500, 502, 503, 504):
+        return f"Upstream Server Error / Overloaded ({code})"
+    if "timed out" in d_low or "timeout" in d_low:
+        return "Request Timeout (No Response)"
+    if code == 0:
+        return "Network / Connection Error"
+    return f"HTTP Error {code}"
+
+def set_in_flight(req_id, p_id, p_name, model, key_label="", stage="Original", path="/v1/messages"):
+    with _LIVE_STORE.lock:
+        existing = _LIVE_STORE.in_flight.get(req_id)
+        started_at = existing["started_at"] if existing else time.time()
+        _LIVE_STORE.in_flight[req_id] = {
+            "id": req_id,
+            "provider": p_id,
+            "provider_name": p_name or p_id,
+            "model": model or "unknown",
+            "key_label": key_label,
+            "stage": stage,
+            "path": path,
+            "started_at": started_at
+        }
+
+def clear_in_flight(req_id):
+    with _LIVE_STORE.lock:
+        _LIVE_STORE.in_flight.pop(req_id, None)
+
+def record_live_issue(p_id, p_name, model, key_label, code, detail=""):
+    now = time.time()
+    reason = classify_error_reason(code, detail)
+    clean_detail = (detail or "").replace("\r", " ").replace("\n", " ").strip()[:180]
+    with _LIVE_STORE.lock:
+        _LIVE_STORE.seq += 1
+        st = _LIVE_STORE.server_stats.setdefault(p_id, {
+            "provider": p_id, "name": p_name or p_id,
+            "total": 0, "ok": 0, "err": 0, "recoveries": 0,
+            "last_model": "", "last_key": "", "last_status": "idle",
+            "last_error": "", "last_used_at": 0, "_ms_sum": 0, "_ms_cnt": 0
+        })
+        st["name"] = p_name or st["name"]
+        st["err"] += 1
+        st["total"] += 1
+        st["last_model"] = model or st["last_model"]
+        st["last_key"] = key_label or st["last_key"]
+        st["last_status"] = "err"
+        st["last_error"] = f"{code or 'ERR'}: {reason}"
+        st["last_used_at"] = now
+
+        _LIVE_STORE.issues.insert(0, {
+            "id": _LIVE_STORE.seq,
+            "ts": now,
+            "time": time.strftime("%H:%M:%S", time.localtime(now)),
+            "provider": p_id,
+            "provider_name": p_name or p_id,
+            "model": model or "unknown",
+            "key_label": key_label or "-",
+            "code": code,
+            "reason": reason,
+            "detail": clean_detail
+        })
+        if len(_LIVE_STORE.issues) > 60:
+            del _LIVE_STORE.issues[60:]
+
+def record_live_request(p_id, p_name, model, key_label, status, code, latency_ms, path="/v1/messages", recovery_stage=None, failover_from=None):
+    now = time.time()
+    failover_list = list(failover_from) if failover_from else []
+    with _LIVE_STORE.lock:
+        _LIVE_STORE.seq += 1
+        if p_id and p_id != "pipeline":
+            st = _LIVE_STORE.server_stats.setdefault(p_id, {
+                "provider": p_id, "name": p_name or p_id,
+                "total": 0, "ok": 0, "err": 0, "recoveries": 0,
+                "last_model": "", "last_key": "", "last_status": "idle",
+                "last_error": "", "last_used_at": 0, "_ms_sum": 0, "_ms_cnt": 0
+            })
+            st["name"] = p_name or st["name"]
+            if status == "ok":
+                st["ok"] += 1
+                st["total"] += 1
+                st["last_model"] = model or st["last_model"]
+                st["last_key"] = key_label or st["last_key"]
+                st["last_status"] = "ok"
+                st["last_error"] = ""
+                st["last_used_at"] = now
+                if recovery_stage:
+                    st["recoveries"] += 1
+                if latency_ms and latency_ms > 0:
+                    st["_ms_sum"] += latency_ms
+                    st["_ms_cnt"] += 1
+
+        passed_by = f"{p_name or p_id} • {model or 'unknown'} • {key_label or '-'}" if status == "ok" else "All servers failed"
+        _LIVE_STORE.feed.insert(0, {
+            "id": _LIVE_STORE.seq,
+            "ts": now,
+            "time": time.strftime("%H:%M:%S", time.localtime(now)),
+            "path": path,
+            "provider": p_id,
+            "provider_name": p_name or p_id,
+            "model": model or "unknown",
+            "key_label": key_label or "-",
+            "status": status,
+            "code": code,
+            "latency_ms": int(latency_ms or 0),
+            "recovery_stage": recovery_stage or "",
+            "failover_from": failover_list,
+            "passed_by": passed_by
+        })
+        if len(_LIVE_STORE.feed) > 40:
+            del _LIVE_STORE.feed[40:]
+
+def clear_live_telemetry(kind="all"):
+    with _LIVE_STORE.lock:
+        if kind in ("all", "issues"):
+            _LIVE_STORE.issues.clear()
+        if kind in ("all", "feed"):
+            _LIVE_STORE.feed.clear()
+        if kind == "all":
+            _LIVE_STORE.server_stats.clear()
+
+def get_live_snapshot():
+    now = time.time()
+    cfg = load_proxy_config()
+    all_providers = cfg.get("providers", {})
+    routed = cfg.get("routed_providers", [])
+    ordered_ids = [p for p in routed if p in all_providers] + [p for p in all_providers if p not in routed]
+
+    with _LIVE_STORE.lock:
+        in_flight_list = []
+        for item in _LIVE_STORE.in_flight.values():
+            c = dict(item)
+            c["elapsed_ms"] = int((now - item["started_at"]) * 1000)
+            in_flight_list.append(c)
+
+        servers_out = []
+        for pid in ordered_ids:
+            p_info = all_providers[pid]
+            st = _LIVE_STORE.server_stats.get(pid, {})
+            total = st.get("total", 0)
+            ok = st.get("ok", 0)
+            err = st.get("err", 0)
+            ms_cnt = st.get("_ms_cnt", 0)
+            avg_ms = int(st.get("_ms_sum", 0) / ms_cnt) if ms_cnt else 0
+            success_rate = int((ok / total) * 100) if total else None
+            last_ts = st.get("last_used_at", 0)
+            servers_out.append({
+                "id": pid,
+                "name": p_info.get("name", pid),
+                "enabled": p_info.get("enabled", True) is not False,
+                "in_pipeline": pid in routed,
+                "keys_count": len(p_info.get("keys", [])),
+                "total": total,
+                "ok": ok,
+                "err": err,
+                "recoveries": st.get("recoveries", 0),
+                "success_rate": success_rate,
+                "avg_ms": avg_ms,
+                "last_model": st.get("last_model") or p_info.get("default_model", ""),
+                "last_key": st.get("last_key", ""),
+                "last_status": st.get("last_status", "idle"),
+                "last_error": st.get("last_error", ""),
+                "last_used_str": time.strftime("%H:%M:%S", time.localtime(last_ts)) if last_ts else "—"
+            })
+
+        issues_copy = list(_LIVE_STORE.issues)
+        feed_copy = list(_LIVE_STORE.feed)
+
+    return {
+        "status": "ok",
+        "now_str": time.strftime("%H:%M:%S", time.localtime(now)),
+        "auto_recovery": cfg.get("auto_recovery", True) is not False,
+        "active_state": active_state,
+        "in_flight": in_flight_list,
+        "servers": servers_out,
+        "issues": issues_copy,
+        "feed": feed_copy,
+        "cooldowns": get_active_cooldowns()
+    }
+
 def load_proxy_config():
     """Load config from JSON file with safe fallbacks."""
     if os.path.exists(CONFIG_FILE):

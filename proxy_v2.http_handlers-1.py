@@ -41,7 +41,8 @@ def handle_GET(handler):
         "/dashboard.styles-1.css": ("dashboard.styles-1.css", "text/css; charset=utf-8"),
         "/dashboard.drag-1.js": ("dashboard.drag-1.js", "application/javascript; charset=utf-8"),
         "/dashboard.modals-1.js": ("dashboard.modals-1.js", "application/javascript; charset=utf-8"),
-        "/dashboard.servers-1.js": ("dashboard.servers-1.js", "application/javascript; charset=utf-8")
+        "/dashboard.servers-1.js": ("dashboard.servers-1.js", "application/javascript; charset=utf-8"),
+        "/dashboard.live-1.js": ("dashboard.live-1.js", "application/javascript; charset=utf-8")
     }
     if handler.path in static_files:
         filename, mime = static_files[handler.path]
@@ -92,6 +93,17 @@ def handle_GET(handler):
         handler.wfile.write(data)
         return
 
+    if req_clean_path == "/api/ui/live":
+        snap = get_live_snapshot()
+        payload = json.dumps(snap, ensure_ascii=False).encode('utf-8')
+        handler.send_response(200)
+        handler.send_header('Content-Type', 'application/json')
+        handler.send_header('Access-Control-Allow-Origin', '*')
+        handler.send_header('Content-Length', str(len(payload)))
+        handler.end_headers()
+        handler.wfile.write(payload)
+        return
+
     if req_clean_path == "/api/ui/logs":
         import urllib.parse
         qs = urllib.parse.parse_qs(urllib.parse.urlparse(handler.path).query)
@@ -109,7 +121,7 @@ def handle_GET(handler):
                 if hide_status:
                     all_lines = [
                         ln for ln in all_lines
-                        if "GET /status " not in ln and "GET /api/ui/logs" not in ln
+                        if "GET /status " not in ln and "GET /api/ui/logs" not in ln and "GET /api/ui/live" not in ln
                     ]
                 lines = all_lines[-limit:]
             except Exception as e:

@@ -92,6 +92,10 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
 
             key_candidates = _select_available_keys("coarena", coarena_keys, coarena_model, start_idx=current_coarena_idx, max_count=max_key_attempts)
             for idx, key in key_candidates:
+                req_id = getattr(handler, "_live_req_id", None)
+                stage_lbl = getattr(handler, "_live_stage", "Original")
+                if req_id:
+                    set_in_flight(req_id, "coarena", p_info.get("name", "Coarena"), coarena_model, f"Key #{idx+1}", stage_lbl, handler.path)
                 req_headers = {}
                 for h, v in handler.headers.items():
                     if h.lower() not in ['host', 'content-length', 'authorization', 'x-api-key', 'accept-encoding']:
@@ -111,8 +115,10 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                                 pass
                         current_coarena_idx = idx
                         clear_key_cooldown("coarena", key, coarena_model)
-                        save_active_state(p_info.get("name", "Coarena"), coarena_model, f"Coarena Account #{idx+1}")
-                        resp_data = append_signature_to_response(resp_data, p_info.get("name", "Coarena"), coarena_model)
+                        p_name = p_info.get("name", "Coarena")
+                        handler._winner_info = {"provider": "coarena", "provider_name": p_name, "model": coarena_model, "key_label": f"Key #{idx+1}"}
+                        save_active_state(p_name, coarena_model, f"Coarena Account #{idx+1}")
+                        resp_data = append_signature_to_response(resp_data, p_name, coarena_model)
                         handler.send_response(resp.status)
                         for k, val in resp.headers.items():
                             if k.lower() not in ['transfer-encoding', 'content-encoding', 'content-length', 'connection']:
@@ -129,9 +135,11 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                         err_body = e.read().decode('utf-8', errors='ignore')
                     except Exception:
                         pass
+                    record_live_issue("coarena", p_info.get("name", "Coarena"), coarena_model, f"Key #{idx+1}", e.code, err_body[:200])
                     sys.stderr.write(f"[Proxy] Coarena key #{idx+1} HTTP error {e.code}: {err_body[:300]}. URL: {upstream_url}. Model: {coarena_model}. Trying next key...\n")
                     continue
                 except Exception as e:
+                    record_live_issue("coarena", p_info.get("name", "Coarena"), coarena_model, f"Key #{idx+1}", 0, str(e))
                     sys.stderr.write(f"[Proxy] Coarena key #{idx+1} network error: {e}. Trying next...\n")
                     continue
         return False
@@ -144,6 +152,10 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
 
         ar_candidates = _select_available_keys("agentrouter", ar_keys, ar_model, max_count=(2 if is_recovery else None))
         for attempt, key in ar_candidates:
+            req_id = getattr(handler, "_live_req_id", None)
+            stage_lbl = getattr(handler, "_live_stage", "Original")
+            if req_id:
+                set_in_flight(req_id, "agentrouter", p_info.get("name", "AgentRouter"), ar_model, f"Key #{attempt+1}", stage_lbl, handler.path)
             if body_obj is not None:
                 b_copy = dict(body_obj)
                 b_copy['model'] = ar_model
@@ -166,8 +178,10 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                 with urllib.request.urlopen(req, timeout=30) as resp:
                     resp_data = resp.read()
                     clear_key_cooldown("agentrouter", key, ar_model)
-                    save_active_state(p_info.get("name", "AgentRouter"), ar_model, f"AgentRouter Key #{attempt+1}")
-                    resp_data = append_signature_to_response(resp_data, p_info.get("name", "AgentRouter"), ar_model)
+                    p_name = p_info.get("name", "AgentRouter")
+                    handler._winner_info = {"provider": "agentrouter", "provider_name": p_name, "model": ar_model, "key_label": f"Key #{attempt+1}"}
+                    save_active_state(p_name, ar_model, f"AgentRouter Key #{attempt+1}")
+                    resp_data = append_signature_to_response(resp_data, p_name, ar_model)
                     handler.send_response(resp.status)
                     for k, val in resp.headers.items():
                         if k.lower() not in ['transfer-encoding', 'content-encoding', 'content-length', 'connection']:
@@ -179,9 +193,16 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
             except urllib.error.HTTPError as e:
                 handler._last_http_error = e.code
                 mark_key_cooldown("agentrouter", key, e.code, ar_model)
+                err_txt = ""
+                try:
+                    err_txt = e.read().decode('utf-8', errors='ignore')[:200]
+                except Exception:
+                    pass
+                record_live_issue("agentrouter", p_info.get("name", "AgentRouter"), ar_model, f"Key #{attempt+1}", e.code, err_txt)
                 sys.stderr.write(f"[Proxy] AgentRouter attempt #{attempt+1} HTTP error {e.code}\n")
                 continue
             except Exception as e:
+                record_live_issue("agentrouter", p_info.get("name", "AgentRouter"), ar_model, f"Key #{attempt+1}", 0, str(e))
                 sys.stderr.write(f"[Proxy] AgentRouter attempt #{attempt+1} error: {e}\n")
                 continue
         return False
@@ -226,6 +247,10 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
 
             p_candidates = _select_available_keys(p_id, p_keys, target_model, max_count=(2 if is_recovery else None))
             for attempt, key in p_candidates:
+                req_id = getattr(handler, "_live_req_id", None)
+                stage_lbl = getattr(handler, "_live_stage", "Original")
+                if req_id:
+                    set_in_flight(req_id, p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", stage_lbl, handler.path)
                 fwd_headers = {
                     'Authorization': f"Bearer {key}",
                     'x-api-key': key,
@@ -243,8 +268,10 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                     with urllib.request.urlopen(req, timeout=30) as resp:
                         resp_data = resp.read()
                         clear_key_cooldown(p_id, key, target_model)
-                        save_active_state(p_info.get("name", p_id), target_model, f"Key #{attempt+1}")
-                        resp_data = append_signature_to_response(resp_data, p_info.get("name", p_id), target_model)
+                        p_name = p_info.get("name", p_id)
+                        handler._winner_info = {"provider": p_id, "provider_name": p_name, "model": target_model, "key_label": f"Key #{attempt+1}"}
+                        save_active_state(p_name, target_model, f"Key #{attempt+1}")
+                        resp_data = append_signature_to_response(resp_data, p_name, target_model)
                         handler.send_response(resp.status)
                         for k, val in resp.headers.items():
                             if k.lower() not in ['transfer-encoding', 'content-encoding', 'content-length', 'connection']:
@@ -256,9 +283,16 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                 except urllib.error.HTTPError as e:
                     handler._last_http_error = e.code
                     mark_key_cooldown(p_id, key, e.code, target_model)
+                    err_txt = ""
+                    try:
+                        err_txt = e.read().decode('utf-8', errors='ignore')[:200]
+                    except Exception:
+                        pass
+                    record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", e.code, err_txt)
                     sys.stderr.write(f"[Proxy] {p_id} key #{attempt+1} HTTP error {e.code}. Trying next key...\n")
                     continue
                 except Exception as e:
+                    record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", 0, str(e))
                     sys.stderr.write(f"[Proxy] {p_id} key #{attempt+1} error: {e}\n")
                     continue
             return False
@@ -271,6 +305,10 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
 
             p_candidates = _select_available_keys(p_id, p_keys, target_model, max_count=(2 if is_recovery else None))
             for attempt, key in p_candidates:
+                req_id = getattr(handler, "_live_req_id", None)
+                stage_lbl = getattr(handler, "_live_stage", "Original")
+                if req_id:
+                    set_in_flight(req_id, p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", stage_lbl, handler.path)
                 fwd_headers = {
                     'Authorization': f"Bearer {key}",
                     'Content-Type': 'application/json',
@@ -282,10 +320,12 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                     with urllib.request.urlopen(req, timeout=30) as resp:
                         resp_data = resp.read()
                         clear_key_cooldown(p_id, key, target_model)
-                        save_active_state(p_info.get("name", p_id), target_model, f"Key #{attempt+1}")
+                        p_name = p_info.get("name", p_id)
+                        handler._winner_info = {"provider": p_id, "provider_name": p_name, "model": target_model, "key_label": f"Key #{attempt+1}"}
+                        save_active_state(p_name, target_model, f"Key #{attempt+1}")
                         text = resp_data.decode('utf-8', errors='ignore')
                         if is_stream or "data:" in text:
-                            anth_resp = convert_openai_stream_to_anthropic(text, p_info.get("name", p_id), target_model)
+                            anth_resp = convert_openai_stream_to_anthropic(text, p_name, target_model)
                             handler.send_response(200)
                             handler.send_header('Content-Type', 'text/event-stream; charset=utf-8')
                             handler.send_header('Content-Length', str(len(anth_resp)))
@@ -295,7 +335,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                         else:
                             try:
                                 o_json = json.loads(text)
-                                anth_resp = convert_openai_json_to_anthropic(o_json, p_info.get("name", p_id), target_model)
+                                anth_resp = convert_openai_json_to_anthropic(o_json, p_name, target_model)
                                 handler.send_response(200)
                                 handler.send_header('Content-Type', 'application/json')
                                 handler.send_header('Content-Length', str(len(anth_resp)))
@@ -312,9 +352,16 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                 except urllib.error.HTTPError as e:
                     handler._last_http_error = e.code
                     mark_key_cooldown(p_id, key, e.code, target_model)
+                    err_txt = ""
+                    try:
+                        err_txt = e.read().decode('utf-8', errors='ignore')[:200]
+                    except Exception:
+                        pass
+                    record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", e.code, err_txt)
                     sys.stderr.write(f"[Proxy] {p_id} key #{attempt+1} HTTP error {e.code}. Trying next key...\n")
                     continue
                 except Exception as e:
+                    record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", 0, str(e))
                     sys.stderr.write(f"[Proxy] {p_id} key #{attempt+1} error: {e}\n")
                     continue
             return False
@@ -325,6 +372,17 @@ def route_to_agentrouter(handler, raw_body, body_obj):
     """Helper to seamlessly route to AgentRouter gpt-5.6-sol"""
     return try_forward_provider(handler, "agentrouter", raw_body, body_obj, "gpt-5.6-sol")
 
+def _friendly_stage_label(stage_name):
+    if stage_name == "shrink_old_tools_keep_last":
+        return "Stage 1: Old Tools Shrunk"
+    if stage_name.startswith("recent_"):
+        return f"Stage 2: Recent Msgs ({stage_name.replace('recent_', '').replace('_msgs', '')})"
+    if stage_name == "last_message_only":
+        return "Stage 3: Last Msg Only"
+    if stage_name == "shrink_all_large_blocks":
+        return "Stage 4: All Large Blocks Shrunk"
+    return stage_name
+
 def try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_model):
     """Try forwarding original request to p_id. On 400/403/413 with trimmable history,
     escalate safely on the same provider without mutating original body_obj:
@@ -334,6 +392,7 @@ def try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_mo
       4) Full history + last message with all large tool outputs & text blocks shrunk
     Stage 5: If all fail, return False so caller routes untouched original request to next server.
     """
+    handler._live_stage = "Original"
     if try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recovery=False):
         return True
 
@@ -346,14 +405,18 @@ def try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_mo
         variants = build_history_recovery_variants(body_obj)
         total = len(variants)
         for idx, (stage_name, v_body_obj) in enumerate(variants, start=1):
+            pretty = _friendly_stage_label(stage_name)
+            handler._live_stage = pretty
             sys.stderr.write(f"[Proxy Recovery {idx}/{total}] '{p_id}' hit HTTP {last_err}. Retrying with '{stage_name}'...\n")
             v_raw = json.dumps(v_body_obj, ensure_ascii=False).encode('utf-8')
             if try_forward_provider(handler, p_id, v_raw, v_body_obj, orig_model, is_recovery=True):
+                handler._recovery_stage = pretty
                 sys.stderr.write(f"[Proxy Recovery {idx}/{total}] '{p_id}' SUCCEEDED via '{stage_name}'!\n")
                 return True
         if total > 0:
             sys.stderr.write(f"[Proxy Recovery] All {total} trimmed retries failed on '{p_id}'. Passing full original request to next server...\n")
 
+    handler._live_stage = "Original"
     return False
 
 def dispatch_inference(handler, raw_body):
@@ -367,66 +430,105 @@ def dispatch_inference(handler, raw_body):
     except Exception:
         pass
 
-    # 1. DEDICATED DIRECT ROUTE: Matches any provider endpoint (/{p_id} or /{p_id}/*)
+    req_id = f"req_{int(time.time() * 1000)}_{threading.get_ident()}"
+    t_start = time.time()
+    handler._live_req_id = req_id
+    handler._winner_info = None
+    handler._recovery_stage = None
+    handler._live_stage = "Original"
+    failed_providers = []
+
     cfg = load_proxy_config()
     all_providers = cfg.get("providers", {})
     attempted_providers = set()
-    target_dedicated_provider = None
-    for p_id in all_providers:
-        prefix = f"/{p_id}"
-        if handler.path == prefix or handler.path.startswith(f"{prefix}/") or handler.path.startswith(f"{prefix}?"):
-            target_dedicated_provider = p_id
-            break
 
-    if target_dedicated_provider:
-        attempted_providers.add(target_dedicated_provider)
-        sys.stderr.write(f"[Proxy Direct Route] Request targeted specifically to '{target_dedicated_provider}' (Path: {handler.path})\n")
-        if try_forward_with_history_recovery(handler, target_dedicated_provider, raw_body, body_obj, orig_model):
-            return
-        sys.stderr.write(f"[Proxy Direct Route] Dedicated provider '{target_dedicated_provider}' failed. Cascading to active pipeline...\n")
+    def _finish_success():
+        w = getattr(handler, "_winner_info", None) or {"provider": "unknown", "provider_name": "Unknown", "model": orig_model, "key_label": "-"}
+        rec = getattr(handler, "_recovery_stage", None)
+        if failed_providers and rec:
+            rec_str = f"Stage 5 Failover (after {', '.join(failed_providers)}) + {rec}"
+        elif failed_providers:
+            rec_str = f"Stage 5: Failover (after {', '.join(failed_providers)})"
+        else:
+            rec_str = rec or ""
+        record_live_request(
+            w["provider"], w["provider_name"], w["model"], w["key_label"],
+            status="ok", code=200, latency_ms=int((time.time() - t_start) * 1000),
+            path=handler.path, recovery_stage=rec_str, failover_from=failed_providers
+        )
 
-    routed_providers = cfg.get("routed_providers", [])
-    if not routed_providers:
-        routed_providers = ["coarena"]
+    try:
+        # 1. DEDICATED DIRECT ROUTE: Matches any provider endpoint (/{p_id} or /{p_id}/*)
+        target_dedicated_provider = None
+        for p_id in all_providers:
+            prefix = f"/{p_id}"
+            if handler.path == prefix or handler.path.startswith(f"{prefix}/") or handler.path.startswith(f"{prefix}?"):
+                target_dedicated_provider = p_id
+                break
 
-    # 1.5 SMART MODEL-TO-PROVIDER ROUTE: Only route if provider is active (in routed_providers) and enabled (ON)
-    if orig_model and orig_model != "unknown":
-        clean_model = orig_model.split("/")[-1] if "/" in orig_model else orig_model
-        for p_id in routed_providers:
+        if target_dedicated_provider:
+            attempted_providers.add(target_dedicated_provider)
+            sys.stderr.write(f"[Proxy Direct Route] Request targeted specifically to '{target_dedicated_provider}' (Path: {handler.path})\n")
+            if try_forward_with_history_recovery(handler, target_dedicated_provider, raw_body, body_obj, orig_model):
+                _finish_success()
+                return
+            failed_providers.append(all_providers.get(target_dedicated_provider, {}).get("name", target_dedicated_provider))
+            sys.stderr.write(f"[Proxy Direct Route] Dedicated provider '{target_dedicated_provider}' failed. Cascading to active pipeline...\n")
+
+        routed_providers = cfg.get("routed_providers", [])
+        if not routed_providers:
+            routed_providers = ["coarena"]
+
+        # 1.5 SMART MODEL-TO-PROVIDER ROUTE: Only route if provider is active (in routed_providers) and enabled (ON)
+        if orig_model and orig_model != "unknown":
+            clean_model = orig_model.split("/")[-1] if "/" in orig_model else orig_model
+            for p_id in routed_providers:
+                if p_id in attempted_providers:
+                    continue
+                p_info = all_providers.get(p_id, {})
+                if p_info.get("enabled", True) is False:
+                    continue
+                p_models = p_info.get("models", [])
+                if orig_model in p_models or any(clean_model == m.split("/")[-1] for m in p_models):
+                    attempted_providers.add(p_id)
+                    sys.stderr.write(f"[Proxy Model Route] Model '{orig_model}' matched active provider '{p_id}'. Routing directly...\n")
+                    if try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_model):
+                        _finish_success()
+                        return
+                    failed_providers.append(p_info.get("name", p_id))
+                    sys.stderr.write(f"[Proxy Model Route] Provider '{p_id}' failed for model '{orig_model}'. Falling back to pipeline...\n")
+                    break
+
+        # 2. Dynamic Priority Pipeline (routed_providers) — skips disabled (OFF) or already-tried providers
+        success = False
+        for prio_idx, p_id in enumerate(routed_providers):
             if p_id in attempted_providers:
                 continue
             p_info = all_providers.get(p_id, {})
             if p_info.get("enabled", True) is False:
+                sys.stderr.write(f"[Proxy Pipeline] [Priority #{prio_idx+1}] '{p_id}' is OFF. Skipping...\n")
                 continue
-            p_models = p_info.get("models", [])
-            if orig_model in p_models or any(clean_model == m.split("/")[-1] for m in p_models):
-                attempted_providers.add(p_id)
-                sys.stderr.write(f"[Proxy Model Route] Model '{orig_model}' matched active provider '{p_id}'. Routing directly...\n")
-                if try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_model):
-                    return
-                sys.stderr.write(f"[Proxy Model Route] Provider '{p_id}' failed for model '{orig_model}'. Falling back to pipeline...\n")
+            attempted_providers.add(p_id)
+            sys.stderr.write(f"[Proxy Pipeline] [Priority #{prio_idx+1}] Routing to '{p_id}'...\n")
+            if try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_model):
+                success = True
+                _finish_success()
                 break
+            failed_providers.append(p_info.get("name", p_id))
+            sys.stderr.write(f"[Proxy Pipeline] [Priority #{prio_idx+1}] '{p_id}' failed. Cascading to next...\n")
 
-    # 2. Dynamic Priority Pipeline (routed_providers) — skips disabled (OFF) or already-tried providers
-    success = False
-    for prio_idx, p_id in enumerate(routed_providers):
-        if p_id in attempted_providers:
-            continue
-        p_info = all_providers.get(p_id, {})
-        if p_info.get("enabled", True) is False:
-            sys.stderr.write(f"[Proxy Pipeline] [Priority #{prio_idx+1}] '{p_id}' is OFF. Skipping...\n")
-            continue
-        attempted_providers.add(p_id)
-        sys.stderr.write(f"[Proxy Pipeline] [Priority #{prio_idx+1}] Routing to '{p_id}'...\n")
-        if try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_model):
-            success = True
-            break
-        sys.stderr.write(f"[Proxy Pipeline] [Priority #{prio_idx+1}] '{p_id}' failed. Cascading to next...\n")
-
-    if not success:
-        handler.send_response(502)
-        handler.send_header('Content-Type', 'application/json')
-        msg = json.dumps({"error": {"message": "All enabled servers in the active routed pipeline failed or are turned OFF."}}).encode()
-        handler.send_header('Content-Length', str(len(msg)))
-        handler.end_headers()
-        handler.wfile.write(msg)
+        if not success:
+            record_live_issue("pipeline", "Pipeline", orig_model, "-", 502, "All enabled servers failed or are turned OFF")
+            record_live_request(
+                "pipeline", "Pipeline", orig_model, "-", status="err", code=502,
+                latency_ms=int((time.time() - t_start) * 1000), path=handler.path,
+                recovery_stage="", failover_from=failed_providers
+            )
+            handler.send_response(502)
+            handler.send_header('Content-Type', 'application/json')
+            msg = json.dumps({"error": {"message": "All enabled servers in the active routed pipeline failed or are turned OFF."}}).encode()
+            handler.send_header('Content-Length', str(len(msg)))
+            handler.end_headers()
+            handler.wfile.write(msg)
+    finally:
+        clear_in_flight(req_id)
