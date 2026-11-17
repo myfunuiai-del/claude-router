@@ -15,7 +15,7 @@
         <span>GATEWAY CONSOLE</span>
         <span class="route-pill">MULTI-POOL ROUTING</span>
       </div>
-      <div style="display:flex; gap:5px; align-items:center; flex-wrap:wrap;">
+      <div class="top-header-actions">
         <button class="btn btn-xs" onclick="openLogsModal()" title="View live proxy logs & cooldowns">Logs</button>
         <button class="btn btn-xs" onclick="openBackupModal()" title="Export or restore config JSON">Backup</button>
         <button class="btn btn-xs btn-primary" onclick="openServerModal()">+ New Server</button>
@@ -29,13 +29,15 @@
         <div class="meta-item"><span style="color:var(--text-muted)">Model:</span> <span class="meta-val" id="active-model">gemini-4-carbon</span></div>
         <div class="meta-item"><span style="color:var(--text-muted)">Account:</span> <span style="font-family:var(--mono);" id="active-account">#1</span></div>
       </div>
-      <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+      <div class="live-route-actions">
         <button type="button" class="power-toggle is-on" id="recovery-toggle-btn" title="5-stage Auto History Recovery on 400/403/413" onclick="toggleAutoRecovery()">
           <span class="power-dot"></span>
           <span class="power-label">Recovery: ON</span>
         </button>
-        <span style="font-size:10px; color:var(--text-muted);" id="active-updated">&bull;</span>
-        <button class="btn btn-xs" onclick="fetchStatus()">Sync</button>
+        <div class="live-sync-group">
+          <span style="font-size:10px; color:var(--text-muted); font-family:var(--mono);" id="active-updated">&bull;</span>
+          <button class="btn btn-xs" onclick="fetchStatus()">Sync</button>
+        </div>
       </div>
     </div>
 
