@@ -24,6 +24,89 @@ def clean_history_tags(body_obj):
                             part['text'] = TAG_REGEX.sub('', part['text']).strip()
     return body_obj
 
+_STANDARD_ANTHROPIC_BLOCKS = {
+    "text", "image", "document", "tool_use", "tool_result", "thinking", "redacted_thinking"
+}
+
+def _sanitize_content_list(blocks):
+    """Convert unsupported beta blocks (e.g. tool_reference) into plain text blocks recursively."""
+    if not isinstance(blocks, list):
+        return blocks
+    out = []
+    for blk in blocks:
+        if not isinstance(blk, dict):
+            out.append(blk)
+            continue
+        btype = blk.get("type")
+        if btype == "tool_reference":
+            tname = blk.get("tool_name") or blk.get("name") or "tool"
+            out.append({"type": "text", "text": f"[tool_reference: {tname}]"})
+        elif btype == "tool_result":
+            new_blk = dict(blk)
+            if isinstance(new_blk.get("content"), list):
+                new_blk["content"] = _sanitize_content_list(new_blk["content"])
+            out.append(new_blk)
+        elif btype == "tool_use":
+            new_blk = dict(blk)
+            new_blk.pop("caller", None)
+            out.append(new_blk)
+        elif btype and btype not in _STANDARD_ANTHROPIC_BLOCKS:
+            label = blk.get("tool_name") or blk.get("name") or btype
+            snippet = blk.get("text") or blk.get("content")
+            if isinstance(snippet, str) and snippet.strip():
+                txt = f"[{label}]: {snippet[:800]}"
+            else:
+                txt = f"[{btype}: {label}]"
+            out.append({"type": "text", "text": txt})
+        else:
+            out.append(blk)
+    return out
+
+def _enforce_cache_control_limit(body_obj, max_breakpoints=4):
+    """Anthropic-compatible APIs reject >4 cache_control breakpoints. Keep the 4 most recent ones."""
+    holders = []
+    # Collect in priority order (oldest first so we keep the newest 4)
+    tools = body_obj.get("tools")
+    if isinstance(tools, list):
+        for t in tools:
+            if isinstance(t, dict) and "cache_control" in t:
+                holders.append(t)
+    sys_p = body_obj.get("system")
+    if isinstance(sys_p, list):
+        for s in sys_p:
+            if isinstance(s, dict) and "cache_control" in s:
+                holders.append(s)
+    msgs = body_obj.get("messages")
+    if isinstance(msgs, list):
+        for m in msgs:
+            if not isinstance(m, dict):
+                continue
+            c = m.get("content")
+            if isinstance(c, list):
+                for blk in c:
+                    if isinstance(blk, dict):
+                        if "cache_control" in blk:
+                            holders.append(blk)
+                        if blk.get("type") == "tool_result" and isinstance(blk.get("content"), list):
+                            for sub in blk["content"]:
+                                if isinstance(sub, dict) and "cache_control" in sub:
+                                    holders.append(sub)
+    if len(holders) > max_breakpoints:
+        for old_holder in holders[:-max_breakpoints]:
+            old_holder.pop("cache_control", None)
+
+def sanitize_anthropic_body(body_obj):
+    """Sanitize unsupported beta content blocks (like tool_reference) and cap cache_control at 4."""
+    if not isinstance(body_obj, dict):
+        return body_obj
+    msgs = body_obj.get("messages")
+    if isinstance(msgs, list):
+        for m in msgs:
+            if isinstance(m, dict) and isinstance(m.get("content"), list):
+                m["content"] = _sanitize_content_list(m["content"])
+    _enforce_cache_control_limit(body_obj, max_breakpoints=4)
+    return body_obj
+
 def append_signature_to_response(resp_data, server, model):
     """Append [Server - Model] signature to standard JSON or SSE stream response."""
     sig = f"\n\n[{server} - {model}]"
@@ -180,10 +263,48 @@ def anthropic_to_openai_body(body_obj, default_model="openai/gpt-oss-120b"):
         role = m.get("role", "user")
         c = m.get("content", "")
         if isinstance(c, str):
-            conv_msgs.append({"role": role, "content": c})
+            txt = c.strip()
         elif isinstance(c, list):
-            txt = "".join([p.get("text", "") for p in c if isinstance(p, dict) and p.get("type") == "text"])
+            parts = []
+            for p in c:
+                if not isinstance(p, dict):
+                    continue
+                ptype = p.get("type")
+                if ptype == "text" and isinstance(p.get("text"), str):
+                    parts.append(p["text"])
+                elif ptype == "tool_use":
+                    tname = p.get("name", "tool")
+                    try:
+                        tinp = json.dumps(p.get("input", {}), ensure_ascii=False)[:400]
+                    except Exception:
+                        tinp = ""
+                    parts.append(f"[Tool Call: {tname}({tinp})]")
+                elif ptype == "tool_result":
+                    tc = p.get("content", "")
+                    if isinstance(tc, str):
+                        t_txt = tc[:1200]
+                    elif isinstance(tc, list):
+                        sub_parts = []
+                        for sub in tc:
+                            if isinstance(sub, dict):
+                                if sub.get("type") == "text" and isinstance(sub.get("text"), str):
+                                    sub_parts.append(sub["text"])
+                                elif sub.get("type") == "tool_reference":
+                                    sub_parts.append(f"[tool_reference: {sub.get('tool_name') or sub.get('name') or 'tool'}]")
+                        t_txt = "\n".join(sub_parts)[:1200]
+                    else:
+                        t_txt = ""
+                    if t_txt:
+                        parts.append(f"[Tool Result: {t_txt}]")
+                elif ptype == "tool_reference":
+                    parts.append(f"[tool_reference: {p.get('tool_name') or p.get('name') or 'tool'}]")
+            txt = "\n".join(x for x in parts if x).strip()
+        else:
+            txt = ""
+        if txt:
             conv_msgs.append({"role": role, "content": txt})
+    if not conv_msgs:
+        conv_msgs = [{"role": "user", "content": "Continue"}]
 
     # Groq free tier has a strict 7,000 ITPM (~18,000 chars) limit. Keep last 2-4 messages and under 6,000 chars.
     if len(conv_msgs) > 2:

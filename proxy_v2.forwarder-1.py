@@ -129,14 +129,20 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                         return True
                 except urllib.error.HTTPError as e:
                     handler._last_http_error = e.code
-                    mark_key_cooldown("coarena", key, e.code, coarena_model)
                     err_body = ""
                     try:
                         err_body = e.read().decode('utf-8', errors='ignore')
                     except Exception:
                         pass
+                    mark_key_cooldown("coarena", key, e.code, coarena_model, err_body)
                     record_live_issue("coarena", p_info.get("name", "Coarena"), coarena_model, f"Key #{idx+1}", e.code, err_body[:200])
-                    sys.stderr.write(f"[Proxy] Coarena key #{idx+1} HTTP error {e.code}: {err_body[:300]}. URL: {upstream_url}. Model: {coarena_model}. Trying next key...\n")
+                    sys.stderr.write(f"[Proxy] Coarena key #{idx+1} HTTP error {e.code}: {err_body[:300]}. URL: {upstream_url}. Model: {coarena_model}.\n")
+                    if e.code in (400, 413):
+                        err_low = err_body.lower()
+                        is_model_err = ("model" in err_low) and ("not found" in err_low or "unknown model" in err_low or "invalid model" in err_low)
+                        if is_model_err:
+                            break  # Try next candidate model, don't waste remaining keys
+                        return False  # Payload error: jump straight to Recovery instead of looping 10 keys
                     continue
                 except Exception as e:
                     record_live_issue("coarena", p_info.get("name", "Coarena"), coarena_model, f"Key #{idx+1}", 0, str(e))
@@ -192,14 +198,16 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                     return True
             except urllib.error.HTTPError as e:
                 handler._last_http_error = e.code
-                mark_key_cooldown("agentrouter", key, e.code, ar_model)
                 err_txt = ""
                 try:
                     err_txt = e.read().decode('utf-8', errors='ignore')[:200]
                 except Exception:
                     pass
+                mark_key_cooldown("agentrouter", key, e.code, ar_model, err_txt)
                 record_live_issue("agentrouter", p_info.get("name", "AgentRouter"), ar_model, f"Key #{attempt+1}", e.code, err_txt)
                 sys.stderr.write(f"[Proxy] AgentRouter attempt #{attempt+1} HTTP error {e.code}\n")
+                if e.code in (400, 413):
+                    return False
                 continue
             except Exception as e:
                 record_live_issue("agentrouter", p_info.get("name", "AgentRouter"), ar_model, f"Key #{attempt+1}", 0, str(e))
@@ -282,14 +290,16 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                         return True
                 except urllib.error.HTTPError as e:
                     handler._last_http_error = e.code
-                    mark_key_cooldown(p_id, key, e.code, target_model)
                     err_txt = ""
                     try:
                         err_txt = e.read().decode('utf-8', errors='ignore')[:200]
                     except Exception:
                         pass
+                    mark_key_cooldown(p_id, key, e.code, target_model, err_txt)
                     record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", e.code, err_txt)
                     sys.stderr.write(f"[Proxy] {p_id} key #{attempt+1} HTTP error {e.code}. Trying next key...\n")
+                    if e.code in (400, 413):
+                        return False
                     continue
                 except Exception as e:
                     record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", 0, str(e))
@@ -351,14 +361,16 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                         return True
                 except urllib.error.HTTPError as e:
                     handler._last_http_error = e.code
-                    mark_key_cooldown(p_id, key, e.code, target_model)
                     err_txt = ""
                     try:
                         err_txt = e.read().decode('utf-8', errors='ignore')[:200]
                     except Exception:
                         pass
+                    mark_key_cooldown(p_id, key, e.code, target_model, err_txt)
                     record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", e.code, err_txt)
                     sys.stderr.write(f"[Proxy] {p_id} key #{attempt+1} HTTP error {e.code}. Trying next key...\n")
+                    if e.code in (400, 413):
+                        return False
                     continue
                 except Exception as e:
                     record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", 0, str(e))
@@ -427,6 +439,7 @@ def dispatch_inference(handler, raw_body):
         body_obj = json.loads(raw_body.decode('utf-8'))
         orig_model = body_obj.get('model', 'unknown')
         body_obj = clean_history_tags(body_obj)
+        body_obj = sanitize_anthropic_body(body_obj)
     except Exception:
         pass
 

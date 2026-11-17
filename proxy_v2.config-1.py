@@ -38,14 +38,19 @@ def _key_sig(key):
         return ""
     return f"{key[:6]}..{key[-4:]}" if len(key) > 12 else key
 
-def mark_key_cooldown(p_id, key, code, model=None):
+def _is_daily_quota_429(detail=""):
+    d = (detail or "").lower()
+    return any(tok in d for tok in ("insufficient_quota", "used up", "daily", "resets at"))
+
+def mark_key_cooldown(p_id, key, code, model=None, detail=""):
     """Put a key (or key+model for 402) into temporary cooldown:
-    401 -> 10m (600s) for all models; 429 -> 3m (180s) for all models; 402 -> 5m (300s) for specific model.
+    401 -> 10m (600s); 429 daily quota -> 30m (1800s); 429 rate limit -> 3m (180s); 402 -> 5m (300s) per model.
     """
     if code == 401:
         dur, scope = 600, "*"
     elif code == 429:
-        dur, scope = 180, "*"
+        dur = 1800 if _is_daily_quota_429(detail) else 180
+        scope = "*"
     elif code == 402:
         dur, scope = 300, (model or "*")
     else:
@@ -123,6 +128,8 @@ def classify_error_reason(code, detail=""):
     if code == 402:
         return "No Credits or Paid Model (5m model cooldown)"
     if code == 429:
+        if _is_daily_quota_429(detail):
+            return "Daily Free Quota Exhausted (30m cooldown)"
         return "Rate Limit Exceeded (3m cooldown)"
     if code == 403:
         if "cloudflare" in d_low or "attention required" in d_low or "waf" in d_low or "<!doctype" in d_low:
