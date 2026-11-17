@@ -8,6 +8,8 @@ let touchReleaseTimer = null;
 let lastRenderedSeq = -1;
 let lastInFlightSig = '';
 let lastCooldownSig = '';
+let lastTopFeedId = 0;
+let lastTopIssueId = 0;
 
 function _escHtml(str) {
   return String(str ?? '')
@@ -49,7 +51,7 @@ function scheduleNextLivePoll() {
     if (_shouldPollLive()) {
       fetchLiveSnapshot();
     }
-  }, 2500);
+  }, 1500);
 }
 
 function startLivePolling() {
@@ -152,7 +154,7 @@ function renderLiveSnapshot(data, forceRender = false) {
 
   // Clock
   const clockEl = document.getElementById('live-clock');
-  if (clockEl) clockEl.textContent = data.now_str || '--:--:--';
+  if (clockEl) clockEl.textContent = `LIVE ${data.now_str || '--:--:--'}`;
 
   // 1. Now Running / In-Flight (only update DOM when changed)
   const inFlightSig = JSON.stringify(inFlight.map(i => [i.id, i.provider, i.model, i.key_label, i.stage, Math.floor((i.elapsed_ms || 0) / 1000)]))
@@ -237,13 +239,17 @@ function renderLiveSnapshot(data, forceRender = false) {
     }
   }
 
+  const prevTopIssueId = lastTopIssueId;
   const issuesEl = document.getElementById('live-issues-list');
   if (issuesEl) {
     if (!issues.length) {
       issuesEl.innerHTML = '<div class="live-empty">🟢 No issues recorded — all requests clean</div>';
+      lastTopIssueId = 0;
     } else {
-      issuesEl.innerHTML = issues.map(it => `
-        <div class="live-row is-issue">
+      issuesEl.innerHTML = issues.map(it => {
+        const isNew = prevTopIssueId > 0 && it.id > prevTopIssueId;
+        return `
+        <div class="live-row is-issue${isNew ? ' is-new' : ''}">
           <div class="live-row-top">
             <span>
               <span class="live-code-badge err">${it.code ? `HTTP ${it.code}` : 'NET ERR'}</span>
@@ -255,21 +261,26 @@ function renderLiveSnapshot(data, forceRender = false) {
           <div class="live-row-reason">কারণ: ${_escHtml(it.reason)}</div>
           ${it.detail ? `<div class="live-row-detail">${_escHtml(it.detail)}</div>` : ''}
         </div>
-      `).join('');
+      `;
+      }).join('');
+      lastTopIssueId = issues[0].id || lastTopIssueId;
     }
   }
 
+  const prevTopFeedId = lastTopFeedId;
   const feedMeta = document.getElementById('live-feed-meta');
   const feedEl = document.getElementById('live-feed-list');
   if (feedMeta) feedMeta.textContent = `${feed.length} recent`;
   if (feedEl) {
     if (!feed.length) {
       feedEl.innerHTML = '<div class="live-empty">No completed requests yet — send a prompt to see live routing &amp; recovery</div>';
+      lastTopFeedId = 0;
     } else {
       feedEl.innerHTML = feed.map(f => {
         const isOk = f.status === 'ok';
         const hasRec = !!(f.recovery_stage && f.recovery_stage.length > 0);
-        const rowCls = !isOk ? 'live-row is-issue' : (hasRec ? 'live-row is-recovered' : 'live-row is-ok');
+        const isNew = prevTopFeedId > 0 && f.id > prevTopFeedId;
+        const rowCls = (!isOk ? 'live-row is-issue' : (hasRec ? 'live-row is-recovered' : 'live-row is-ok')) + (isNew ? ' is-new' : '');
         const badgeHtml = isOk
           ? '<span class="live-code-badge ok">200 OK</span>'
           : `<span class="live-code-badge err">${f.code || 'ERR'} FAIL</span>`;
@@ -287,6 +298,7 @@ function renderLiveSnapshot(data, forceRender = false) {
           </div>
         `;
       }).join('');
+      lastTopFeedId = feed[0].id || lastTopFeedId;
     }
   }
 }

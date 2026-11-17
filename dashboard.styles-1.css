@@ -230,6 +230,12 @@ input:focus, select:focus { border-color: var(--brand); }
 .live-row.is-issue { border-left: 3px solid #f85149; }
 .live-row.is-ok { border-left: 3px solid #3fb950; }
 .live-row.is-recovered { border-left: 3px solid #d29922; }
+.live-row.is-new { animation: liveNewFlash 1.6s ease-out; }
+@keyframes liveNewFlash {
+  0% { background: rgba(56, 139, 253, 0.24); border-color: #58a6ff; }
+  100% { background: #0c1219; }
+}
+.live-clock { font-size: 10.5px; font-family: var(--mono); color: #56d364; background: rgba(35, 134, 54, 0.14); border: 1px solid rgba(63, 185, 80, 0.35); padding: 1px 6px; border-radius: 4px; }
 .live-row-top { display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; font-family: var(--mono); font-size: 10.5px; }
 .live-row-reason { font-size: 11.5px; color: #ff938a; font-weight: 500; }
 .live-row-detail { font-size: 10px; font-family: var(--mono); color: var(--text-muted); word-break: break-word; }
