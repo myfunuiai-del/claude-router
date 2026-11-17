@@ -163,6 +163,13 @@ input:focus, select:focus { border-color: var(--brand); }
 .modal-model-status.is-ok { color: var(--success-text); border-color: rgba(63, 185, 80, 0.45); background: rgba(35, 134, 54, 0.16); }
 .modal-model-status.is-err { color: var(--danger-text); border-color: rgba(248, 81, 73, 0.4); background: rgba(218, 54, 51, 0.12); }
 .modal-model-status.is-pending { color: #d29922; border-color: rgba(210, 153, 34, 0.4); }
+.btn.is-filter-active { background: rgba(35, 134, 54, 0.25); border-color: rgba(63, 185, 80, 0.65); color: #56d364; }
+
+/* Live Logs Viewer & Backup Modal */
+.logs-viewer-pre { background: #070b10; border: 1px solid var(--border); border-radius: 4px; padding: 8px; font-family: var(--mono); font-size: 10.5px; line-height: 1.45; color: #b8c4d4; max-height: 54vh; min-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+.backup-section { background: #0b1017; border: 1px solid var(--border); border-radius: 5px; padding: 10px; }
+.backup-textarea { width: 100%; min-height: 120px; max-height: 220px; background: var(--bg); color: var(--text-heading); border: 1px solid var(--border); border-radius: 4px; padding: 8px; font-family: var(--mono); font-size: 10.5px; outline: none; resize: vertical; }
+.backup-textarea:focus { border-color: var(--brand); }
 
 /* Regular Toast */
 .toast { position: fixed; bottom: 16px; right: 16px; background: var(--card-bg); color: var(--text-heading); border: 1px solid var(--brand); padding: 8px 14px; border-radius: 6px; font-size: 12px; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 100; font-family: var(--mono); box-shadow: 0 8px 24px rgba(0,0,0,0.5); }

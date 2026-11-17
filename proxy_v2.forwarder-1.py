@@ -22,6 +22,20 @@ def _load_module_to_globals(filename, target_globals):
 _config_mod = _load_module_to_globals("proxy_v2.config-1.py", globals())
 _transform_mod = _load_module_to_globals("proxy_v2.transform-1.py", globals())
 
+def _select_available_keys(p_id, keys, model=None, start_idx=0, max_count=None):
+    """Return rotated [(orig_idx, key)] skipping keys currently in cooldown.
+    If every key is in cooldown, falls back to returning all rotated keys so provider never hard-locks.
+    """
+    n = len(keys)
+    if n == 0:
+        return []
+    rotated = [((start_idx + i) % n, keys[(start_idx + i) % n]) for i in range(n)]
+    ready = [(idx, k) for idx, k in rotated if is_key_in_cooldown(p_id, k, model) == 0]
+    chosen = ready if ready else rotated
+    if max_count is not None:
+        chosen = chosen[:max_count]
+    return chosen
+
 def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recovery=False):
     """Attempts to forward the request to provider p_id.
     Returns True if successful and response was written to client, False if failed/exhausted.
@@ -76,9 +90,8 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
             else:
                 body = raw_body
 
-            for attempt in range(max_key_attempts):
-                idx = (current_coarena_idx + attempt) % len(coarena_keys)
-                key = coarena_keys[idx]
+            key_candidates = _select_available_keys("coarena", coarena_keys, coarena_model, start_idx=current_coarena_idx, max_count=max_key_attempts)
+            for idx, key in key_candidates:
                 req_headers = {}
                 for h, v in handler.headers.items():
                     if h.lower() not in ['host', 'content-length', 'authorization', 'x-api-key', 'accept-encoding']:
@@ -97,6 +110,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                             except Exception:
                                 pass
                         current_coarena_idx = idx
+                        clear_key_cooldown("coarena", key, coarena_model)
                         save_active_state(p_info.get("name", "Coarena"), coarena_model, f"Coarena Account #{idx+1}")
                         resp_data = append_signature_to_response(resp_data, p_info.get("name", "Coarena"), coarena_model)
                         handler.send_response(resp.status)
@@ -109,6 +123,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                         return True
                 except urllib.error.HTTPError as e:
                     handler._last_http_error = e.code
+                    mark_key_cooldown("coarena", key, e.code, coarena_model)
                     err_body = ""
                     try:
                         err_body = e.read().decode('utf-8', errors='ignore')
@@ -127,8 +142,8 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
         ar_base = p_info.get("base_url", "https://agentrouter.org/v1").rstrip("/")
         ar_url = f"{ar_base}/messages"
 
-        ar_keys_to_try = ar_keys[:2] if is_recovery else ar_keys
-        for attempt, key in enumerate(ar_keys_to_try):
+        ar_candidates = _select_available_keys("agentrouter", ar_keys, ar_model, max_count=(2 if is_recovery else None))
+        for attempt, key in ar_candidates:
             if body_obj is not None:
                 b_copy = dict(body_obj)
                 b_copy['model'] = ar_model
@@ -150,6 +165,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
             try:
                 with urllib.request.urlopen(req, timeout=30) as resp:
                     resp_data = resp.read()
+                    clear_key_cooldown("agentrouter", key, ar_model)
                     save_active_state(p_info.get("name", "AgentRouter"), ar_model, f"AgentRouter Key #{attempt+1}")
                     resp_data = append_signature_to_response(resp_data, p_info.get("name", "AgentRouter"), ar_model)
                     handler.send_response(resp.status)
@@ -162,6 +178,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                     return True
             except urllib.error.HTTPError as e:
                 handler._last_http_error = e.code
+                mark_key_cooldown("agentrouter", key, e.code, ar_model)
                 sys.stderr.write(f"[Proxy] AgentRouter attempt #{attempt+1} HTTP error {e.code}\n")
                 continue
             except Exception as e:
@@ -207,8 +224,8 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
             else:
                 fwd_body = raw_body
 
-            p_keys_to_try = p_keys[:2] if is_recovery else p_keys
-            for attempt, key in enumerate(p_keys_to_try):
+            p_candidates = _select_available_keys(p_id, p_keys, target_model, max_count=(2 if is_recovery else None))
+            for attempt, key in p_candidates:
                 fwd_headers = {
                     'Authorization': f"Bearer {key}",
                     'x-api-key': key,
@@ -225,6 +242,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                 try:
                     with urllib.request.urlopen(req, timeout=30) as resp:
                         resp_data = resp.read()
+                        clear_key_cooldown(p_id, key, target_model)
                         save_active_state(p_info.get("name", p_id), target_model, f"Key #{attempt+1}")
                         resp_data = append_signature_to_response(resp_data, p_info.get("name", p_id), target_model)
                         handler.send_response(resp.status)
@@ -237,6 +255,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                         return True
                 except urllib.error.HTTPError as e:
                     handler._last_http_error = e.code
+                    mark_key_cooldown(p_id, key, e.code, target_model)
                     sys.stderr.write(f"[Proxy] {p_id} key #{attempt+1} HTTP error {e.code}. Trying next key...\n")
                     continue
                 except Exception as e:
@@ -250,8 +269,8 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
             fwd_body = json.dumps(openai_body_obj).encode('utf-8')
             fwd_url = f"{p_base}/chat/completions"
 
-            p_keys_to_try = p_keys[:2] if is_recovery else p_keys
-            for attempt, key in enumerate(p_keys_to_try):
+            p_candidates = _select_available_keys(p_id, p_keys, target_model, max_count=(2 if is_recovery else None))
+            for attempt, key in p_candidates:
                 fwd_headers = {
                     'Authorization': f"Bearer {key}",
                     'Content-Type': 'application/json',
@@ -262,6 +281,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                 try:
                     with urllib.request.urlopen(req, timeout=30) as resp:
                         resp_data = resp.read()
+                        clear_key_cooldown(p_id, key, target_model)
                         save_active_state(p_info.get("name", p_id), target_model, f"Key #{attempt+1}")
                         text = resp_data.decode('utf-8', errors='ignore')
                         if is_stream or "data:" in text:
@@ -291,6 +311,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                         return True
                 except urllib.error.HTTPError as e:
                     handler._last_http_error = e.code
+                    mark_key_cooldown(p_id, key, e.code, target_model)
                     sys.stderr.write(f"[Proxy] {p_id} key #{attempt+1} HTTP error {e.code}. Trying next key...\n")
                     continue
                 except Exception as e:
@@ -315,6 +336,10 @@ def try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_mo
     """
     if try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recovery=False):
         return True
+
+    cfg = load_proxy_config()
+    if cfg.get("auto_recovery", True) is False:
+        return False
 
     last_err = getattr(handler, "_last_http_error", None)
     if last_err in (400, 403, 413) and is_trimmable_history(body_obj):

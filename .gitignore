@@ -1,5 +1,7 @@
 # Sensitive configurations with real API keys
 config.json
+config.json.bak
+*backup*.json
 
 # Logs & temp files
 *.log

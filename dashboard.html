@@ -15,7 +15,9 @@
         <span>GATEWAY CONSOLE</span>
         <span class="route-pill">MULTI-POOL ROUTING</span>
       </div>
-      <div>
+      <div style="display:flex; gap:5px; align-items:center; flex-wrap:wrap;">
+        <button class="btn btn-xs" onclick="openLogsModal()" title="View live proxy logs & cooldowns">Logs</button>
+        <button class="btn btn-xs" onclick="openBackupModal()" title="Export or restore config JSON">Backup</button>
         <button class="btn btn-xs btn-primary" onclick="openServerModal()">+ New Server</button>
       </div>
     </header>
@@ -27,7 +29,11 @@
         <div class="meta-item"><span style="color:var(--text-muted)">Model:</span> <span class="meta-val" id="active-model">gemini-4-carbon</span></div>
         <div class="meta-item"><span style="color:var(--text-muted)">Account:</span> <span style="font-family:var(--mono);" id="active-account">#1</span></div>
       </div>
-      <div style="display:flex; gap:6px; align-items:center;">
+      <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+        <button type="button" class="power-toggle is-on" id="recovery-toggle-btn" title="5-stage Auto History Recovery on 400/403/413" onclick="toggleAutoRecovery()">
+          <span class="power-dot"></span>
+          <span class="power-label">Recovery: ON</span>
+        </button>
         <span style="font-size:10px; color:var(--text-muted);" id="active-updated">&bull;</span>
         <button class="btn btn-xs" onclick="fetchStatus()">Sync</button>
       </div>
@@ -145,12 +151,82 @@
         </div>
         <div style="display:flex; gap:6px;">
           <input type="text" id="model-filter-input" class="flex-1" placeholder="Filter discovered server models..." oninput="filterDiscoveredList()" />
+          <button type="button" class="btn btn-xs" id="modal-only-working-btn" onclick="toggleOnlyWorkingFilter()" title="Show only working (🟢) models">🟢 Only</button>
           <button type="button" class="btn btn-xs" id="modal-test-all-btn" onclick="testVisibleModalModels()">Test All</button>
         </div>
         <div id="modal-models-summary" class="ping-summary" style="margin-top:0;"></div>
         <div id="search-list-container" class="search-box-results"></div>
         <div style="display:flex; justify-content:flex-end; margin-top:6px;">
           <button type="button" class="btn btn-xs" onclick="closeModelsModal()">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Live Logs Modal -->
+  <div id="logs-modal" class="modal">
+    <div class="modal-box" style="max-width:660px;">
+      <div class="modal-title">
+        <span>LIVE PROXY LOGS</span>
+        <span style="cursor:pointer; padding:2px 6px;" onclick="closeLogsModal()">✕</span>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+        <div style="display:flex; gap:10px; align-items:center; font-size:11px; color:var(--text-muted);">
+          <label style="display:inline-flex; align-items:center; gap:4px; cursor:pointer;">
+            <input type="checkbox" id="logs-hide-status" checked onchange="fetchLogs()" />
+            Hide /status
+          </label>
+          <label style="display:inline-flex; align-items:center; gap:4px; cursor:pointer;">
+            <input type="checkbox" id="logs-auto-refresh" checked onchange="toggleLogsAutoRefresh()" />
+            Auto (3s)
+          </label>
+        </div>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <span id="logs-cooldown-pill" style="font-size:10px; font-family:var(--mono); color:var(--text-muted);"></span>
+          <button type="button" class="btn btn-xs" onclick="fetchLogs()">Refresh</button>
+        </div>
+      </div>
+      <pre id="logs-viewer-pre" class="logs-viewer-pre">Loading logs...</pre>
+      <div style="display:flex; justify-content:flex-end; margin-top:8px;">
+        <button type="button" class="btn btn-xs" onclick="closeLogsModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Backup / Restore Modal -->
+  <div id="backup-modal" class="modal">
+    <div class="modal-box" style="max-width:520px;">
+      <div class="modal-title">
+        <span>BACKUP &amp; RESTORE CONFIG</span>
+        <span style="cursor:pointer; padding:2px 6px;" onclick="closeBackupModal()">✕</span>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <div class="backup-section">
+          <div class="section-label"><span>EXPORT BACKUP</span></div>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+            <label style="display:inline-flex; align-items:center; gap:5px; font-size:11px; color:var(--text); cursor:pointer;">
+              <input type="checkbox" id="backup-include-keys" checked />
+              Include API Keys (keep file private)
+            </label>
+            <button type="button" class="btn btn-xs btn-primary" onclick="exportConfigBackup()">Download JSON</button>
+          </div>
+        </div>
+        <div class="backup-section">
+          <div class="section-label">
+            <span>RESTORE FROM JSON</span>
+            <label class="btn btn-xs" style="cursor:pointer;">
+              Choose File
+              <input type="file" id="backup-file-input" accept=".json,application/json" style="display:none;" onchange="handleBackupFileSelect(event)" />
+            </label>
+          </div>
+          <textarea id="backup-json-input" class="backup-textarea" placeholder="Paste backup JSON here or choose a .json file above..."></textarea>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+            <span style="font-size:10px; color:var(--text-muted);">Previous config auto-saved as config.json.bak</span>
+            <button type="button" class="btn btn-xs btn-success" onclick="importConfigBackup()">Restore Config</button>
+          </div>
+        </div>
+        <div style="display:flex; justify-content:flex-end;">
+          <button type="button" class="btn btn-xs" onclick="closeBackupModal()">Close</button>
         </div>
       </div>
     </div>

@@ -1,7 +1,9 @@
 let activeModalProvider = null;
 let activeDiscoveredModels = [];
 let activeFilteredModels = [];
+let onlyWorkingModelsFilter = false;
 let modalTestRunId = 0;
+let logsRefreshTimer = null;
 const modelPingCache = {}; // { [providerId]: { [modelId]: { state: 'ok'|'err'|'pending', short, status } } }
 
 function _getCachedModelStatus(pId, m) {
@@ -161,6 +163,7 @@ function getFallbackPresets(pId) {
 
 async function openModelsSelector(pId) {
   activeModalProvider = pId;
+  onlyWorkingModelsFilter = false;
   modalTestRunId++;
   const modal = document.getElementById('models-modal');
   const title = document.getElementById('models-modal-title');
@@ -169,11 +172,13 @@ async function openModelsSelector(pId) {
   const container = document.getElementById('search-list-container');
   const summaryEl = document.getElementById('modal-models-summary');
   const testAllBtn = document.getElementById('modal-test-all-btn');
+  const onlyBtn = document.getElementById('modal-only-working-btn');
   if (title) title.innerText = `MODELS: ${currentConfig.providers[pId]?.name || pId}`;
   if (customInput) customInput.value = '';
   if (filterInput) filterInput.value = '';
   if (summaryEl) summaryEl.innerText = '';
   if (testAllBtn) { testAllBtn.innerText = 'Test All'; testAllBtn.disabled = false; }
+  if (onlyBtn) onlyBtn.classList.remove('is-filter-active');
   if (container) container.innerHTML = '<div style="padding:10px; color:var(--text-muted); text-align:center;">Discovering models...</div>';
   if (modal) modal.classList.add('active');
 
@@ -210,9 +215,19 @@ function closeModelsModal() {
   if (modal) modal.classList.remove('active');
 }
 
+function toggleOnlyWorkingFilter() {
+  onlyWorkingModelsFilter = !onlyWorkingModelsFilter;
+  const btn = document.getElementById('modal-only-working-btn');
+  if (btn) btn.classList.toggle('is-filter-active', onlyWorkingModelsFilter);
+  filterDiscoveredList();
+}
+
 function filterDiscoveredList() {
-  const q = document.getElementById('model-filter-input').value.toLowerCase().trim();
-  const filtered = activeDiscoveredModels.filter(m => m.toLowerCase().includes(q));
+  const q = (document.getElementById('model-filter-input')?.value || '').toLowerCase().trim();
+  let filtered = activeDiscoveredModels.filter(m => m.toLowerCase().includes(q));
+  if (onlyWorkingModelsFilter && activeModalProvider) {
+    filtered = filtered.filter(m => _getCachedModelStatus(activeModalProvider, m)?.state === 'ok');
+  }
   renderDiscoveredList(filtered);
 }
 
@@ -271,7 +286,11 @@ function _pingSingleModalModel(pId, modelName) {
       ? { state: 'ok', short: resObj.short || '🟢 200', status: resObj.status || '🟢 200 OK' }
       : { state: 'err', short: resObj?.short || '🔴 Fail', status: resObj?.status || '🔴 Failed' };
     _setCachedModelStatus(pId, modelName, info);
-    _updateModalRowBadge(pId, modelName);
+    if (onlyWorkingModelsFilter && activeModalProvider === pId) {
+      filterDiscoveredList();
+    } else {
+      _updateModalRowBadge(pId, modelName);
+    }
     const cardChip = document.getElementById(`chip-status-${pId}-${modelName}`);
     if (cardChip) {
       cardChip.innerHTML = ok ? '🟢' : '🔴';
@@ -282,7 +301,11 @@ function _pingSingleModalModel(pId, modelName) {
     clearTimeout(timer);
     const info = { state: 'err', short: '🔴 Timeout', status: '🔴 Network error / Timeout' };
     _setCachedModelStatus(pId, modelName, info);
-    _updateModalRowBadge(pId, modelName);
+    if (onlyWorkingModelsFilter && activeModalProvider === pId) {
+      filterDiscoveredList();
+    } else {
+      _updateModalRowBadge(pId, modelName);
+    }
     return false;
   });
 }
@@ -782,5 +805,142 @@ async function commitPendingDeletion() {
 
 function deleteServer(pId) {
   openConfirmDelete(pId);
+}
+
+// ===== LIVE LOGS MODAL =====
+function openLogsModal() {
+  const modal = document.getElementById('logs-modal');
+  if (modal) modal.classList.add('active');
+  fetchLogs();
+  toggleLogsAutoRefresh();
+}
+
+function closeLogsModal() {
+  const modal = document.getElementById('logs-modal');
+  if (modal) modal.classList.remove('active');
+  if (logsRefreshTimer) {
+    clearInterval(logsRefreshTimer);
+    logsRefreshTimer = null;
+  }
+}
+
+function toggleLogsAutoRefresh() {
+  if (logsRefreshTimer) {
+    clearInterval(logsRefreshTimer);
+    logsRefreshTimer = null;
+  }
+  const cb = document.getElementById('logs-auto-refresh');
+  const modal = document.getElementById('logs-modal');
+  if (cb && cb.checked && modal && modal.classList.contains('active')) {
+    logsRefreshTimer = setInterval(fetchLogs, 3000);
+  }
+}
+
+async function fetchLogs() {
+  const pre = document.getElementById('logs-viewer-pre');
+  const cdPill = document.getElementById('logs-cooldown-pill');
+  const hideStatus = document.getElementById('logs-hide-status')?.checked ? '1' : '0';
+  try {
+    const res = await fetch(`/api/ui/logs?lines=80&hide_status=${hideStatus}`);
+    const data = await res.json();
+    if (res.ok && pre) {
+      const lines = data.lines || [];
+      pre.textContent = lines.length ? lines.join('\n') : '(No log entries yet)';
+      pre.scrollTop = pre.scrollHeight;
+    }
+    if (cdPill) {
+      const cds = data.cooldowns || [];
+      cdPill.innerText = cds.length ? `Cooldowns: ${cds.length}` : 'Cooldowns: 0';
+      cdPill.style.color = cds.length ? '#d29922' : 'var(--text-muted)';
+    }
+  } catch (err) {
+    if (pre) pre.textContent = '[Error fetching logs]';
+  }
+}
+
+// ===== BACKUP / RESTORE MODAL =====
+function openBackupModal() {
+  const modal = document.getElementById('backup-modal');
+  const ta = document.getElementById('backup-json-input');
+  const fi = document.getElementById('backup-file-input');
+  if (ta) ta.value = '';
+  if (fi) fi.value = '';
+  if (modal) modal.classList.add('active');
+}
+
+function closeBackupModal() {
+  const modal = document.getElementById('backup-modal');
+  if (modal) modal.classList.remove('active');
+}
+
+function exportConfigBackup() {
+  if (!currentConfig) {
+    showToast('Config not loaded yet', true);
+    return;
+  }
+  const includeKeys = document.getElementById('backup-include-keys')?.checked !== false;
+  const clone = JSON.parse(JSON.stringify(currentConfig));
+  if (!includeKeys && clone.providers) {
+    Object.values(clone.providers).forEach(p => { p.keys = []; });
+  }
+  const jsonStr = JSON.stringify(clone, null, 2);
+  const blob = new Blob([jsonStr], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const dateStr = new Date().toISOString().slice(0, 10);
+  a.href = url;
+  a.download = `claude-router-backup-${dateStr}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast(includeKeys ? 'Backup exported (with keys)' : 'Backup exported (without keys)');
+}
+
+function handleBackupFileSelect(e) {
+  const file = e.target?.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const ta = document.getElementById('backup-json-input');
+    if (ta) ta.value = String(reader.result || '');
+    showToast(`Loaded ${file.name} — tap Restore Config`);
+  };
+  reader.readAsText(file);
+}
+
+async function importConfigBackup() {
+  const raw = (document.getElementById('backup-json-input')?.value || '').trim();
+  if (!raw) {
+    showToast('Paste backup JSON or choose a file first', true);
+    return;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    showToast('Invalid JSON format', true);
+    return;
+  }
+  try {
+    const res = await fetch('/api/ui/config-import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config: parsed })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.message || 'Restore failed', true);
+      return;
+    }
+    currentConfig = data.config;
+    renderLanes();
+    renderDropdown();
+    renderRecoveryToggle();
+    closeBackupModal();
+    showToast(data.message || 'Config restored');
+  } catch (err) {
+    showToast('Error restoring config', true);
+  }
 }
 

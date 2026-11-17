@@ -367,6 +367,7 @@ def handle_ui_post(handler, raw_body):
                     latency_ms = int((time.time() - t0) * 1000)
                     if code == 200:
                         active = True
+                        clear_key_cooldown(provider_id, api_key, test_model)
                         label = f"🟢 200 OK ({latency_ms}ms)"
                     else:
                         label = f"🔴 HTTP {code}"
@@ -543,6 +544,90 @@ def handle_ui_post(handler, raw_body):
 
             save_proxy_config(cfg)
             resp = json.dumps({"status": "ok", "message": "Pipeline routing updated", "config": cfg}).encode()
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            handler.send_header('Content-Length', str(len(resp)))
+            handler.end_headers()
+            handler.wfile.write(resp)
+            return True
+        except Exception as e:
+            handler.send_response(500)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            err = json.dumps({"status": "error", "message": str(e)}).encode()
+            handler.send_header('Content-Length', str(len(err)))
+            handler.end_headers()
+            handler.wfile.write(err)
+            return True
+
+    # UI API: Update global router settings (e.g. auto_recovery ON/OFF)
+    if handler.path == "/api/ui/settings":
+        try:
+            data = json.loads(raw_body.decode('utf-8'))
+            cfg = load_proxy_config()
+            if "auto_recovery" in data and isinstance(data["auto_recovery"], bool):
+                cfg["auto_recovery"] = data["auto_recovery"]
+            save_proxy_config(cfg)
+            state_txt = "ON" if cfg.get("auto_recovery", True) else "OFF"
+            resp = json.dumps({
+                "status": "ok",
+                "message": f"Auto-Recovery turned {state_txt}",
+                "config": cfg
+            }).encode('utf-8')
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            handler.send_header('Content-Length', str(len(resp)))
+            handler.end_headers()
+            handler.wfile.write(resp)
+            return True
+        except Exception as e:
+            handler.send_response(500)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            err = json.dumps({"status": "error", "message": str(e)}).encode()
+            handler.send_header('Content-Length', str(len(err)))
+            handler.end_headers()
+            handler.wfile.write(err)
+            return True
+
+    # UI API: Restore / Import config JSON safely (auto-backs up existing config.json.bak first)
+    if handler.path == "/api/ui/config-import":
+        try:
+            data = json.loads(raw_body.decode('utf-8'))
+            imported = data.get("config") if isinstance(data.get("config"), dict) else data
+            if not isinstance(imported, dict) or not isinstance(imported.get("providers"), dict):
+                handler.send_response(400)
+                handler.send_header('Content-Type', 'application/json')
+                handler.send_header('Access-Control-Allow-Origin', '*')
+                err = json.dumps({"status": "error", "message": "Invalid config JSON: missing 'providers' object"}).encode()
+                handler.send_header('Content-Length', str(len(err)))
+                handler.end_headers()
+                handler.wfile.write(err)
+                return True
+
+            # Preserve existing keys if backup was exported without keys
+            cur_cfg = load_proxy_config()
+            if os.path.exists(CONFIG_FILE):
+                try:
+                    with open(CONFIG_FILE + ".bak", "w", encoding="utf-8") as bf:
+                        json.dump(cur_cfg, bf, indent=2)
+                except Exception:
+                    pass
+
+            for pid, p_obj in imported.get("providers", {}).items():
+                if isinstance(p_obj, dict) and not p_obj.get("keys"):
+                    old_keys = cur_cfg.get("providers", {}).get(pid, {}).get("keys", [])
+                    if old_keys:
+                        p_obj["keys"] = old_keys
+
+            save_proxy_config(imported)
+            resp = json.dumps({
+                "status": "ok",
+                "message": f"Restored {len(imported.get('providers', {}))} servers successfully",
+                "config": imported
+            }).encode('utf-8')
             handler.send_response(200)
             handler.send_header('Content-Type', 'application/json')
             handler.send_header('Access-Control-Allow-Origin', '*')

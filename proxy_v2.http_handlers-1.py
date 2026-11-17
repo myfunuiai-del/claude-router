@@ -92,6 +92,43 @@ def handle_GET(handler):
         handler.wfile.write(data)
         return
 
+    if req_clean_path == "/api/ui/logs":
+        import urllib.parse
+        qs = urllib.parse.parse_qs(urllib.parse.urlparse(handler.path).query)
+        try:
+            limit = max(10, min(300, int(qs.get("lines", ["80"])[0])))
+        except Exception:
+            limit = 80
+        hide_status = qs.get("hide_status", ["1"])[0] not in ("0", "false", "False")
+
+        lines = []
+        if os.path.exists(LOG_FILE):
+            try:
+                with open(LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
+                    all_lines = f.read().splitlines()
+                if hide_status:
+                    all_lines = [
+                        ln for ln in all_lines
+                        if "GET /status " not in ln and "GET /api/ui/logs" not in ln
+                    ]
+                lines = all_lines[-limit:]
+            except Exception as e:
+                lines = [f"[Error reading logs: {e}]"]
+
+        payload = json.dumps({
+            "status": "ok",
+            "lines": lines,
+            "count": len(lines),
+            "cooldowns": get_active_cooldowns()
+        }, ensure_ascii=False).encode('utf-8')
+        handler.send_response(200)
+        handler.send_header('Content-Type', 'application/json')
+        handler.send_header('Access-Control-Allow-Origin', '*')
+        handler.send_header('Content-Length', str(len(payload)))
+        handler.end_headers()
+        handler.wfile.write(payload)
+        return
+
     if handler.path == "/status":
         handler.send_response(200)
         handler.send_header('Content-Type', 'application/json')

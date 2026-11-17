@@ -46,8 +46,44 @@ async function loadConfig() {
 
     renderLanes();
     renderDropdown();
+    renderRecoveryToggle();
   } catch (err) {
     showToast('Config load failure', true);
+  }
+}
+
+function renderRecoveryToggle() {
+  const btn = document.getElementById('recovery-toggle-btn');
+  if (!btn || !currentConfig) return;
+  const isOn = currentConfig.auto_recovery !== false;
+  btn.classList.toggle('is-on', isOn);
+  btn.classList.toggle('is-off', !isOn);
+  const lbl = btn.querySelector('.power-label');
+  if (lbl) lbl.innerText = isOn ? 'Recovery: ON' : 'Recovery: OFF';
+  btn.title = isOn
+    ? 'Auto History Recovery ON — tap to turn OFF'
+    : 'Auto History Recovery OFF — tap to turn ON';
+}
+
+async function toggleAutoRecovery() {
+  if (!currentConfig) return;
+  const nextVal = (currentConfig.auto_recovery === false);
+  try {
+    const res = await fetch('/api/ui/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ auto_recovery: nextVal })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.message || 'Settings update failed', true);
+      return;
+    }
+    currentConfig = data.config;
+    renderRecoveryToggle();
+    showToast(data.message || `Auto-Recovery: ${nextVal ? 'ON' : 'OFF'}`);
+  } catch (err) {
+    showToast('Failed to update Auto-Recovery', true);
   }
 }
 

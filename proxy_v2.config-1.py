@@ -18,9 +18,81 @@ socket.getaddrinfo = getaddrinfo_ipv4
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1].isdigit() else 8999
 STATUS_FILE = os.path.expanduser("~/.gemini/proxy/active_status.json")
 CONFIG_FILE = os.path.expanduser("~/.gemini/claude-router/config.json")
+LOG_FILE = os.path.expanduser("~/.gemini/claude-router/proxy_v2.log")
 DASHBOARD_HTML_FILE = os.path.expanduser("~/.gemini/claude-router/dashboard.html")
 
 config_lock = threading.Lock()
+
+# Process-wide shared cooldown store across dynamically loaded modules
+if "_claude_router_cooldown_store" not in sys.modules:
+    class _CooldownStore:
+        def __init__(self):
+            self.lock = threading.Lock()
+            self.entries = {}  # (p_id, key_sig, scope_model) -> {"until": ts, "code": int}
+    sys.modules["_claude_router_cooldown_store"] = _CooldownStore()
+
+_COOLDOWN_STORE = sys.modules["_claude_router_cooldown_store"]
+
+def _key_sig(key):
+    if not key:
+        return ""
+    return f"{key[:6]}..{key[-4:]}" if len(key) > 12 else key
+
+def mark_key_cooldown(p_id, key, code, model=None):
+    """Put a key (or key+model for 402) into temporary cooldown:
+    401 -> 10m (600s) for all models; 429 -> 3m (180s) for all models; 402 -> 5m (300s) for specific model.
+    """
+    if code == 401:
+        dur, scope = 600, "*"
+    elif code == 429:
+        dur, scope = 180, "*"
+    elif code == 402:
+        dur, scope = 300, (model or "*")
+    else:
+        return
+    sig = _key_sig(key)
+    with _COOLDOWN_STORE.lock:
+        _COOLDOWN_STORE.entries[(p_id, sig, scope)] = {"until": time.time() + dur, "code": code}
+    scope_lbl = f" (model={scope})" if scope != "*" else ""
+    sys.stderr.write(f"[Proxy Cooldown] {p_id} key {sig}{scope_lbl} put on {dur}s cooldown (HTTP {code}).\n")
+
+def is_key_in_cooldown(p_id, key, model=None):
+    """Return remaining cooldown seconds (>0) if key is cooling down, else 0."""
+    now = time.time()
+    sig = _key_sig(key)
+    with _COOLDOWN_STORE.lock:
+        for scope in ("*", model) if model else ("*",):
+            k = (p_id, sig, scope)
+            info = _COOLDOWN_STORE.entries.get(k)
+            if info:
+                rem = info["until"] - now
+                if rem > 0:
+                    return int(rem)
+                del _COOLDOWN_STORE.entries[k]
+    return 0
+
+def clear_key_cooldown(p_id, key, model=None):
+    """Clear cooldown entries when a key succeeds or passes manual test."""
+    sig = _key_sig(key)
+    with _COOLDOWN_STORE.lock:
+        for scope in ("*", model) if model else ("*",):
+            _COOLDOWN_STORE.entries.pop((p_id, sig, scope), None)
+
+def get_active_cooldowns():
+    """Return active cooldown summaries (pruning expired entries)."""
+    now = time.time()
+    out = []
+    with _COOLDOWN_STORE.lock:
+        expired = []
+        for (p_id, sig, scope), info in _COOLDOWN_STORE.entries.items():
+            rem = int(info["until"] - now)
+            if rem <= 0:
+                expired.append((p_id, sig, scope))
+            else:
+                out.append({"provider": p_id, "key": sig, "scope": scope, "code": info["code"], "remaining_s": rem})
+        for k in expired:
+            del _COOLDOWN_STORE.entries[k]
+    return out
 
 def load_proxy_config():
     """Load config from JSON file with safe fallbacks."""
