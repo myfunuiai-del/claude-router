@@ -22,15 +22,20 @@ def _load_module_to_globals(filename, target_globals):
 _config_mod = _load_module_to_globals("proxy_v2.config-1.py", globals())
 _transform_mod = _load_module_to_globals("proxy_v2.transform-1.py", globals())
 
-def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model):
+def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recovery=False):
     """Attempts to forward the request to provider p_id.
     Returns True if successful and response was written to client, False if failed/exhausted.
     """
     global current_coarena_idx, current_openrouter_idx, current_groq_idx, current_gonka_idx
     global fallback_to_agentrouter, last_fallback_time
+    handler._last_http_error = None
     cfg = load_proxy_config()
     all_providers = cfg.get("providers", {})
     p_info = all_providers.get(p_id, {})
+
+    if p_info.get("enabled", True) is False:
+        sys.stderr.write(f"[Proxy] Provider '{p_id}' is OFF (disabled). Skipping.\n")
+        return False
 
     if p_id == "coarena":
         candidates = [orig_model]
@@ -39,10 +44,15 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model):
         coa_def = p_info.get("default_model", "gemini-4-carbon")
         if coa_def not in candidates:
             candidates.append(coa_def)
+        if is_recovery:
+            candidates = candidates[:1]
 
         target_path = handler.path
-        if target_path.startswith('/coarena'):
-            target_path = target_path[8:]
+        for known_pid in all_providers:
+            pfx = f"/{known_pid}"
+            if target_path == pfx or target_path.startswith(f"{pfx}/") or target_path.startswith(f"{pfx}?"):
+                target_path = target_path[len(pfx):] or "/v1/messages"
+                break
         if not target_path.startswith('/api'):
             target_path = '/api' + target_path
         elif target_path.startswith('/api/api'):
@@ -52,6 +62,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model):
         coarena_keys = p_info.get("keys") or get_coarena_keys()
         if not coarena_keys:
             return False
+        max_key_attempts = min(2, len(coarena_keys)) if is_recovery else len(coarena_keys)
 
         for model_to_try in candidates:
             coarena_model = model_to_try
@@ -65,7 +76,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model):
             else:
                 body = raw_body
 
-            for attempt in range(len(coarena_keys)):
+            for attempt in range(max_key_attempts):
                 idx = (current_coarena_idx + attempt) % len(coarena_keys)
                 key = coarena_keys[idx]
                 req_headers = {}
@@ -97,7 +108,13 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model):
                         handler.wfile.write(resp_data)
                         return True
                 except urllib.error.HTTPError as e:
-                    sys.stderr.write(f"[Proxy] Coarena key #{idx+1} HTTP error {e.code}. Trying next key...\n")
+                    handler._last_http_error = e.code
+                    err_body = ""
+                    try:
+                        err_body = e.read().decode('utf-8', errors='ignore')
+                    except Exception:
+                        pass
+                    sys.stderr.write(f"[Proxy] Coarena key #{idx+1} HTTP error {e.code}: {err_body[:300]}. URL: {upstream_url}. Model: {coarena_model}. Trying next key...\n")
                     continue
                 except Exception as e:
                     sys.stderr.write(f"[Proxy] Coarena key #{idx+1} network error: {e}. Trying next...\n")
@@ -110,7 +127,8 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model):
         ar_base = p_info.get("base_url", "https://agentrouter.org/v1").rstrip("/")
         ar_url = f"{ar_base}/messages"
 
-        for attempt, key in enumerate(ar_keys):
+        ar_keys_to_try = ar_keys[:2] if is_recovery else ar_keys
+        for attempt, key in enumerate(ar_keys_to_try):
             if body_obj is not None:
                 b_copy = dict(body_obj)
                 b_copy['model'] = ar_model
@@ -142,6 +160,10 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model):
                     handler.end_headers()
                     handler.wfile.write(resp_data)
                     return True
+            except urllib.error.HTTPError as e:
+                handler._last_http_error = e.code
+                sys.stderr.write(f"[Proxy] AgentRouter attempt #{attempt+1} HTTP error {e.code}\n")
+                continue
             except Exception as e:
                 sys.stderr.write(f"[Proxy] AgentRouter attempt #{attempt+1} error: {e}\n")
                 continue
@@ -185,7 +207,8 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model):
             else:
                 fwd_body = raw_body
 
-            for attempt, key in enumerate(p_keys):
+            p_keys_to_try = p_keys[:2] if is_recovery else p_keys
+            for attempt, key in enumerate(p_keys_to_try):
                 fwd_headers = {
                     'Authorization': f"Bearer {key}",
                     'x-api-key': key,
@@ -213,6 +236,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model):
                         handler.wfile.write(resp_data)
                         return True
                 except urllib.error.HTTPError as e:
+                    handler._last_http_error = e.code
                     sys.stderr.write(f"[Proxy] {p_id} key #{attempt+1} HTTP error {e.code}. Trying next key...\n")
                     continue
                 except Exception as e:
@@ -226,7 +250,8 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model):
             fwd_body = json.dumps(openai_body_obj).encode('utf-8')
             fwd_url = f"{p_base}/chat/completions"
 
-            for attempt, key in enumerate(p_keys):
+            p_keys_to_try = p_keys[:2] if is_recovery else p_keys
+            for attempt, key in enumerate(p_keys_to_try):
                 fwd_headers = {
                     'Authorization': f"Bearer {key}",
                     'Content-Type': 'application/json',
@@ -265,6 +290,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model):
                         handler.wfile.write(resp_data)
                         return True
                 except urllib.error.HTTPError as e:
+                    handler._last_http_error = e.code
                     sys.stderr.write(f"[Proxy] {p_id} key #{attempt+1} HTTP error {e.code}. Trying next key...\n")
                     continue
                 except Exception as e:
@@ -277,6 +303,32 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model):
 def route_to_agentrouter(handler, raw_body, body_obj):
     """Helper to seamlessly route to AgentRouter gpt-5.6-sol"""
     return try_forward_provider(handler, "agentrouter", raw_body, body_obj, "gpt-5.6-sol")
+
+def try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_model):
+    """Try forwarding original request to p_id. On 400/403/413 with trimmable history,
+    escalate safely on the same provider without mutating original body_obj:
+      1) Keep only recent messages
+      2) Keep only the last message
+      3) Shrink large tool outputs / content blocks
+    If all fail, return False so caller routes original full request to next server.
+    """
+    if try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recovery=False):
+        return True
+
+    last_err = getattr(handler, "_last_http_error", None)
+    if last_err in (400, 403, 413) and is_trimmable_history(body_obj):
+        variants = build_history_recovery_variants(body_obj)
+        total = len(variants)
+        for idx, (stage_name, v_body_obj) in enumerate(variants, start=1):
+            sys.stderr.write(f"[Proxy Recovery {idx}/{total}] '{p_id}' hit HTTP {last_err}. Retrying with '{stage_name}'...\n")
+            v_raw = json.dumps(v_body_obj, ensure_ascii=False).encode('utf-8')
+            if try_forward_provider(handler, p_id, v_raw, v_body_obj, orig_model, is_recovery=True):
+                sys.stderr.write(f"[Proxy Recovery {idx}/{total}] '{p_id}' SUCCEEDED via '{stage_name}'!\n")
+                return True
+        if total > 0:
+            sys.stderr.write(f"[Proxy Recovery] All {total} trimmed retries failed on '{p_id}'. Passing full original request to next server...\n")
+
+    return False
 
 def dispatch_inference(handler, raw_body):
     """Parses incoming request, checks dedicated direct route or dynamic pipeline failover."""
@@ -292,6 +344,7 @@ def dispatch_inference(handler, raw_body):
     # 1. DEDICATED DIRECT ROUTE: Matches any provider endpoint (/{p_id} or /{p_id}/*)
     cfg = load_proxy_config()
     all_providers = cfg.get("providers", {})
+    attempted_providers = set()
     target_dedicated_provider = None
     for p_id in all_providers:
         prefix = f"/{p_id}"
@@ -300,46 +353,54 @@ def dispatch_inference(handler, raw_body):
             break
 
     if target_dedicated_provider:
+        attempted_providers.add(target_dedicated_provider)
         sys.stderr.write(f"[Proxy Direct Route] Request targeted specifically to '{target_dedicated_provider}' (Path: {handler.path})\n")
-        if try_forward_provider(handler, target_dedicated_provider, raw_body, body_obj, orig_model):
+        if try_forward_with_history_recovery(handler, target_dedicated_provider, raw_body, body_obj, orig_model):
             return
         sys.stderr.write(f"[Proxy Direct Route] Dedicated provider '{target_dedicated_provider}' failed. Cascading to active pipeline...\n")
 
-    # 1.5 SMART MODEL-TO-PROVIDER ROUTE: If requested model belongs to a specific provider
-    if orig_model and orig_model != "unknown":
-        clean_model = orig_model.split("/")[-1] if "/" in orig_model else orig_model
-        for p_id, p_info in all_providers.items():
-            p_models = p_info.get("models", [])
-            if orig_model in p_models or any(clean_model == m.split("/")[-1] for m in p_models):
-                sys.stderr.write(f"[Proxy Model Route] Model '{orig_model}' matched provider '{p_id}'. Routing directly...\n")
-                if try_forward_provider(handler, p_id, raw_body, body_obj, orig_model):
-                    return
-                sys.stderr.write(f"[Proxy Model Route] Provider '{p_id}' failed for model '{orig_model}'. Falling back to pipeline...\n")
-                break
-
-    # 2. Dynamic Priority Pipeline (routed_providers)
     routed_providers = cfg.get("routed_providers", [])
     if not routed_providers:
         routed_providers = ["coarena"]
 
+    # 1.5 SMART MODEL-TO-PROVIDER ROUTE: Only route if provider is active (in routed_providers) and enabled (ON)
+    if orig_model and orig_model != "unknown":
+        clean_model = orig_model.split("/")[-1] if "/" in orig_model else orig_model
+        for p_id in routed_providers:
+            if p_id in attempted_providers:
+                continue
+            p_info = all_providers.get(p_id, {})
+            if p_info.get("enabled", True) is False:
+                continue
+            p_models = p_info.get("models", [])
+            if orig_model in p_models or any(clean_model == m.split("/")[-1] for m in p_models):
+                attempted_providers.add(p_id)
+                sys.stderr.write(f"[Proxy Model Route] Model '{orig_model}' matched active provider '{p_id}'. Routing directly...\n")
+                if try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_model):
+                    return
+                sys.stderr.write(f"[Proxy Model Route] Provider '{p_id}' failed for model '{orig_model}'. Falling back to pipeline...\n")
+                break
+
+    # 2. Dynamic Priority Pipeline (routed_providers) — skips disabled (OFF) or already-tried providers
     success = False
     for prio_idx, p_id in enumerate(routed_providers):
+        if p_id in attempted_providers:
+            continue
+        p_info = all_providers.get(p_id, {})
+        if p_info.get("enabled", True) is False:
+            sys.stderr.write(f"[Proxy Pipeline] [Priority #{prio_idx+1}] '{p_id}' is OFF. Skipping...\n")
+            continue
+        attempted_providers.add(p_id)
         sys.stderr.write(f"[Proxy Pipeline] [Priority #{prio_idx+1}] Routing to '{p_id}'...\n")
-        if try_forward_provider(handler, p_id, raw_body, body_obj, orig_model):
+        if try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_model):
             success = True
             break
         sys.stderr.write(f"[Proxy Pipeline] [Priority #{prio_idx+1}] '{p_id}' failed. Cascading to next...\n")
 
     if not success:
-        # Fallback to AgentRouter if not already attempted
-        if "agentrouter" not in routed_providers:
-            sys.stderr.write("[Proxy Pipeline] All active pipeline providers failed. Trying fallback AgentRouter...\n")
-            if try_forward_provider(handler, "agentrouter", raw_body, body_obj, orig_model):
-                return
-
         handler.send_response(502)
         handler.send_header('Content-Type', 'application/json')
-        msg = json.dumps({"error": {"message": "All servers in the active routed pipeline failed or timed out."}}).encode()
+        msg = json.dumps({"error": {"message": "All enabled servers in the active routed pipeline failed or are turned OFF."}}).encode()
         handler.send_header('Content-Length', str(len(msg)))
         handler.end_headers()
         handler.wfile.write(msg)

@@ -33,14 +33,21 @@ def load_proxy_config():
     return {"active_provider": "coarena", "providers": {}}
 
 def sync_to_claude_settings(cfg):
-    """Automatically syncs all providers and models to Claude Code UI dropdown (~/.claude/agy_providers.json)."""
+    """Automatically syncs enabled (ON) providers and models to Claude Code UI dropdown (~/.claude/agy_providers.json)."""
     try:
         claude_dir = os.path.expanduser("~/.claude")
         if not os.path.exists(claude_dir):
             return
         agy_providers_path = os.path.join(claude_dir, "agy_providers.json")
+        all_providers = cfg.get("providers", {})
+        routed = cfg.get("routed_providers", [])
+        ordered_ids = [p for p in routed if p in all_providers] + [p for p in all_providers if p not in routed]
+
         providers_out = []
-        for p_id, p_info in cfg.get("providers", {}).items():
+        for p_id in ordered_ids:
+            p_info = all_providers[p_id]
+            if p_info.get("enabled", True) is False:
+                continue
             base_url = f"http://127.0.0.1:{PORT}/{p_id}"
             models = p_info.get("models", [])
             def_m = p_info.get("default_model") or (models[0] if models else "")
@@ -67,8 +74,10 @@ def sync_to_claude_settings(cfg):
             except Exception:
                 pass
 
-        with open(agy_providers_path, "w", encoding="utf-8") as f:
+        tmp_path = agy_providers_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(agy_data, f, indent=2)
+        os.replace(tmp_path, agy_providers_path)
     except Exception as e:
         sys.stderr.write(f"[Claude Sync] Warning: Could not sync to Claude settings: {e}\n")
 

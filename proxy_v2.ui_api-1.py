@@ -117,13 +117,15 @@ def handle_ui_post(handler, raw_body):
             if not isinstance(custom_headers, dict):
                 custom_headers = {}
 
+            existing_enabled = providers.get(p_id, {}).get("enabled", True)
             p_entry = {
                 "name": name,
                 "type": p_type,
                 "base_url": base_url,
                 "default_model": default_model or (models[0] if models else ""),
                 "models": models if models else [default_model] if default_model else [],
-                "keys": keys
+                "keys": keys,
+                "enabled": data.get("enabled", existing_enabled)
             }
             if custom_headers:
                 p_entry["custom_headers"] = custom_headers
@@ -322,6 +324,54 @@ def handle_ui_post(handler, raw_body):
 
             save_proxy_config(cfg)
             resp = json.dumps({"status": "ok", "message": f"Model '{model_name}' updated", "config": cfg}).encode()
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            handler.send_header('Content-Length', str(len(resp)))
+            handler.end_headers()
+            handler.wfile.write(resp)
+            return True
+        except Exception as e:
+            handler.send_response(500)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            err = json.dumps({"status": "error", "message": str(e)}).encode()
+            handler.send_header('Content-Length', str(len(err)))
+            handler.end_headers()
+            handler.wfile.write(err)
+            return True
+
+    # UI API: Toggle server ON / OFF (enabled / disabled)
+    if handler.path == "/api/ui/provider-toggle":
+        try:
+            data = json.loads(raw_body.decode('utf-8'))
+            p_id = (data.get("provider") or "").strip()
+            cfg = load_proxy_config()
+            p = cfg.get("providers", {}).get(p_id)
+            if not p:
+                handler.send_response(404)
+                handler.send_header('Content-Type', 'application/json')
+                handler.send_header('Access-Control-Allow-Origin', '*')
+                err = json.dumps({"status": "error", "message": "Provider not found"}).encode()
+                handler.send_header('Content-Length', str(len(err)))
+                handler.end_headers()
+                handler.wfile.write(err)
+                return True
+
+            if "enabled" in data and isinstance(data["enabled"], bool):
+                new_state = data["enabled"]
+            else:
+                new_state = not p.get("enabled", True)
+
+            p["enabled"] = new_state
+            save_proxy_config(cfg)
+            resp = json.dumps({
+                "status": "ok",
+                "provider": p_id,
+                "enabled": new_state,
+                "message": f"{p.get('name', p_id)} turned {'ON' if new_state else 'OFF'}",
+                "config": cfg
+            }).encode()
             handler.send_response(200)
             handler.send_header('Content-Type', 'application/json')
             handler.send_header('Access-Control-Allow-Origin', '*')

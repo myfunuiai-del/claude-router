@@ -127,9 +127,12 @@ function updatePriorityBadges() {
   if (routedCards.length > 0 && emptyRouted) emptyRouted.remove();
 
   routedCards.forEach((card, idx) => {
+    const isOff = card.classList.contains('server-off');
     const slot = card.querySelector('.priority-badge-slot');
     if (slot) {
-      if (idx === 0) {
+      if (isOff) {
+        slot.innerHTML = '<span class="prio-tag prio-off">OFF</span>';
+      } else if (idx === 0) {
         slot.innerHTML = '<span class="prio-tag prio-1">#1 PRIMARY</span>';
       } else if (idx === 1) {
         slot.innerHTML = '<span class="prio-tag prio-2">#2 FALLBACK 1</span>';
@@ -162,9 +165,12 @@ function updatePriorityBadges() {
   if (unroutedCards.length > 0 && emptyUnrouted) emptyUnrouted.remove();
 
   unroutedCards.forEach((card, idx) => {
+    const isOff = card.classList.contains('server-off');
     const slot = card.querySelector('.priority-badge-slot');
     if (slot) {
-      slot.innerHTML = '<span class="prio-tag prio-standby">STANDBY</span>';
+      slot.innerHTML = isOff
+        ? '<span class="prio-tag prio-off">OFF</span>'
+        : '<span class="prio-tag prio-standby">STANDBY</span>';
     }
     const btnUp = card.querySelector('.btn-up');
     const btnDown = card.querySelector('.btn-down');

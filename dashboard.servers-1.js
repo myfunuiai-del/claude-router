@@ -108,8 +108,9 @@ function renderLanes() {
 }
 
 function createServerCard(id, p, isRouted, index) {
+  const isEnabled = p.enabled !== false;
   const card = document.createElement('div');
-  card.className = 'server-card';
+  card.className = `server-card${isEnabled ? '' : ' server-off'}`;
   card.id = `server-card-${id}`;
   card.dataset.providerId = id;
   card.draggable = true;
@@ -130,7 +131,7 @@ function createServerCard(id, p, isRouted, index) {
   top.className = 'server-card-top';
 
   top.innerHTML = `
-    <!-- Row 1: Drag handle, Priority Badge, Server Name, Protocol, and Expand Arrow -->
+    <!-- Row 1: Drag handle, Priority Badge, Server Name, Protocol, ON/OFF Toggle, and Expand Arrow -->
     <div class="server-card-header-row" onclick="toggleServerCard('${id}')">
       <div class="server-card-title-group">
         <span class="drag-handle" onclick="event.stopPropagation()" title="Touch & hold or drag to reorder">⠿</span>
@@ -138,7 +139,13 @@ function createServerCard(id, p, isRouted, index) {
         <span class="server-name" title="${p.name || id}">${p.name || id}</span>
         <span class="server-proto">${p.type || 'anthropic'}</span>
       </div>
-      <span class="toggle-arrow">▶</span>
+      <div class="server-header-right" onclick="event.stopPropagation()">
+        <button type="button" class="power-toggle ${isEnabled ? 'is-on' : 'is-off'}" id="power-btn-${id}" title="${isEnabled ? 'Server ON — tap to turn OFF' : 'Server OFF — tap to turn ON'}" onclick="toggleServerPower('${id}')">
+          <span class="power-dot"></span>
+          <span class="power-label">${isEnabled ? 'ON' : 'OFF'}</span>
+        </button>
+        <span class="toggle-arrow" onclick="toggleServerCard('${id}')">▶</span>
+      </div>
     </div>
 
     <!-- Row 2: Route Pill + Reorder/Route Buttons + Safe Delete Button -->
@@ -240,6 +247,41 @@ function copyDirectRoute(id) {
     });
   } else {
     showToast(`Direct Route: /${id}`);
+  }
+}
+
+async function toggleServerPower(id) {
+  if (!currentConfig?.providers?.[id]) return;
+  const p = currentConfig.providers[id];
+  const nextEnabled = (p.enabled === false);
+
+  try {
+    const res = await fetch('/api/ui/provider-toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: id, enabled: nextEnabled })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.message || 'Toggle failed', true);
+      return;
+    }
+    currentConfig = data.config;
+
+    const card = document.getElementById(`server-card-${id}`);
+    const btn = document.getElementById(`power-btn-${id}`);
+    if (card) card.classList.toggle('server-off', !nextEnabled);
+    if (btn) {
+      btn.classList.toggle('is-on', nextEnabled);
+      btn.classList.toggle('is-off', !nextEnabled);
+      btn.title = nextEnabled ? 'Server ON — tap to turn OFF' : 'Server OFF — tap to turn ON';
+      const lbl = btn.querySelector('.power-label');
+      if (lbl) lbl.innerText = nextEnabled ? 'ON' : 'OFF';
+    }
+    updatePriorityBadges();
+    showToast(data.message || `${p.name || id}: ${nextEnabled ? 'ON' : 'OFF'}`);
+  } catch (err) {
+    showToast('Failed to toggle server', true);
   }
 }
 

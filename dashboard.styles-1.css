@@ -70,9 +70,23 @@ input:focus, select:focus { border-color: var(--brand); }
 .lane-empty { text-align: center; padding: 32px 14px; color: var(--text-muted); font-size: 11px; border: 1px dashed var(--border-subtle); border-radius: 4px; }
 
 /* DRAGGABLE ACCORDION SERVER CARDS */
-.server-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease; position: relative; touch-action: pan-y; }
+.server-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.15s ease; position: relative; touch-action: pan-y; }
 .server-card.is-dragging { opacity: 0.45; border: 1px dashed var(--brand) !important; transform: scale(0.98); box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
 .server-card.expanded { border-color: #388bfd66; }
+.server-card.server-off { opacity: 0.56; border-color: #21262d; }
+.server-card.server-off .server-name { color: var(--text-muted); text-decoration: line-through; }
+
+/* Compact Server ON/OFF Toggle Button */
+.server-header-right { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.power-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 999px; font-size: 9.5px; font-weight: 700; font-family: var(--mono); letter-spacing: 0.4px; cursor: pointer; transition: all 0.15s ease; user-select: none; border: 1px solid transparent; line-height: 1.3; }
+.power-toggle .power-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; transition: background 0.15s ease, box-shadow 0.15s ease; }
+.power-toggle.is-on { background: rgba(35, 134, 54, 0.22); border-color: rgba(63, 185, 80, 0.55); color: #56d364; }
+.power-toggle.is-on .power-dot { background: #3fb950; box-shadow: 0 0 5px rgba(63, 185, 80, 0.8); }
+.power-toggle.is-on:hover { background: rgba(35, 134, 54, 0.38); }
+.power-toggle.is-off { background: rgba(218, 54, 51, 0.14); border-color: rgba(248, 81, 73, 0.4); color: #f85149; }
+.power-toggle.is-off .power-dot { background: #f85149; opacity: 0.7; }
+.power-toggle.is-off:hover { background: rgba(218, 54, 51, 0.28); }
+.prio-off { background: rgba(218, 54, 51, 0.16); color: #f85149; border: 1px solid rgba(248, 81, 73, 0.4); }
 
 /* Mobile-First 2-Row Server Card Top */
 .server-card-top { display: flex; flex-direction: column; padding: 8px 10px; user-select: none; background: #111822; gap: 6px; }

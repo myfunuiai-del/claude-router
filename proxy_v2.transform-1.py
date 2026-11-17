@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import copy
 import json
 import re
 import uuid
@@ -348,3 +349,156 @@ def convert_openai_json_to_anthropic(openai_obj, server, model):
             "output_tokens": usage.get("completion_tokens", max(1, len(content_text) // 4))
         }
     }, ensure_ascii=False).encode('utf-8')
+
+def _is_tool_result_msg(msg):
+    """Return True if msg is a user message containing tool_result blocks."""
+    if not isinstance(msg, dict) or msg.get("role") != "user":
+        return False
+    c = msg.get("content")
+    if isinstance(c, list):
+        return any(isinstance(b, dict) and b.get("type") == "tool_result" for b in c)
+    return False
+
+def _find_clean_user_index(msgs, target_idx):
+    """Find nearest clean user turn (role=user, not an orphaned tool_result) for valid Anthropic slicing."""
+    n = len(msgs)
+    target_idx = max(0, min(target_idx, n - 1))
+    for i in range(target_idx, n):
+        if isinstance(msgs[i], dict) and msgs[i].get("role") == "user" and not _is_tool_result_msg(msgs[i]):
+            return i
+    for i in range(target_idx - 1, -1, -1):
+        if isinstance(msgs[i], dict) and msgs[i].get("role") == "user" and not _is_tool_result_msg(msgs[i]):
+            return i
+    return 0
+
+def _shrink_text(text, max_chars=800):
+    if not isinstance(text, str) or len(text) <= max_chars:
+        return text
+    head = max_chars * 5 // 8
+    tail = max_chars - head
+    removed = len(text) - head - tail
+    return f"{text[:head]}\n...[trimmed {removed} chars by router]...\n{text[-tail:]}"
+
+def _shrink_message_blocks(msg, max_chars=800):
+    """Shrink oversized tool_result, text, and tool_use input payloads inside a single message."""
+    changed = False
+    if not isinstance(msg, dict):
+        return False
+    c = msg.get("content")
+    if isinstance(c, str):
+        new_c = _shrink_text(c, max_chars)
+        if new_c != c:
+            msg["content"] = new_c
+            changed = True
+    elif isinstance(c, list):
+        for blk in c:
+            if not isinstance(blk, dict):
+                continue
+            btype = blk.get("type")
+            if btype == "tool_result":
+                tc = blk.get("content")
+                if isinstance(tc, str):
+                    new_tc = _shrink_text(tc, max_chars)
+                    if new_tc != tc:
+                        blk["content"] = new_tc
+                        changed = True
+                elif isinstance(tc, list):
+                    for sub in tc:
+                        if isinstance(sub, dict) and isinstance(sub.get("text"), str):
+                            new_t = _shrink_text(sub["text"], max_chars)
+                            if new_t != sub["text"]:
+                                sub["text"] = new_t
+                                changed = True
+            elif btype == "text" and isinstance(blk.get("text"), str):
+                new_t = _shrink_text(blk["text"], max_chars)
+                if new_t != blk["text"]:
+                    blk["text"] = new_t
+                    changed = True
+            elif btype == "tool_use" and isinstance(blk.get("input"), dict):
+                for k, v in list(blk["input"].items()):
+                    if isinstance(v, str) and len(v) > max_chars:
+                        blk["input"][k] = _shrink_text(v, max_chars)
+                        changed = True
+    return changed
+
+def is_trimmable_history(body_obj):
+    """Return True if body_obj has multi-turn history or oversized content worth trimming on 400/403/413."""
+    if not isinstance(body_obj, dict):
+        return False
+    msgs = body_obj.get("messages")
+    if not isinstance(msgs, list) or len(msgs) == 0:
+        return False
+    if len(msgs) > 1:
+        return True
+    try:
+        return len(json.dumps(msgs, ensure_ascii=False)) > 1500
+    except Exception:
+        return False
+
+def build_history_recovery_variants(body_obj, recent_count=6, max_block_chars=800):
+    """Build ordered non-mutating recovery variants on 400/403/413 errors:
+    1) recent_messages: keep last few messages from a valid user turn
+    2) last_message_only: keep only the latest message (preserving tool_use/tool_result pair if needed)
+    3) shrink_tool_outputs: truncate large tool outputs and oversized content blocks
+    """
+    if not isinstance(body_obj, dict):
+        return []
+    msgs = body_obj.get("messages")
+    if not isinstance(msgs, list) or not msgs:
+        return []
+
+    variants = []
+    seen_sigs = set()
+    try:
+        seen_sigs.add(json.dumps(msgs, sort_keys=True, ensure_ascii=False))
+    except Exception:
+        pass
+
+    def _add_variant(name, new_msgs):
+        if not new_msgs:
+            return
+        try:
+            sig = json.dumps(new_msgs, sort_keys=True, ensure_ascii=False)
+        except Exception:
+            sig = None
+        if sig and sig in seen_sigs:
+            return
+        if sig:
+            seen_sigs.add(sig)
+        v_obj = copy.deepcopy(body_obj)
+        v_obj["messages"] = new_msgs
+        variants.append((name, v_obj))
+
+    # Stage 1: Keep only last few messages (from a clean user boundary)
+    if len(msgs) > 2:
+        start_idx = _find_clean_user_index(msgs, max(0, len(msgs) - recent_count))
+        if start_idx > 0:
+            _add_variant(f"recent_{len(msgs) - start_idx}_msgs", copy.deepcopy(msgs[start_idx:]))
+
+    # Stage 2: Keep only the last message (valid Anthropic turn)
+    if len(msgs) > 1:
+        last_msg = msgs[-1]
+        if isinstance(last_msg, dict) and last_msg.get("role") == "user" and not _is_tool_result_msg(last_msg):
+            _add_variant("last_message_only", [copy.deepcopy(last_msg)])
+        elif _is_tool_result_msg(last_msg) and len(msgs) >= 2 and isinstance(msgs[-2], dict) and msgs[-2].get("role") == "assistant":
+            minimal_turn = [
+                {"role": "user", "content": "[Earlier chat history trimmed due to upstream block. Continue from latest tool result.]"},
+                copy.deepcopy(msgs[-2]),
+                copy.deepcopy(last_msg)
+            ]
+            _add_variant("last_message_only", minimal_turn)
+        else:
+            last_clean = _find_clean_user_index(msgs, len(msgs) - 1)
+            if last_clean > 0:
+                _add_variant("last_message_only", copy.deepcopy(msgs[last_clean:]))
+
+    # Stage 3: Shrink large tool outputs / oversized blocks
+    shrunk_msgs = copy.deepcopy(msgs)
+    any_shrunk = False
+    for m in shrunk_msgs:
+        if _shrink_message_blocks(m, max_chars=max_block_chars):
+            any_shrunk = True
+    if any_shrunk:
+        _add_variant("shrink_tool_outputs", shrunk_msgs)
+
+    return variants
