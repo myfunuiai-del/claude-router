@@ -143,7 +143,11 @@
           <input type="text" id="custom-model-input" class="flex-1" placeholder="Enter custom model id..." />
           <button type="button" class="btn btn-xs btn-primary" onclick="addCustomModelManual()">+ Add</button>
         </div>
-        <input type="text" id="model-filter-input" placeholder="Filter discovered server models..." oninput="filterDiscoveredList()" />
+        <div style="display:flex; gap:6px;">
+          <input type="text" id="model-filter-input" class="flex-1" placeholder="Filter discovered server models..." oninput="filterDiscoveredList()" />
+          <button type="button" class="btn btn-xs" id="modal-test-all-btn" onclick="testVisibleModalModels()">Test All</button>
+        </div>
+        <div id="modal-models-summary" class="ping-summary" style="margin-top:0;"></div>
         <div id="search-list-container" class="search-box-results"></div>
         <div style="display:flex; justify-content:flex-end; margin-top:6px;">
           <button type="button" class="btn btn-xs" onclick="closeModelsModal()">Close</button>

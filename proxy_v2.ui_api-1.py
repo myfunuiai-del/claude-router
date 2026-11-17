@@ -181,14 +181,18 @@ def handle_ui_post(handler, raw_body):
                 'x-api-key': api_key if api_key else '',
                 'anthropic-version': '2023-06-01',
                 'Originator': 'codex_cli_rs',
-                'User-Agent': 'Mozilla/5.0 (compatible; AI-Proxy/2.0)',
-                'Content-Type': 'application/json'
+                'User-Agent': 'codex_cli_rs/0.101.0' if provider_id == 'agentrouter' else 'Mozilla/5.0 (compatible; AI-Proxy/2.0)',
+                'Content-Type': 'application/json',
+                'Accept-Encoding': 'identity'
             }
             if custom_hdrs and isinstance(custom_hdrs, dict):
                 universal_headers.update(custom_hdrs)
 
             # Resolve endpoint URLs
-            if p_type == "openai":
+            if provider_id == "agentrouter":
+                models_url = f"{base_url}/models"
+                ping_url = f"{base_url}/messages"
+            elif p_type == "openai":
                 models_url = f"{base_url}/models"
                 ping_url = f"{base_url}/chat/completions"
             else:
@@ -204,9 +208,10 @@ def handle_ui_post(handler, raw_body):
 
             discovered_models = []
             tested_results = []
+            single_model = data.get("model")
 
-            # 1. Attempt to fetch models from models_url
-            if api_key:
+            # 1. Fetch models list only when discovering (skip when pinging a single model to stay fast!)
+            if api_key and (discover_only or not single_model):
                 try:
                     req = urllib.request.Request(models_url, headers=universal_headers)
                     with urllib.request.urlopen(req, timeout=8) as m_resp:
@@ -222,7 +227,6 @@ def handle_ui_post(handler, raw_body):
 
             # 2. Ping models only if NOT discover_only
             if not discover_only:
-                single_model = data.get("model")
                 if single_model:
                     target_models = [single_model]
                 else:
@@ -235,18 +239,22 @@ def handle_ui_post(handler, raw_body):
 
                 def ping_one(mdl):
                     if not api_key:
-                        return {"model": mdl, "active": False, "status": "No API Key"}
+                        return {"model": mdl, "active": False, "code": 0, "status": "🔴 No API Key", "short": "🔴 No Key"}
                     body = json.dumps({'model': mdl, 'messages': [{'role': 'user', 'content': 'hi'}], 'max_tokens': max_tokens}).encode()
+                    t0 = time.time()
                     try:
                         t_req = urllib.request.Request(ping_url, data=body, headers=universal_headers, method='POST')
                         with urllib.request.urlopen(t_req, timeout=60) as t_resp:
+                            ms = int((time.time() - t0) * 1000)
                             if t_resp.status == 200:
-                                return {"model": mdl, "active": True, "status": "🟢 Active (200 OK)"}
-                            return {"model": mdl, "active": False, "status": f"HTTP {t_resp.status}"}
+                                return {"model": mdl, "active": True, "code": 200, "latency_ms": ms, "status": f"🟢 200 OK ({ms}ms)", "short": f"🟢 {ms}ms"}
+                            return {"model": mdl, "active": False, "code": t_resp.status, "latency_ms": ms, "status": f"🔴 HTTP {t_resp.status}", "short": f"🔴 {t_resp.status}"}
                     except urllib.error.HTTPError as he:
-                        return {"model": mdl, "active": False, "status": f"🔴 {he.code} {he.reason}"}
+                        ms = int((time.time() - t0) * 1000)
+                        return {"model": mdl, "active": False, "code": he.code, "latency_ms": ms, "status": f"🔴 {he.code} {he.reason}", "short": f"🔴 {he.code}"}
                     except Exception as te:
-                        return {"model": mdl, "active": False, "status": f"🔴 Error: {str(te)[:25]}"}
+                        ms = int((time.time() - t0) * 1000)
+                        return {"model": mdl, "active": False, "code": 0, "latency_ms": ms, "status": f"🔴 Error: {str(te)[:25]}", "short": "🔴 Err"}
 
                 import concurrent.futures
                 workers = min(6, len(target_models) or 1)

@@ -152,9 +152,17 @@ input:focus, select:focus { border-color: var(--brand); }
 .modal.active { display: flex; }
 .modal-box { background: var(--panel-bg); border: 1px solid var(--border); border-radius: 6px; max-width: 520px; width: 100%; padding: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); max-height: 85vh; display: flex; flex-direction: column; }
 .modal-title { font-size: 12px; font-weight: 600; color: var(--text-heading); text-transform: uppercase; margin-bottom: 10px; display: flex; justify-content: space-between; }
-.search-box-results { max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); margin-top: 6px; }
-.search-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 8px; border-bottom: 1px solid var(--border-subtle); font-family: var(--mono); font-size: 11px; }
+.search-box-results { max-height: 280px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); margin-top: 4px; }
+.search-row { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 5px 8px; border-bottom: 1px solid var(--border-subtle); font-family: var(--mono); font-size: 11px; }
 .search-row:hover { background: var(--card-bg); }
+.search-row-left { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
+.search-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-row-actions { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; }
+.modal-model-status { font-size: 9.5px; font-family: var(--mono); padding: 1px 5px; border-radius: 3px; cursor: pointer; white-space: nowrap; user-select: none; border: 1px solid var(--border-subtle); background: #0c1219; color: var(--text-muted); }
+.modal-model-status:hover { border-color: var(--brand); color: var(--text-heading); }
+.modal-model-status.is-ok { color: var(--success-text); border-color: rgba(63, 185, 80, 0.45); background: rgba(35, 134, 54, 0.16); }
+.modal-model-status.is-err { color: var(--danger-text); border-color: rgba(248, 81, 73, 0.4); background: rgba(218, 54, 51, 0.12); }
+.modal-model-status.is-pending { color: #d29922; border-color: rgba(210, 153, 34, 0.4); }
 
 /* Regular Toast */
 .toast { position: fixed; bottom: 16px; right: 16px; background: var(--card-bg); color: var(--text-heading); border: 1px solid var(--brand); padding: 8px 14px; border-radius: 6px; font-size: 12px; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 100; font-family: var(--mono); box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
