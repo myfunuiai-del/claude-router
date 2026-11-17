@@ -129,12 +129,14 @@ Every module is cleanly scoped under **500 lines** for maintainability:
 ## 🛠️ Management CLI Commands
 
 ```bash
-crouter start    # Starts router on port 8999 in background
+crouter          # Default check: starts if offline and auto-opens web dashboard
+crouter start    # Starts router on port 8999 in background & opens web dashboard
 crouter stop     # Gracefully stops the running router
 crouter restart  # Restarts proxy process
 crouter status   # Displays live server status and active provider
-crouter ui       # Prints web dashboard URL
+crouter ui       # Opens web dashboard in in-app browser or browser
 ```
+> **Note:** `croute` can also be used interchangeably with `crouter`.
 
 ---
 

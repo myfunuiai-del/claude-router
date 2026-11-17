@@ -4,6 +4,57 @@ ROUTER_DIR="$HOME/.gemini/claude-router"
 PROXY_SCRIPT="$ROUTER_DIR/proxy_v2.py"
 PORT=8999
 STATUS_URL="http://127.0.0.1:$PORT/status"
+UI_URL="http://127.0.0.1:$PORT/ui"
+
+open_browser() {
+    local target_url="$1"
+    [ -z "$target_url" ] && target_url="$UI_URL"
+    
+    # Try opening in AntiGem in-app terminal browser first
+    python3 -c '
+import json, os, urllib.request, sys
+target = sys.argv[1]
+dev_id = "e74b5ede909c4c94"
+try:
+    with open(os.path.expanduser("~/.gemini/config/mcp_config.json")) as f:
+        dev_id = json.load(f).get("mcpServers", {}).get("browser_mcp", {}).get("headers", {}).get("X-Device-Id") or dev_id
+except Exception:
+    pass
+
+req = urllib.request.Request(
+    "http://127.0.0.1:8765/browser",
+    data=json.dumps({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "browser_open_url",
+            "arguments": {"url": target}
+        }
+    }).encode("utf-8"),
+    headers={"Content-Type": "application/json", "X-Device-Id": dev_id}
+)
+try:
+    urllib.request.urlopen(req, timeout=3)
+    sys.exit(0)
+except Exception:
+    sys.exit(1)
+' "$target_url" >/dev/null 2>&1
+
+    if [ $? -eq 0 ]; then
+        echo "[Claude Router] Opened in terminal in-app browser."
+        return 0
+    fi
+
+    # Fallback to Termux open or system open
+    if command -v termux-open-url >/dev/null 2>&1; then
+        termux-open-url "$target_url"
+    elif command -v termux-open >/dev/null 2>&1; then
+        termux-open "$target_url"
+    elif command -v xdg-open >/dev/null 2>&1; then
+        xdg-open "$target_url"
+    fi
+}
 
 is_running() {
     curl -s --max-time 1 "$STATUS_URL" >/dev/null 2>&1
@@ -23,6 +74,7 @@ start_router() {
     for _ in {1..30}; do
         if is_running; then
             echo "[Claude Router] Started successfully! Web UI: http://127.0.0.1:$PORT/ui"
+            open_browser "$UI_URL"
             return 0
         fi
         sleep 0.1
@@ -68,15 +120,20 @@ case "$1" in
         status_router
         ;;
     ui)
-        echo "Dashboard URL: http://127.0.0.1:$PORT/ui"
+        if ! is_running; then
+            start_router
+        else
+            open_browser "$UI_URL"
+        fi
         ;;
     *)
-        echo "Usage: crouter {start|stop|restart|status|ui}"
-        echo "       Default action checks status and starts if offline."
+        echo "Usage: croute/crouter {start|stop|restart|status|ui}"
+        echo "       Default action checks status, starts if offline and opens dashboard."
         if ! is_running; then
             start_router
         else
             status_router
+            open_browser "$UI_URL"
         fi
         ;;
 esac

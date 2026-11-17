@@ -66,7 +66,7 @@ All files are strictly under the 400-500 line limit (Rule 2):
 | `dashboard.html` | 190 | ✅ Pass | Web console semantic HTML markup & modals |
 | `dashboard.drag-1.js` | 217 | ✅ Pass | Touch & mouse drag-drop & priority pipeline |
 | `proxy_v2.http_handlers-1.py` | 226 | ✅ Pass | HTTP GET, DELETE, OPTIONS, HEAD & static assets |
-| `proxy_v2.config-1.py` | 231 | ✅ Pass | Config paths, lock, keys, and background recovery loop |
+| `proxy_v2.config-1.py` | 275 | ✅ Pass | Dynamic configuration, API keys, failover tracker & Claude UI auto-sync |
 | `dashboard.servers-1.js` | 294 | ✅ Pass | Client cards, keys, dropdown & sync loop |
 | `proxy_v2.forwarder-1.py` | 345 | ✅ Pass | Universal cascading failover on both dedicated and pipeline paths |
 | `proxy_v2.transform-1.py` | 350 | ✅ Pass | SSE streaming, protocol translations & Groq 7k ITPM auto-trimmer |
@@ -74,3 +74,4 @@ All files are strictly under the 400-500 line limit (Rule 2):
 | `dashboard.modals-1.js` | 480 | ✅ Pass | Pure HTML confirm modal & 10s unified animated undo engine |
 | `README.md` | 120 | ✅ Pass | GitHub-ready documentation & quick-start guide |
 | `~/.local/bin/crouter` | 68 | ✅ Pass | CLI management tool with start/stop/status/ui |
+| `GitHub Repository` | - | ✅ Live | https://github.com/myfunuiai-del/claude-router |
