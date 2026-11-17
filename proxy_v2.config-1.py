@@ -166,7 +166,7 @@ def clear_in_flight(req_id):
 def record_live_issue(p_id, p_name, model, key_label, code, detail=""):
     now = time.time()
     reason = classify_error_reason(code, detail)
-    clean_detail = (detail or "").replace("\r", " ").replace("\n", " ").strip()[:180]
+    clean_detail = (detail or "").replace("\r", " ").replace("\n", " ").strip()[:120]
     with _LIVE_STORE.lock:
         _LIVE_STORE.seq += 1
         st = _LIVE_STORE.server_stats.setdefault(p_id, {
@@ -196,8 +196,8 @@ def record_live_issue(p_id, p_name, model, key_label, code, detail=""):
             "reason": reason,
             "detail": clean_detail
         })
-        if len(_LIVE_STORE.issues) > 60:
-            del _LIVE_STORE.issues[60:]
+        if len(_LIVE_STORE.issues) > 25:
+            del _LIVE_STORE.issues[25:]
 
 def record_live_request(p_id, p_name, model, key_label, status, code, latency_ms, path="/v1/messages", recovery_stage=None, failover_from=None):
     now = time.time()
@@ -243,11 +243,12 @@ def record_live_request(p_id, p_name, model, key_label, status, code, latency_ms
             "failover_from": failover_list,
             "passed_by": passed_by
         })
-        if len(_LIVE_STORE.feed) > 40:
-            del _LIVE_STORE.feed[40:]
+        if len(_LIVE_STORE.feed) > 25:
+            del _LIVE_STORE.feed[25:]
 
 def clear_live_telemetry(kind="all"):
     with _LIVE_STORE.lock:
+        _LIVE_STORE.seq += 1
         if kind in ("all", "issues"):
             _LIVE_STORE.issues.clear()
         if kind in ("all", "feed"):
@@ -263,6 +264,7 @@ def get_live_snapshot():
     ordered_ids = [p for p in routed if p in all_providers] + [p for p in all_providers if p not in routed]
 
     with _LIVE_STORE.lock:
+        cur_seq = _LIVE_STORE.seq
         in_flight_list = []
         for item in _LIVE_STORE.in_flight.values():
             c = dict(item)
@@ -304,6 +306,7 @@ def get_live_snapshot():
 
     return {
         "status": "ok",
+        "seq": cur_seq,
         "now_str": time.strftime("%H:%M:%S", time.localtime(now)),
         "auto_recovery": cfg.get("auto_recovery", True) is not False,
         "active_state": active_state,

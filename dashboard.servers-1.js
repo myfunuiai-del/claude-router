@@ -380,5 +380,9 @@ function deleteKey(pId, index) {
 
 loadConfig();
 fetchStatus();
-setInterval(fetchStatus, 5000);
+setInterval(() => {
+  if (!document.hidden && (typeof activeMainTab === 'undefined' || activeMainTab === 'console')) {
+    fetchStatus();
+  }
+}, 5000);
 

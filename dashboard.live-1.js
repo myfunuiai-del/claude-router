@@ -1,6 +1,13 @@
 let activeMainTab = 'console';
 let livePaused = false;
 let livePollTimer = null;
+let liveFetchInProgress = false;
+let liveAbortCtrl = null;
+let isUserInteracting = false;
+let touchReleaseTimer = null;
+let lastRenderedSeq = -1;
+let lastInFlightSig = '';
+let lastCooldownSig = '';
 
 function _escHtml(str) {
   return String(str ?? '')
@@ -8,6 +15,51 @@ function _escHtml(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function _shouldPollLive() {
+  return activeMainTab === 'live' && !livePaused && !document.hidden;
+}
+
+function stopLivePolling() {
+  if (livePollTimer) {
+    clearTimeout(livePollTimer);
+    livePollTimer = null;
+  }
+  if (liveAbortCtrl) {
+    try { liveAbortCtrl.abort(); } catch (e) {}
+    liveAbortCtrl = null;
+  }
+  liveFetchInProgress = false;
+  const dot = document.getElementById('live-tab-dot');
+  if (dot) {
+    dot.classList.remove('is-busy');
+    dot.classList.toggle('is-paused', true);
+  }
+}
+
+function scheduleNextLivePoll() {
+  if (livePollTimer) {
+    clearTimeout(livePollTimer);
+    livePollTimer = null;
+  }
+  if (!_shouldPollLive()) return;
+  livePollTimer = setTimeout(() => {
+    livePollTimer = null;
+    if (_shouldPollLive()) {
+      fetchLiveSnapshot();
+    }
+  }, 2500);
+}
+
+function startLivePolling() {
+  if (!_shouldPollLive()) {
+    stopLivePolling();
+    return;
+  }
+  const dot = document.getElementById('live-tab-dot');
+  if (dot) dot.classList.remove('is-paused');
+  fetchLiveSnapshot(true);
 }
 
 function switchMainTab(tab) {
@@ -22,53 +74,67 @@ function switchMainTab(tab) {
   if (bConsole) bConsole.classList.toggle('active', activeMainTab === 'console');
   if (bLive) bLive.classList.toggle('active', activeMainTab === 'live');
 
-  _restartLivePolling();
   if (activeMainTab === 'live') {
-    fetchLiveSnapshot();
+    lastRenderedSeq = -1;
+    lastInFlightSig = '';
+    lastCooldownSig = '';
+    startLivePolling();
+  } else {
+    stopLivePolling();
   }
 }
 
 function toggleLivePause() {
   livePaused = !livePaused;
   const btn = document.getElementById('live-pause-btn');
-  const dot = document.getElementById('live-tab-dot');
   if (btn) btn.innerText = livePaused ? '▶ Resume' : '⏸ Pause';
-  if (dot) dot.classList.toggle('is-paused', livePaused);
-  if (!livePaused && activeMainTab === 'live') {
-    fetchLiveSnapshot();
+  if (livePaused) {
+    stopLivePolling();
+    const nowStatus = document.getElementById('live-now-status');
+    if (nowStatus) nowStatus.innerHTML = '<span class="live-pulse-dot is-paused"></span><span>⏸ Live Paused</span>';
+  } else {
+    startLivePolling();
   }
 }
 
-function _restartLivePolling() {
-  if (livePollTimer) {
-    clearInterval(livePollTimer);
-    livePollTimer = null;
+async function fetchLiveSnapshot(forceRender = false) {
+  if (!_shouldPollLive() && !forceRender) {
+    stopLivePolling();
+    return;
   }
-  const intervalMs = activeMainTab === 'live' ? 1500 : 6000;
-  livePollTimer = setInterval(() => {
-    if (!livePaused) fetchLiveSnapshot();
-  }, intervalMs);
-}
+  if (liveFetchInProgress) return;
+  liveFetchInProgress = true;
+  liveAbortCtrl = new AbortController();
 
-async function fetchLiveSnapshot() {
   try {
-    const res = await fetch('/api/ui/live');
+    const res = await fetch('/api/ui/live', { signal: liveAbortCtrl.signal });
     if (!res.ok) return;
     const data = await res.json();
-    renderLiveSnapshot(data);
+    if (activeMainTab === 'live' && (!isUserInteracting || forceRender)) {
+      renderLiveSnapshot(data, forceRender);
+    }
   } catch (err) {
-    // Ignore transient poll errors
+    // Ignore abort/transient errors
+  } finally {
+    liveFetchInProgress = false;
+    liveAbortCtrl = null;
+    if (_shouldPollLive()) {
+      scheduleNextLivePoll();
+    }
   }
 }
 
-function renderLiveSnapshot(data) {
+function renderLiveSnapshot(data, forceRender = false) {
+  if (activeMainTab !== 'live') return;
+
   const issues = data.issues || [];
   const inFlight = data.in_flight || [];
   const servers = data.servers || [];
   const feed = data.feed || [];
   const cooldowns = data.cooldowns || [];
+  const seq = typeof data.seq === 'number' ? data.seq : -1;
 
-  // Update tab badge & dot even while on Console tab
+  // Update badge & dot
   const badge = document.getElementById('tab-issue-badge');
   if (badge) {
     if (issues.length > 0) {
@@ -80,44 +146,66 @@ function renderLiveSnapshot(data) {
   }
   const tabDot = document.getElementById('live-tab-dot');
   if (tabDot && !livePaused) {
+    tabDot.classList.remove('is-paused');
     tabDot.classList.toggle('is-busy', inFlight.length > 0);
   }
 
-  if (activeMainTab !== 'live') return;
-
   // Clock
   const clockEl = document.getElementById('live-clock');
-  if (clockEl) clockEl.innerText = data.now_str || '--:--:--';
+  if (clockEl) clockEl.textContent = data.now_str || '--:--:--';
 
-  // 1. Now Running / In-Flight
-  const nowStatus = document.getElementById('live-now-status');
-  const inFlightBox = document.getElementById('live-inflight-box');
-  if (nowStatus && inFlightBox) {
-    if (inFlight.length > 0) {
-      nowStatus.innerHTML = `<span class="live-pulse-dot is-busy"></span><span>⚡ Active Now (${inFlight.length} running)</span>`;
-      inFlightBox.innerHTML = inFlight.map(item => `
-        <div class="inflight-row">
-          <span>⚡ <strong>${_escHtml(item.provider_name)}</strong> • ${_escHtml(item.model)} • ${_escHtml(item.key_label)}</span>
-          <span>${_escHtml(item.stage)} • ${(item.elapsed_ms / 1000).toFixed(1)}s</span>
-        </div>
-      `).join('');
-    } else {
-      const last = feed[0];
-      nowStatus.innerHTML = `<span class="live-pulse-dot${livePaused ? ' is-paused' : ''}"></span><span>${livePaused ? '⏸ Live Paused' : '● Live — Idle'}</span>`;
-      if (last && last.status === 'ok') {
-        inFlightBox.innerHTML = `<div class="inflight-idle">Last passed: <span style="color:#79c0ff;">${_escHtml(last.passed_by)}</span> (${last.latency_ms}ms at ${_escHtml(last.time)})</div>`;
+  // 1. Now Running / In-Flight (only update DOM when changed)
+  const inFlightSig = JSON.stringify(inFlight.map(i => [i.id, i.provider, i.model, i.key_label, i.stage, Math.floor((i.elapsed_ms || 0) / 1000)]))
+    + '|' + (feed[0]?.id || 0) + '|' + livePaused;
+  if (forceRender || inFlightSig !== lastInFlightSig) {
+    lastInFlightSig = inFlightSig;
+    const nowStatus = document.getElementById('live-now-status');
+    const inFlightBox = document.getElementById('live-inflight-box');
+    if (nowStatus && inFlightBox) {
+      if (inFlight.length > 0) {
+        nowStatus.innerHTML = `<span class="live-pulse-dot is-busy"></span><span>⚡ Active Now (${inFlight.length} running)</span>`;
+        inFlightBox.innerHTML = inFlight.map(item => `
+          <div class="inflight-row">
+            <span>⚡ <strong>${_escHtml(item.provider_name)}</strong> • ${_escHtml(item.model)} • ${_escHtml(item.key_label)}</span>
+            <span>${_escHtml(item.stage)} • ${(item.elapsed_ms / 1000).toFixed(1)}s</span>
+          </div>
+        `).join('');
       } else {
-        inFlightBox.innerHTML = `<div class="inflight-idle">Waiting for agent requests on http://127.0.0.1:8999 ...</div>`;
+        const last = feed[0];
+        nowStatus.innerHTML = `<span class="live-pulse-dot${livePaused ? ' is-paused' : ''}"></span><span>${livePaused ? '⏸ Live Paused' : '● Live — Idle'}</span>`;
+        if (last && last.status === 'ok') {
+          inFlightBox.innerHTML = `<div class="inflight-idle">Last passed: <span style="color:#79c0ff;">${_escHtml(last.passed_by)}</span> (${last.latency_ms}ms at ${_escHtml(last.time)})</div>`;
+        } else {
+          inFlightBox.innerHTML = '<div class="inflight-idle">Waiting for agent requests on http://127.0.0.1:8999 ...</div>';
+        }
       }
     }
   }
 
-  // 2. Per-Server Live Usage Cards
+  // 2. Cooldowns (only update DOM when changed)
+  const cdSig = JSON.stringify(cooldowns);
+  if (forceRender || cdSig !== lastCooldownSig) {
+    lastCooldownSig = cdSig;
+    const cdBox = document.getElementById('live-cooldowns-box');
+    const clearCdBtn = document.getElementById('live-clear-cd-btn');
+    if (clearCdBtn) clearCdBtn.style.display = cooldowns.length > 0 ? '' : 'none';
+    if (cdBox) {
+      cdBox.innerHTML = cooldowns.map(c => {
+        const scope = c.scope && c.scope !== '*' ? ` [${c.scope}]` : '';
+        return `<span class="cooldown-chip">❄️ ${_escHtml(c.provider)} ${_escHtml(c.key)}${_escHtml(scope)} • HTTP ${c.code} • ${c.remaining_s}s left</span>`;
+      }).join('');
+    }
+  }
+
+  // 3. Heavy lists (Servers, Issues, Feed) — ONLY rebuild DOM when seq actually changed!
+  if (!forceRender && seq === lastRenderedSeq) return;
+  lastRenderedSeq = seq;
+
   const srvMeta = document.getElementById('live-servers-meta');
   const srvGrid = document.getElementById('live-servers-grid');
   if (srvMeta) {
     const activeOn = servers.filter(s => s.enabled).length;
-    srvMeta.innerText = `${activeOn}/${servers.length} ON`;
+    srvMeta.textContent = `${activeOn}/${servers.length} ON`;
   }
   if (srvGrid) {
     if (!servers.length) {
@@ -149,17 +237,6 @@ function renderLiveSnapshot(data) {
     }
   }
 
-  // 3. Live Cooldowns & Issues
-  const cdBox = document.getElementById('live-cooldowns-box');
-  const clearCdBtn = document.getElementById('live-clear-cd-btn');
-  if (clearCdBtn) clearCdBtn.style.display = cooldowns.length > 0 ? '' : 'none';
-  if (cdBox) {
-    cdBox.innerHTML = cooldowns.map(c => {
-      const scope = c.scope && c.scope !== '*' ? ` [${c.scope}]` : '';
-      return `<span class="cooldown-chip">❄️ ${_escHtml(c.provider)} ${_escHtml(c.key)}${_escHtml(scope)} • HTTP ${c.code} • ${c.remaining_s}s left</span>`;
-    }).join('');
-  }
-
   const issuesEl = document.getElementById('live-issues-list');
   if (issuesEl) {
     if (!issues.length) {
@@ -182,10 +259,9 @@ function renderLiveSnapshot(data) {
     }
   }
 
-  // 4. Live Request Feed (Winner + 5-Stage Recovery Details)
   const feedMeta = document.getElementById('live-feed-meta');
   const feedEl = document.getElementById('live-feed-list');
-  if (feedMeta) feedMeta.innerText = `${feed.length} recent`;
+  if (feedMeta) feedMeta.textContent = `${feed.length} recent`;
   if (feedEl) {
     if (!feed.length) {
       feedEl.innerHTML = '<div class="live-empty">No completed requests yet — send a prompt to see live routing &amp; recovery</div>';
@@ -195,7 +271,7 @@ function renderLiveSnapshot(data) {
         const hasRec = !!(f.recovery_stage && f.recovery_stage.length > 0);
         const rowCls = !isOk ? 'live-row is-issue' : (hasRec ? 'live-row is-recovered' : 'live-row is-ok');
         const badgeHtml = isOk
-          ? `<span class="live-code-badge ok">200 OK</span>`
+          ? '<span class="live-code-badge ok">200 OK</span>'
           : `<span class="live-code-badge err">${f.code || 'ERR'} FAIL</span>`;
         const recHtml = hasRec
           ? `<div class="live-recovery-pill">🛡️ ${_escHtml(f.recovery_stage)} ➔ Passed by ${_escHtml(f.provider_name)} (${_escHtml(f.key_label)})</div>`
@@ -231,13 +307,39 @@ async function clearLiveData(mode) {
     const data = await res.json();
     if (res.ok) {
       showToast(data.message || 'Cleared');
-      fetchLiveSnapshot();
+      lastRenderedSeq = -1;
+      lastCooldownSig = '';
+      if (activeMainTab === 'live') fetchLiveSnapshot(true);
     }
   } catch (err) {
     showToast('Failed to clear live data', true);
   }
 }
 
-// Start lightweight polling immediately (6s on Console tab for issue badge, 1.5s when Live tab active)
-_restartLivePolling();
-fetchLiveSnapshot();
+// Touch/scroll guard so live DOM updates NEVER cancel a tap mid-gesture on mobile
+document.addEventListener('touchstart', () => {
+  isUserInteracting = true;
+  if (touchReleaseTimer) clearTimeout(touchReleaseTimer);
+}, { passive: true });
+
+const _releaseTouch = () => {
+  if (touchReleaseTimer) clearTimeout(touchReleaseTimer);
+  touchReleaseTimer = setTimeout(() => { isUserInteracting = false; }, 350);
+};
+document.addEventListener('touchend', _releaseTouch, { passive: true });
+document.addEventListener('touchcancel', _releaseTouch, { passive: true });
+
+// Strictly stop Live polling whenever page is hidden, closed, or switched away
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    stopLivePolling();
+  } else if (_shouldPollLive()) {
+    startLivePolling();
+  }
+});
+
+window.addEventListener('pagehide', stopLivePolling);
+window.addEventListener('beforeunload', stopLivePolling);
+
+// Initial state: Live polling is STOPPED until user explicitly opens the Live tab
+stopLivePolling();

@@ -65,6 +65,11 @@ def handle_GET(handler):
                 return
 
     req_clean_path = handler.path.split('?')[0]
+    if req_clean_path == "/favicon.ico":
+        handler.send_response(204)
+        handler.end_headers()
+        return
+
     if req_clean_path in ["/ui", "/ui/", "/dashboard", "/dashboard/"]:
         try:
             with open(DASHBOARD_HTML_FILE, "rb") as f:
