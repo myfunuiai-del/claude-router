@@ -851,73 +851,115 @@ function refreshMemberModelOptions(row) {
   }).join('');
 }
 
-async function testSingleMemberModel(btn) {
+async function checkAllProviderModelsStatus(btn) {
   const row = btn.closest('.team-member-row');
   if (!row) return;
   const provSel = row.querySelector('.t-member-prov');
   const modelSel = row.querySelector('.t-member-model');
-  const dotEl = row.querySelector('.t-model-btn-indicator');
-  const labelEl = row.querySelector('.t-model-btn-text');
-  const textEl = row.querySelector('.t-member-model-status');
-
   const pId = provSel?.value;
-  const m = modelSel?.value;
-  if (!pId || !m) return;
+  if (!pId) return;
 
-  if (labelEl) labelEl.innerText = 'Testing...';
-  if (dotEl) dotEl.innerText = '⏳';
-  if (textEl) {
-    textEl.innerText = '⏳ Testing model latency...';
-    textEl.style.color = 'var(--text-muted)';
+  const models = currentConfig?.providers?.[pId]?.models || [];
+  if (!models.length) {
+    showToast(`No models configured for ${pId}`, true);
+    return;
   }
+
+  const panel = row.querySelector('.t-member-models-panel');
+  const panelList = row.querySelector('.t-panel-list');
+  const panelSummary = row.querySelector('.t-panel-summary');
+  const btnText = btn.querySelector('.t-btn-text');
+
+  // Toggle open
+  if (panel) panel.style.display = 'block';
+
+  const renderPanelItems = () => {
+    if (!panelList) return;
+    panelList.innerHTML = models.map(m => {
+      const cached = (typeof _getCachedModelStatus === 'function') ? _getCachedModelStatus(pId, m) : null;
+      const isSelected = (modelSel && modelSel.value === m);
+      const dot = cached ? (cached.state === 'ok' ? '🟢' : (cached.state === 'pending' ? '⏳' : '🔴')) : '⚪';
+      const statusColor = cached ? (cached.state === 'ok' ? 'var(--success-text)' : (cached.state === 'pending' ? 'var(--text-muted)' : 'var(--danger-text)')) : 'var(--text-muted)';
+      const shortStatus = cached ? (cached.short || cached.status || '') : 'Untested';
+      const borderStyle = isSelected ? 'border-color:#58a6ff; background:#162438;' : 'border-color:#1f2d40; background:#0d141f;';
+      return `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 6px; border-radius:3px; border:1px solid; ${borderStyle} cursor:pointer;" onclick="selectMemberModelFromPanel(this, '${m.replace(/'/g, "\\'")}')" title="Click to select ${m}">
+          <div style="display:flex; align-items:center; gap:5px; min-width:0; overflow:hidden;">
+            <span style="font-size:10px;">${dot}</span>
+            <span style="font-size:10px; font-family:var(--mono); color:#e6edf3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${m}</span>
+            ${isSelected ? '<span style="font-size:8.5px; background:#1f4277; color:#79c0ff; padding:0 3px; border-radius:2px;">SELECTED</span>' : ''}
+          </div>
+          <span style="font-size:9.5px; font-family:var(--mono); color:${statusColor}; white-space:nowrap; margin-left:6px;">${shortStatus}</span>
+        </div>
+      `;
+    }).join('');
+  };
+
+  renderPanelItems();
+
+  if (btnText) btnText.innerText = 'Pinging...';
   btn.disabled = true;
 
-  try {
-    const res = await fetch('/api/ui/test-models', {
+  let completed = 0, okCount = 0;
+  const updateProgress = () => {
+    if (panelSummary) panelSummary.innerText = `MODELS STATUS (${okCount}/${models.length} active - ${completed}/${models.length} checked)`;
+    if (btnText) btnText.innerText = `⏳ ${completed}/${models.length}`;
+    renderPanelItems();
+    refreshMemberModelOptions(row);
+  };
+
+  const pingPromises = models.map(m => {
+    _setCachedModelStatus(pId, m, { state: 'pending', short: '⏳...', status: 'Pinging...' });
+    renderPanelItems();
+
+    return fetch('/api/ui/test-models', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ provider: pId, model: m, discover_only: false })
+    }).then(res => res.json()).then(data => {
+      completed++;
+      const resObj = (data.models || [])[0];
+      if (resObj && resObj.active) {
+        okCount++;
+        _setCachedModelStatus(pId, m, { state: 'ok', short: resObj.short || '🟢 200', status: resObj.status || '🟢 200 OK' });
+      } else {
+        const errMsg = resObj?.status || data.message || 'Failed';
+        _setCachedModelStatus(pId, m, { state: 'err', short: resObj?.short || '🔴 Fail', status: errMsg });
+      }
+      updateProgress();
+    }).catch(() => {
+      completed++;
+      _setCachedModelStatus(pId, m, { state: 'err', short: '🔴 Err', status: 'Network error / Timeout' });
+      updateProgress();
     });
-    const data = await res.json();
-    const resObj = (data.models || [])[0];
-    if (resObj && resObj.active) {
-      const info = { state: 'ok', short: resObj.short || '🟢 200', status: resObj.status || '🟢 200 OK' };
-      if (typeof _setCachedModelStatus === 'function') _setCachedModelStatus(pId, m, info);
-      if (dotEl) dotEl.innerText = '🟢';
-      if (textEl) {
-        textEl.innerText = resObj.status || '🟢 200 OK';
-        textEl.style.color = 'var(--success-text)';
-        textEl.title = textEl.innerText;
-      }
-      showToast(`${m}: ${resObj.status || 'Active 200 OK'}`);
-    } else {
-      const errMsg = resObj?.status || data.message || '🔴 Failed';
-      const info = { state: 'err', short: resObj?.short || '🔴 Fail', status: errMsg };
-      if (typeof _setCachedModelStatus === 'function') _setCachedModelStatus(pId, m, info);
-      if (dotEl) dotEl.innerText = '🔴';
-      if (textEl) {
-        textEl.innerText = errMsg;
-        textEl.style.color = 'var(--danger-text)';
-        textEl.title = textEl.innerText;
-      }
-      showToast(`${m}: ${errMsg}`, true);
-    }
-    refreshMemberModelOptions(row);
-  } catch (err) {
-    const info = { state: 'err', short: '🔴 Err', status: 'Network error / Timeout' };
-    if (typeof _setCachedModelStatus === 'function') _setCachedModelStatus(pId, m, info);
-    if (dotEl) dotEl.innerText = '🔴';
-    if (textEl) {
-      textEl.innerText = 'Network error / Timeout';
-      textEl.style.color = 'var(--danger-text)';
-      textEl.title = textEl.innerText;
-    }
-    refreshMemberModelOptions(row);
-    showToast(`Test error for ${m}`, true);
+  });
+
+  try {
+    await Promise.all(pingPromises);
+    if (panelSummary) panelSummary.innerText = `MODELS STATUS (${okCount}/${models.length} ACTIVE)`;
+    if (btnText) btnText.innerText = `📊 ${okCount}/${models.length} OK`;
+    showToast(`${currentConfig?.providers?.[pId]?.name || pId}: ${okCount}/${models.length} models active`);
+    if (modelSel) onMemberModelChange(modelSel);
   } finally {
-    if (labelEl) labelEl.innerText = 'Status';
     btn.disabled = false;
   }
+}
+
+function selectMemberModelFromPanel(itemEl, modelName) {
+  const row = itemEl.closest('.team-member-row');
+  if (!row) return;
+  const modelSel = row.querySelector('.t-member-model');
+  if (modelSel) {
+    modelSel.value = modelName;
+    onMemberModelChange(modelSel);
+  }
+  const panel = row.querySelector('.t-member-models-panel');
+  if (panel) panel.style.display = 'none';
+  showToast(`Selected model: ${modelName}`);
+}
+
+async function testSingleMemberModel(btn) {
+  checkAllProviderModelsStatus(btn);
 }
 
 async function testAllModalMembers() {
@@ -1059,13 +1101,20 @@ function addTeamMemberRow(role='', provider='', model='', prompt='', tokens='', 
       <div style="min-width:0;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
           <label style="font-size:10px; color:var(--text-muted);">Assigned Model</label>
-          <button type="button" class="t-member-status-btn" onclick="testSingleMemberModel(this)" title="Test status of this model">
-            <span class="t-model-btn-indicator">${statusDot}</span> <span class="t-model-btn-text">Status</span>
+          <button type="button" class="btn btn-xs t-member-all-status-btn" onclick="checkAllProviderModelsStatus(this)" style="padding:1px 7px; font-size:9.5px; height:20px; line-height:1; background:#182333; border:1px solid #2d3f58; color:#79c0ff; border-radius:3px;" title="Check status of all models for this provider">
+            <span class="t-btn-icon">📊</span> <span class="t-btn-text">Check Models Status</span>
           </button>
         </div>
         <select class="t-member-model" onchange="onMemberModelChange(this)" style="width:100%; min-width:0; font-size:11px; padding:6px 8px; font-family:var(--mono); text-overflow:ellipsis; overflow:hidden; box-sizing:border-box; background:#0a0f16; border:1px solid #233145; border-radius:4px; color:#f0f4f8;">${modelOpts}</select>
-        <div class="t-member-model-status" style="color:${statusColor};" title="${statusText}">
+        <div class="t-member-model-status" style="color:${statusColor}; font-size:9.5px; font-family:var(--mono); margin-top:2px; min-height:13px;" title="${statusText}">
           ${statusText}
+        </div>
+        <div class="t-member-models-panel" style="display:none; margin-top:4px; background:#080d14; border:1px solid #2a3a52; border-radius:4px; padding:6px; max-height:180px; overflow-y:auto;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; border-bottom:1px solid #1c2738; padding-bottom:3px;">
+            <span style="font-size:10px; font-weight:600; color:#79c0ff;" class="t-panel-summary">MODELS STATUS</span>
+            <span style="font-size:10px; color:var(--text-muted); cursor:pointer;" onclick="this.closest('.t-member-models-panel').style.display='none'">✕ Close</span>
+          </div>
+          <div class="t-panel-list" style="display:flex; flex-direction:column; gap:3px;"></div>
         </div>
       </div>
       <div style="min-width:0;">
@@ -1113,6 +1162,11 @@ function reindexTeamMembers() {
 function updateMemberModels(selProv) {
   const row = selProv.closest('.team-member-row');
   const selModel = row?.querySelector('.t-member-model');
+  const panel = row?.querySelector('.t-member-models-panel');
+  if (panel) panel.style.display = 'none';
+  const btnText = row?.querySelector('.t-member-all-status-btn .t-btn-text');
+  if (btnText) btnText.innerText = 'Check Models Status';
+
   if (!selModel) return;
   const pId = selProv.value;
   const models = currentConfig?.providers?.[pId]?.models || [];
