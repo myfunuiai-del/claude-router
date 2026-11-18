@@ -42,11 +42,17 @@ def _load_module_to_globals(filename, target_globals):
 _config_live_mod = _load_module_to_globals("proxy_v2.config_live-1.py", globals())
 
 def load_proxy_config():
-    """Load config from JSON file with safe fallbacks."""
+    """Load config from JSON file with safe fallbacks and automatic key deduplication."""
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                cfg = json.load(f)
+            # Automatic key deduplication safeguard across all providers
+            if isinstance(cfg, dict) and "providers" in cfg and isinstance(cfg["providers"], dict):
+                for p_data in cfg["providers"].values():
+                    if isinstance(p_data, dict) and "keys" in p_data and isinstance(p_data["keys"], list):
+                        p_data["keys"] = list(dict.fromkeys(k.strip() for k in p_data["keys"] if isinstance(k, str) and k.strip()))
+            return cfg
         except Exception as e:
             sys.stderr.write(f"[Config] Error reading {CONFIG_FILE}: {e}\n")
     return {"active_provider": "coarena", "providers": {}}
@@ -139,9 +145,13 @@ def sync_to_claude_settings(cfg):
         sys.stderr.write(f"[Claude Sync] Warning: Could not sync to Claude settings: {e}\n")
 
 def save_proxy_config(cfg):
-    """Save config safely to JSON file and sync to Claude Code UI dropdown."""
+    """Save config safely to JSON file and sync to Claude Code UI dropdown with key deduplication."""
     with config_lock:
         try:
+            if isinstance(cfg, dict) and "providers" in cfg and isinstance(cfg["providers"], dict):
+                for p_data in cfg["providers"].values():
+                    if isinstance(p_data, dict) and "keys" in p_data and isinstance(p_data["keys"], list):
+                        p_data["keys"] = list(dict.fromkeys(k.strip() for k in p_data["keys"] if isinstance(k, str) and k.strip()))
             tmp = CONFIG_FILE + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, indent=2)

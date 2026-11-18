@@ -91,8 +91,12 @@ def select_balanced_keys_ordered(p_id, keys, model=None, is_cooldown_fn=None):
     """
     if not keys:
         return []
-    indexed_keys = list(enumerate(keys))
-    if len(keys) == 1:
+    # Safeguard: Deduplicate keys while preserving order
+    deduped = list(dict.fromkeys(k.strip() for k in keys if isinstance(k, str) and k.strip()))
+    if not deduped:
+        return []
+    indexed_keys = list(enumerate(deduped))
+    if len(deduped) == 1:
         return indexed_keys
 
     now = time.time()
