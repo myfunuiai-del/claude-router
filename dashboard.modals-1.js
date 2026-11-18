@@ -570,6 +570,18 @@ function closeTeamModal() {
   if (modal) modal.classList.remove('active');
 }
 
+function onTeamWorkflowChange(val) {
+  const listEl = document.getElementById('team-members-list');
+  if (!listEl) return;
+  // If user selected parallel council and has < 3 members, auto suggest Councilor 1, 2 + Judge
+  if (val === 'parallel_council' && listEl.children.length < 3) {
+    listEl.innerHTML = '';
+    addTeamMemberRow('councilor_1', 'coarena', 'gemini-4-carbon', 'Expert perspective 1: Deep reasoning & architecture');
+    addTeamMemberRow('councilor_2', 'groq', 'openai/gpt-oss-120b', 'Expert perspective 2: Fast algorithmic & code implementation');
+    addTeamMemberRow('judge', 'googlestudio', 'models/gemini-3.5-flash-lite', 'Supreme Judge: Compare both candidates, eliminate flaws, and synthesize the ultimate solution');
+  }
+}
+
 function addTeamMemberRow(role='', provider='', model='', prompt='') {
   const listEl = document.getElementById('team-members-list');
   if (!listEl) return;

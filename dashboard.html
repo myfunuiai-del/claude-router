@@ -269,8 +269,9 @@
         </div>
         <div>
           <label style="font-size:11px; color:var(--text-muted);">Workflow Pattern</label>
-          <select id="team-workflow" style="margin-top:3px;">
+          <select id="team-workflow" style="margin-top:3px;" onchange="onTeamWorkflowChange(this.value)">
             <option value="role_pipeline">Role Pipeline (Member 1 Architect ➔ Member 2 Coder)</option>
+            <option value="parallel_council">⚖️ Parallel Council (Parallel Solvers ➔ Judge Synthesizer)</option>
             <option value="worker_reviewer">Worker ➔ Reviewer</option>
           </select>
         </div>

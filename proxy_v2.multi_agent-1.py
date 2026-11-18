@@ -19,6 +19,7 @@ import sys
 import json
 import time
 import copy
+import concurrent.futures
 import urllib.request
 import urllib.error
 import importlib.util
@@ -228,9 +229,8 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         handler.wfile.write(err_payload)
         return True
 
-    # 2. Execution Strategy: Role-Pipeline (e.g. Architect -> Coder/Executor)
-    # If 1 member, execute directly with member's custom prompt
-    # If >=2 members, Lead member (1st) guides or 2nd member finishes with full tool support
+    # 2. Execution Strategy: Check workflow
+    wf = team.get("workflow", "role_pipeline")
     total_in = 0
     total_out = 0
     steps_log = []
@@ -251,9 +251,104 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         _finish_team_success(handler, team, p_obj.get('name', pid), mdl, resp_data, t_start, total_in, total_out, steps_log)
         return True
 
-    # Multi-member execution:
-    # Member 1 = Planner / Architect (generates high-level blueprint / strategy)
-    # Member 2 = Executor / Coder (implements solution with tools and client output)
+    # ==========================================
+    # STRATEGY A: PARALLEL COUNCIL / CONSENSUS
+    # ==========================================
+    if wf in ("parallel_council", "consensus"):
+        # First N-1 members are Councilors who solve the problem in parallel.
+        # Last member is the Supreme Judge / Synthesizer who combines & finalizes.
+        councilors = members[:-1]
+        judge = members[-1]
+
+        j_pid = judge.get("provider")
+        j_pobj = all_providers[j_pid]
+        j_mdl = judge.get("model")
+
+        sys.stderr.write(f"[Multi-Agent Parallel Council '{tname}'] Fanning out {len(councilors)} councilors in parallel...\n")
+
+        council_results = [None] * len(councilors)
+        council_errors = []
+
+        def _run_councilor(idx, mem):
+            c_pid = mem.get("provider")
+            c_pobj = all_providers[c_pid]
+            c_mdl = mem.get("model")
+            c_role = mem.get("role") or f"Councilor #{idx+1}"
+            c_prompt = mem.get("prompt") or f"You are {c_role}. Provide your complete, independent solution to the problem."
+            ok, data, in_t, out_t, ms = _execute_member_turn(handler, c_pid, c_pobj, c_mdl, body_obj, c_prompt)
+            return idx, c_pid, c_pobj.get("name", c_pid), c_mdl, c_role, ok, data, in_t, out_t, ms
+
+        t_fanout = time.time()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(6, len(councilors))) as executor:
+            futures = [executor.submit(_run_councilor, i, m) for i, m in enumerate(councilors)]
+            for fut in concurrent.futures.as_completed(futures):
+                try:
+                    idx, c_pid, c_pname, c_mdl, c_role, ok, data, in_t, out_t, ms = fut.result()
+                    if not ok:
+                        council_errors.append((c_pid, data))
+                    else:
+                        council_results[idx] = {
+                            "pid": c_pid, "pname": c_pname, "model": c_mdl,
+                            "role": c_role, "data": data, "in_t": in_t, "out_t": out_t, "ms": ms
+                        }
+                except Exception as e:
+                    council_errors.append(("worker_thread", str(e)))
+
+        # Strict All-or-Nothing check: If ANY councilor failed, abort!
+        if council_errors:
+            failing_pid, err_msg = council_errors[0]
+            _send_team_error(handler, tname, failing_pid, err_msg, t_start)
+            return True
+
+        parallel_ms = int((time.time() - t_fanout) * 1000)
+        c_summaries = []
+        council_opinions_text = ""
+
+        for idx, cr in enumerate(council_results):
+            total_in += cr["in_t"]
+            total_out += cr["out_t"]
+            c_summaries.append(f"{cr['pname']} ({cr['ms']}ms)")
+
+            # Extract text from councilor response
+            c_text = ""
+            try:
+                c_json = json.loads(cr["data"].decode('utf-8', errors='ignore'))
+                for blk in c_json.get("content", []):
+                    if isinstance(blk, dict) and blk.get("type") == "text":
+                        c_text += blk.get("text", "")
+            except Exception:
+                c_text = cr["data"].decode('utf-8', errors='ignore')[:1500]
+
+            council_opinions_text += f"\n--- [COUNCILOR CANDIDATE #{idx+1}: {cr['role']} ({cr['pname']} • {cr['model']})] ---\n{c_text.strip()}\n"
+
+        steps_log.append(f"Parallel Council [{', '.join(c_summaries)} in {parallel_ms}ms]")
+
+        # Phase 2: Supreme Judge / Synthesizer makes final verdict
+        judge_default_prompt = (
+            "You are the Supreme Judge and Master Synthesizer. "
+            "You have received candidate solutions from independent expert councilors. "
+            "Critically analyze all solutions, eliminate errors, reconcile any contradictions, "
+            "and output the final, authoritative, bug-free, and most optimal solution for the user."
+        )
+        j_prompt = judge.get("prompt") or judge_default_prompt
+        combined_judge_prompt = f"{j_prompt}\n\n{council_opinions_text}\n--- [END OF COUNCIL OPINIONS] ---"
+
+        sys.stderr.write(f"[Multi-Agent Parallel Council '{tname}'] Phase 2: Supreme Judge ({j_pobj.get('name', j_pid)} - {j_mdl}) evaluating...\n")
+        j_ok, j_data, j_in, j_out, j_ms = _execute_member_turn(handler, j_pid, j_pobj, j_mdl, body_obj, combined_judge_prompt)
+        if not j_ok:
+            _send_team_error(handler, tname, j_pid, j_data, t_start)
+            return True
+
+        total_in += j_in
+        total_out += j_out
+        steps_log.append(f"Judge Verdict ({j_pobj.get('name', j_pid)}): {j_ms}ms")
+
+        _finish_team_success(handler, team, j_pobj.get('name', j_pid), j_mdl, j_data, t_start, total_in, total_out, steps_log)
+        return True
+
+    # ==========================================
+    # STRATEGY B: ROLE-PIPELINE (Architect -> Coder)
+    # ==========================================
     m1 = members[0]
     pid1 = m1.get("provider")
     p_obj1 = all_providers[pid1]
