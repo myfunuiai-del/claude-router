@@ -810,6 +810,197 @@ function setMemberMode(btn, newMode) {
   }
 }
 
+function onMemberModelChange(sel) {
+  const row = sel.closest('.team-member-row');
+  if (!row) return;
+  const provSel = row.querySelector('.t-member-prov');
+  const pId = provSel?.value || '';
+  const m = sel.value;
+  const cached = (typeof _getCachedModelStatus === 'function') ? _getCachedModelStatus(pId, m) : null;
+  const dotEl = row.querySelector('.t-model-btn-indicator');
+  const textEl = row.querySelector('.t-member-model-status');
+  if (cached) {
+    if (dotEl) dotEl.innerText = cached.state === 'ok' ? '🟢' : '🔴';
+    if (textEl) {
+      textEl.innerText = cached.status || cached.short || (cached.state === 'ok' ? '🟢 Active' : '🔴 Error');
+      textEl.style.color = cached.state === 'ok' ? 'var(--success-text)' : 'var(--danger-text)';
+      textEl.title = textEl.innerText;
+    }
+  } else {
+    if (dotEl) dotEl.innerText = '⚪';
+    if (textEl) {
+      textEl.innerText = '⚪ Untested';
+      textEl.style.color = 'var(--text-muted)';
+      textEl.title = '⚪ Untested';
+    }
+  }
+}
+
+function refreshMemberModelOptions(row) {
+  const provSel = row?.querySelector('.t-member-prov');
+  const modelSel = row?.querySelector('.t-member-model');
+  if (!provSel || !modelSel) return;
+  const pId = provSel.value;
+  const curModel = modelSel.value;
+  const models = currentConfig?.providers?.[pId]?.models || [];
+  modelSel.innerHTML = models.map(m => {
+    const cached = (typeof _getCachedModelStatus === 'function') ? _getCachedModelStatus(pId, m) : null;
+    const dot = cached ? (cached.state === 'ok' ? '🟢' : '🔴') : '⚪';
+    const latency = cached?.short ? ` (${cached.short})` : '';
+    return `<option value="${m}" ${m === curModel ? 'selected' : ''}>${dot} ${m}${latency}</option>`;
+  }).join('');
+}
+
+async function testSingleMemberModel(btn) {
+  const row = btn.closest('.team-member-row');
+  if (!row) return;
+  const provSel = row.querySelector('.t-member-prov');
+  const modelSel = row.querySelector('.t-member-model');
+  const dotEl = row.querySelector('.t-model-btn-indicator');
+  const labelEl = row.querySelector('.t-model-btn-text');
+  const textEl = row.querySelector('.t-member-model-status');
+
+  const pId = provSel?.value;
+  const m = modelSel?.value;
+  if (!pId || !m) return;
+
+  if (labelEl) labelEl.innerText = 'Testing...';
+  if (dotEl) dotEl.innerText = '⏳';
+  if (textEl) {
+    textEl.innerText = '⏳ Testing model latency...';
+    textEl.style.color = 'var(--text-muted)';
+  }
+  btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/ui/test-models', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: pId, model: m, discover_only: false })
+    });
+    const data = await res.json();
+    const resObj = (data.models || [])[0];
+    if (resObj && resObj.active) {
+      const info = { state: 'ok', short: resObj.short || '🟢 200', status: resObj.status || '🟢 200 OK' };
+      if (typeof _setCachedModelStatus === 'function') _setCachedModelStatus(pId, m, info);
+      if (dotEl) dotEl.innerText = '🟢';
+      if (textEl) {
+        textEl.innerText = resObj.status || '🟢 200 OK';
+        textEl.style.color = 'var(--success-text)';
+        textEl.title = textEl.innerText;
+      }
+      showToast(`${m}: ${resObj.status || 'Active 200 OK'}`);
+    } else {
+      const errMsg = resObj?.status || data.message || '🔴 Failed';
+      const info = { state: 'err', short: resObj?.short || '🔴 Fail', status: errMsg };
+      if (typeof _setCachedModelStatus === 'function') _setCachedModelStatus(pId, m, info);
+      if (dotEl) dotEl.innerText = '🔴';
+      if (textEl) {
+        textEl.innerText = errMsg;
+        textEl.style.color = 'var(--danger-text)';
+        textEl.title = textEl.innerText;
+      }
+      showToast(`${m}: ${errMsg}`, true);
+    }
+    refreshMemberModelOptions(row);
+  } catch (err) {
+    const info = { state: 'err', short: '🔴 Err', status: 'Network error / Timeout' };
+    if (typeof _setCachedModelStatus === 'function') _setCachedModelStatus(pId, m, info);
+    if (dotEl) dotEl.innerText = '🔴';
+    if (textEl) {
+      textEl.innerText = 'Network error / Timeout';
+      textEl.style.color = 'var(--danger-text)';
+      textEl.title = textEl.innerText;
+    }
+    refreshMemberModelOptions(row);
+    showToast(`Test error for ${m}`, true);
+  } finally {
+    if (labelEl) labelEl.innerText = 'Status';
+    btn.disabled = false;
+  }
+}
+
+async function testAllModalMembers() {
+  const rows = [...document.querySelectorAll('.team-member-row')];
+  if (!rows.length) return;
+  const testBtn = document.getElementById('team-modal-test-all-btn');
+  const summaryBox = document.getElementById('team-modal-ping-summary');
+  if (testBtn) { testBtn.innerText = '⏳ Testing...'; testBtn.disabled = true; }
+  if (summaryBox) {
+    summaryBox.style.display = 'block';
+    summaryBox.innerText = `Pinging ${rows.length} member models...`;
+    summaryBox.style.color = 'var(--text-muted)';
+  }
+
+  let okCount = 0;
+  const promises = rows.map(async row => {
+    const provSel = row.querySelector('.t-member-prov');
+    const modelSel = row.querySelector('.t-member-model');
+    const dotEl = row.querySelector('.t-model-btn-indicator');
+    const textEl = row.querySelector('.t-member-model-status');
+    const pId = provSel?.value;
+    const m = modelSel?.value;
+    if (!pId || !m) return;
+
+    if (dotEl) dotEl.innerText = '⏳';
+    if (textEl) textEl.innerText = '⏳ Testing...';
+
+    try {
+      const res = await fetch('/api/ui/test-models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: pId, model: m, discover_only: false })
+      });
+      const data = await res.json();
+      const resObj = (data.models || [])[0];
+      if (resObj && resObj.active) {
+        okCount++;
+        const info = { state: 'ok', short: resObj.short || '🟢 200', status: resObj.status || '🟢 200 OK' };
+        if (typeof _setCachedModelStatus === 'function') _setCachedModelStatus(pId, m, info);
+        if (dotEl) dotEl.innerText = '🟢';
+        if (textEl) {
+          textEl.innerText = resObj.status || '🟢 200 OK';
+          textEl.style.color = 'var(--success-text)';
+          textEl.title = textEl.innerText;
+        }
+      } else {
+        const errMsg = resObj?.status || data.message || 'Failed';
+        const info = { state: 'err', short: resObj?.short || '🔴 Fail', status: errMsg };
+        if (typeof _setCachedModelStatus === 'function') _setCachedModelStatus(pId, m, info);
+        if (dotEl) dotEl.innerText = '🔴';
+        if (textEl) {
+          textEl.innerText = errMsg;
+          textEl.style.color = 'var(--danger-text)';
+          textEl.title = textEl.innerText;
+        }
+      }
+      refreshMemberModelOptions(row);
+    } catch (err) {
+      const info = { state: 'err', short: '🔴 Err', status: 'Network error / Timeout' };
+      if (typeof _setCachedModelStatus === 'function') _setCachedModelStatus(pId, m, info);
+      if (dotEl) dotEl.innerText = '🔴';
+      if (textEl) {
+        textEl.innerText = 'Network error / Timeout';
+        textEl.style.color = 'var(--danger-text)';
+        textEl.title = textEl.innerText;
+      }
+      refreshMemberModelOptions(row);
+    }
+  });
+
+  try {
+    await Promise.all(promises);
+    if (summaryBox) {
+      const isAllOk = okCount === rows.length;
+      summaryBox.innerText = `${okCount}/${rows.length} models active (${isAllOk ? '🟢 Strict Ready' : '🔴 Strict Halted'})`;
+      summaryBox.style.color = isAllOk ? 'var(--success-text)' : 'var(--danger-text)';
+    }
+    showToast(`Team modal test: ${okCount}/${rows.length} models active`);
+  } finally {
+    if (testBtn) { testBtn.innerText = '🧪 Test All'; testBtn.disabled = false; }
+  }
+}
+
 function addTeamMemberRow(role='', provider='', model='', prompt='', tokens='', mode='', recommended='') {
   const listEl = document.getElementById('team-members-list');
   if (!listEl) return;
@@ -832,7 +1023,17 @@ function addTeamMemberRow(role='', provider='', model='', prompt='', tokens='', 
   if (isHazard) row.classList.add('is-mode-hazard');
 
   const provOpts = pKeys.map(k => `<option value="${k}" ${k === curProv ? 'selected' : ''}>${providers[k]?.name || k}</option>`).join('');
-  const modelOpts = provModels.map(m => `<option value="${m}" ${m === curModel ? 'selected' : ''}>${m}</option>`).join('');
+  const modelOpts = provModels.map(m => {
+    const cached = (typeof _getCachedModelStatus === 'function') ? _getCachedModelStatus(curProv, m) : null;
+    const dot = cached ? (cached.state === 'ok' ? '🟢' : '🔴') : '⚪';
+    const latency = cached?.short ? ` (${cached.short})` : '';
+    return `<option value="${m}" ${m === curModel ? 'selected' : ''}>${dot} ${m}${latency}</option>`;
+  }).join('');
+
+  const curCached = (typeof _getCachedModelStatus === 'function') ? _getCachedModelStatus(curProv, curModel) : null;
+  const statusDot = curCached ? (curCached.state === 'ok' ? '🟢' : '🔴') : '⚪';
+  const statusColor = curCached ? (curCached.state === 'ok' ? 'var(--success-text)' : 'var(--danger-text)') : 'var(--text-muted)';
+  const statusText = curCached ? (curCached.status || curCached.short || (curCached.state === 'ok' ? '🟢 Active' : '🔴 Error')) : '⚪ Untested';
 
   row.innerHTML = `
     <!-- Top row: Member badge & remove button -->
@@ -853,15 +1054,23 @@ function addTeamMemberRow(role='', provider='', model='', prompt='', tokens='', 
       </div>
     </div>
 
-    <!-- Assigned Model and Max Tokens Grid -->
+    <!-- Assigned Model and Max Tokens Grid with Status Button -->
     <div style="display:grid; grid-template-columns: 2fr 1fr; gap:6px; min-width:0;">
       <div style="min-width:0;">
-        <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;">Assigned Model</label>
-        <select class="t-member-model" style="width:100%; min-width:0; font-size:11px; padding:5px 8px; font-family:var(--mono); text-overflow:ellipsis; overflow:hidden; box-sizing:border-box;">${modelOpts}</select>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+          <label style="font-size:10px; color:var(--text-muted);">Assigned Model</label>
+          <button type="button" class="t-member-status-btn" onclick="testSingleMemberModel(this)" title="Test status of this model">
+            <span class="t-model-btn-indicator">${statusDot}</span> <span class="t-model-btn-text">Status</span>
+          </button>
+        </div>
+        <select class="t-member-model" onchange="onMemberModelChange(this)" style="width:100%; min-width:0; font-size:11px; padding:6px 8px; font-family:var(--mono); text-overflow:ellipsis; overflow:hidden; box-sizing:border-box; background:#0a0f16; border:1px solid #233145; border-radius:4px; color:#f0f4f8;">${modelOpts}</select>
+        <div class="t-member-model-status" style="color:${statusColor};" title="${statusText}">
+          ${statusText}
+        </div>
       </div>
       <div style="min-width:0;">
         <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;" title="Leave empty for unlimited tokens">Max Tokens</label>
-        <input type="number" class="t-member-tokens" placeholder="Unlimited" value="${tokens || ''}" min="100" max="128000" style="width:100%; min-width:0; font-size:11px; padding:5px 8px; font-family:var(--mono); box-sizing:border-box;" />
+        <input type="number" class="t-member-tokens" placeholder="Unlimited" value="${tokens || ''}" min="100" max="128000" style="width:100%; min-width:0; font-size:11px; padding:6px 8px; font-family:var(--mono); box-sizing:border-box; background:#0a0f16; border:1px solid #233145; border-radius:4px; color:#f0f4f8;" />
       </div>
     </div>
 
@@ -907,7 +1116,13 @@ function updateMemberModels(selProv) {
   if (!selModel) return;
   const pId = selProv.value;
   const models = currentConfig?.providers?.[pId]?.models || [];
-  selModel.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('');
+  selModel.innerHTML = models.map(m => {
+    const cached = (typeof _getCachedModelStatus === 'function') ? _getCachedModelStatus(pId, m) : null;
+    const dot = cached ? (cached.state === 'ok' ? '🟢' : '🔴') : '⚪';
+    const latency = cached?.short ? ` (${cached.short})` : '';
+    return `<option value="${m}">${dot} ${m}${latency}</option>`;
+  }).join('');
+  onMemberModelChange(selModel);
 }
 
 async function saveTeam(e) {
