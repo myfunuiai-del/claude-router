@@ -605,8 +605,15 @@ def build_history_recovery_variants(body_obj, recent_count=8, max_block_chars=80
 
     # Stage 2: Keep only last ~6-8 messages (from a clean user boundary)
     if len(msgs) > 2:
-        start_idx = _find_clean_user_index(msgs, max(0, len(msgs) - recent_count))
-        if start_idx > 0:
+        target_start = max(0, len(msgs) - recent_count)
+        start_idx = _find_clean_user_index(msgs, target_start)
+        # Prevent walking backwards past the target window
+        if start_idx < target_start:
+            # Look forward from target_start for the next clean user turn
+            fwd_idx = next((i for i in range(target_start, len(msgs))
+                            if isinstance(msgs[i], dict) and msgs[i].get("role") == "user" and not _is_tool_result_msg(msgs[i])), None)
+            start_idx = fwd_idx if fwd_idx is not None else start_idx
+        if start_idx > 0 and (len(msgs) - start_idx) <= (recent_count + 2):
             _add_variant(f"recent_{len(msgs) - start_idx}_msgs", copy.deepcopy(msgs[start_idx:]))
 
     # Stage 3: Keep only the last message (valid Anthropic turn)

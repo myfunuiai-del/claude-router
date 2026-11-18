@@ -116,6 +116,13 @@ if "_claude_router_live_store" not in sys.modules:
             self.issues = []        # newest first, max 60
             self.feed = []          # newest first, max 40
             self.seq = 0
+            self.active_state = {
+                "server": "Coarena",
+                "model": "gemini-4-carbon",
+                "account": "Coarena Account #1",
+                "tag": "Coarena - gemini-4-carbon",
+                "last_updated": time.strftime("%Y-%m-%d %H:%M:%S")
+            }
     sys.modules["_claude_router_live_store"] = _LiveStore()
 
 _LIVE_STORE = sys.modules["_claude_router_live_store"]
@@ -316,7 +323,7 @@ def get_live_snapshot():
         "seq": cur_seq,
         "now_str": time.strftime("%H:%M:%S", time.localtime(now)),
         "auto_recovery": cfg.get("auto_recovery", True) is not False,
-        "active_state": active_state,
+        "active_state": get_active_state(),
         "in_flight": in_flight_list,
         "servers": servers_out,
         "issues": issues_copy,
@@ -425,30 +432,33 @@ current_openrouter_idx = 0
 current_groq_idx = 0
 current_gonka_idx = 0
 
-active_state = {
-    "server": "Coarena",
-    "model": "gemini-4-carbon",
-    "account": "Coarena Account #1",
-    "tag": "Coarena - gemini-4-carbon",
-    "last_updated": time.strftime("%Y-%m-%d %H:%M:%S")
-}
+def get_active_state():
+    """Return the shared live active state across all dynamic module loads."""
+    with _LIVE_STORE.lock:
+        return dict(_LIVE_STORE.active_state)
 
 def save_active_state(server, model, account):
-    global active_state
-    active_state = {
+    new_state = {
         "server": server,
         "model": model,
         "account": account,
         "tag": f"{server} - {model}",
         "last_updated": time.strftime("%Y-%m-%d %H:%M:%S")
     }
+    with _LIVE_STORE.lock:
+        _LIVE_STORE.active_state = new_state
+        _LIVE_STORE.seq += 1
+    global active_state
+    active_state = new_state
     try:
         with open(STATUS_FILE, "w") as f:
-            json.dump(active_state, f, indent=2)
+            json.dump(new_state, f, indent=2)
     except Exception:
         pass
 
-save_active_state("Coarena", "gemini-4-carbon", "Coarena Account #1")
+# Only set default initial state if not already set by an active request
+if not getattr(_LIVE_STORE, "active_state", None) or _LIVE_STORE.active_state.get("server") == "Coarena":
+    save_active_state("Coarena", "gemini-4-carbon", "Coarena Account #1")
 
 # Initial startup sync to Claude settings
 sync_to_claude_settings(load_proxy_config())
@@ -573,9 +583,11 @@ def recovery_monitor_loop():
                 continue
             last_fallback_time = time.time()
 
-# Launch background recovery thread
-recovery_thread = threading.Thread(target=recovery_monitor_loop, daemon=True)
-recovery_thread.start()
+# Launch background recovery thread only once across module loads
+if "_claude_router_recovery_started" not in sys.modules:
+    sys.modules["_claude_router_recovery_started"] = True
+    recovery_thread = threading.Thread(target=recovery_monitor_loop, daemon=True)
+    recovery_thread.start()
 
 MODEL_FALLBACKS = {
     "gemini-4-carbon": ["gemini-3-8-flash", "deepseek-v4-1-flash-1017"],

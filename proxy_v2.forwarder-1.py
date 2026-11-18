@@ -106,7 +106,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
 
                 req = urllib.request.Request(upstream_url, data=body, headers=req_headers, method='POST')
                 try:
-                    with urllib.request.urlopen(req, timeout=12) as resp:
+                    with urllib.request.urlopen(req, timeout=35) as resp:
                         resp_data = resp.read()
                         if resp.headers.get('Content-Encoding', '').lower() == 'gzip':
                             try:

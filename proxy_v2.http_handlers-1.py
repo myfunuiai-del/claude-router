@@ -150,7 +150,8 @@ def handle_GET(handler):
         handler.send_response(200)
         handler.send_header('Content-Type', 'application/json')
         handler.send_header('Access-Control-Allow-Origin', '*')
-        data = json.dumps(active_state, indent=2).encode('utf-8')
+        cur_active = get_active_state() if 'get_active_state' in globals() else active_state
+        data = json.dumps(cur_active, indent=2).encode('utf-8')
         handler.send_header('Content-Length', str(len(data)))
         handler.end_headers()
         handler.wfile.write(data)
@@ -250,6 +251,11 @@ def handle_DELETE(handler, raw_body):
             cfg = load_proxy_config()
             if provider in cfg.get("providers", {}):
                 del cfg["providers"][provider]
+                # Clean up from routing pipelines if present
+                if "routed_providers" in cfg and provider in cfg["routed_providers"]:
+                    cfg["routed_providers"] = [p for p in cfg["routed_providers"] if p != provider]
+                if "unrouted_providers" in cfg and provider in cfg["unrouted_providers"]:
+                    cfg["unrouted_providers"] = [p for p in cfg["unrouted_providers"] if p != provider]
                 if cfg.get("active_provider") == provider:
                     remaining = list(cfg.get("providers", {}).keys())
                     cfg["active_provider"] = remaining[0] if remaining else ""
