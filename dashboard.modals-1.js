@@ -806,6 +806,16 @@ function openConfirmDeleteModel(pId, modelName, fromModal=false) {
   openConfirmModal('Remove Model', `Are you sure you want to remove model <strong>${modelName}</strong> from <strong>${name}</strong>?<br><span style="color:var(--text-muted); font-size:11px; margin-top:4px; display:inline-block;">You will have 10 seconds to undo this action.</span>`, 'Remove Model', () => startModelDeletion(pId, modelName, fromModal));
 }
 
+function openConfirmDeleteTeam(teamId) {
+  const name = currentConfig?.multi_agent_teams?.[teamId]?.name || teamId;
+  openConfirmModal(
+    'Delete Multi-Agent Team',
+    `Are you sure you want to delete team <strong>${name}</strong>?<br><span style="color:var(--text-muted); font-size:11px; margin-top:4px; display:inline-block;">You will have 10 seconds to undo this action.</span>`,
+    'Delete Team',
+    () => startTeamDeletion(teamId)
+  );
+}
+
 function closeConfirmModal() {
   const modal = document.getElementById('confirm-modal');
   if (modal) modal.classList.remove('active');
@@ -883,6 +893,24 @@ function startModelDeletion(pId, modelName, fromModal=false) {
   if (fromModal) filterDiscoveredList();
 
   showUndoToast(`Removed model '${modelName}'`);
+}
+
+function startTeamDeletion(teamId) {
+  if (pendingDeletion) commitPendingDeletion();
+  const teamObj = currentConfig?.multi_agent_teams?.[teamId];
+  if (!teamObj) return;
+
+  const teamName = teamObj.name || teamId;
+  pendingDeletion = {
+    type: 'team',
+    teamId: teamId,
+    name: teamName,
+    data: JSON.parse(JSON.stringify(teamObj))
+  };
+
+  delete currentConfig.multi_agent_teams[teamId];
+  renderTeamsLane();
+  showUndoToast(`Deleted team '${teamName}'`);
 }
 
 function showUndoToast(msg) {
@@ -970,6 +998,11 @@ function triggerUndoAction() {
       if (item.fromModal) filterDiscoveredList();
     }
     showToast(`↺ Restored '${item.modelName}'`);
+  } else if (item.type === 'team') {
+    if (!currentConfig.multi_agent_teams) currentConfig.multi_agent_teams = {};
+    currentConfig.multi_agent_teams[item.teamId] = item.data;
+    renderTeamsLane();
+    showToast(`↺ Restored Team '${item.name}'`);
   }
 }
 
@@ -991,6 +1024,10 @@ async function commitPendingDeletion() {
       url = '/api/ui/provider-models';
       method = 'POST';
       body = { provider: item.pId, action: 'remove', model: item.modelName };
+    } else if (item.type === 'team') {
+      url = '/api/ui/multi-agent-teams';
+      method = 'POST';
+      body = { action: 'delete', id: item.teamId };
     }
     const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await res.json();

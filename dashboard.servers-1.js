@@ -362,23 +362,8 @@ async function toggleTeamPower(teamId) {
   }
 }
 
-async function deleteTeam(teamId) {
-  if (!confirm('Delete this Multi-Agent team preset?')) return;
-  try {
-    const res = await fetch('/api/ui/multi-agent-teams', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'delete', id: teamId })
-    });
-    const data = await res.json();
-    if (res.ok) {
-      showToast('Team deleted');
-      currentConfig = data.config;
-      renderTeamsLane();
-    }
-  } catch (e) {
-    showToast('Failed to delete team', true);
-  }
+function deleteTeam(teamId) {
+  openConfirmDeleteTeam(teamId);
 }
 
 function createServerCard(id, p, isRouted, index) {
