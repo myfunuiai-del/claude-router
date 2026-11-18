@@ -168,6 +168,8 @@ def _execute_member_turn(handler, pid, p_obj, target_model, body_obj, role_promp
                     data = resp.read()
                     clear_key_cooldown(pid, key, target_model)
                     in_t, out_t = extract_anthropic_usage(data)
+                    if "record_key_usage" in globals():
+                        record_key_usage(pid, key, in_t, out_t)
                     ms = int((time.time() - t0) * 1000)
                     return True, data, in_t, out_t, ms
             except urllib.error.HTTPError as e:
@@ -213,6 +215,8 @@ def _execute_member_turn(handler, pid, p_obj, target_model, body_obj, role_promp
                         except Exception:
                             anth_resp = resp_data
                     in_t, out_t = extract_anthropic_usage(anth_resp)
+                    if "record_key_usage" in globals():
+                        record_key_usage(pid, key, in_t, out_t)
                     ms = int((time.time() - t0) * 1000)
                     return True, anth_resp, in_t, out_t, ms
             except urllib.error.HTTPError as e:

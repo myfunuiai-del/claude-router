@@ -24,6 +24,7 @@ def _load_module_to_globals(filename, target_globals):
 _config_mod = _load_module_to_globals("proxy_v2.config-1.py", globals())
 _transform_mod = _load_module_to_globals("proxy_v2.transform-1.py", globals())
 _multi_agent_mod = _load_module_to_globals("proxy_v2.multi_agent-1.py", globals())
+_balancer_mod = _load_module_to_globals("proxy_v2.key_balancer-1.py", globals())
 
 def _inject_custom_prompt(body_obj, custom_prompt):
     """Prepend provider-level custom system instructions cleanly to an Anthropic request body copy."""
@@ -42,7 +43,7 @@ def _inject_custom_prompt(body_obj, custom_prompt):
         b["system"] = cp
     return b
 
-def _record_winner_usage(handler, p_id, p_name, model, key_label, resp_bytes, req_t0):
+def _record_winner_usage(handler, p_id, p_name, model, key_label, resp_bytes, req_t0, key=None):
     in_tok, out_tok = extract_anthropic_usage(resp_bytes)
     elapsed_ms = max(1, int((time.time() - req_t0) * 1000))
     tps = round(out_tok / (elapsed_ms / 1000.0), 1) if (out_tok > 0 and elapsed_ms > 50) else 0.0
@@ -57,31 +58,36 @@ def _record_winner_usage(handler, p_id, p_name, model, key_label, resp_bytes, re
         "latency_ms": elapsed_ms
     }
     save_active_state(p_name, model, key_label, input_tokens=in_tok, output_tokens=out_tok, tok_per_sec=tps, latency_ms=elapsed_ms)
+    if key and "record_key_usage" in globals():
+        try:
+            record_key_usage(p_id, key, in_tok, out_tok)
+        except Exception:
+            pass
 
 _PROVIDER_KEY_IDX = {}
 
 def _get_start_key_idx(p_id, n):
-    if n <= 0:
-        return 0
-    return _PROVIDER_KEY_IDX.get(p_id, 0) % n
+    return _PROVIDER_KEY_IDX.get(p_id, 0) % n if n > 0 else 0
 
 def _advance_key_idx(p_id, idx, n, on_error=False):
-    if n <= 0:
-        return
-    _PROVIDER_KEY_IDX[p_id] = (idx + 1) % n if on_error else (idx % n)
+    if n > 0:
+        _PROVIDER_KEY_IDX[p_id] = (idx + 1) % n if on_error else (idx % n)
 
 def _select_available_keys(p_id, keys, model=None, start_idx=None, max_count=None):
-    """Return rotated [(orig_idx, key)] starting from last healthy key, skipping keys in cooldown.
-    If every key is in cooldown, falls back to returning all rotated keys so provider never hard-locks.
+    """Return ordered [(orig_idx, key)] using sliding 60s TPM/RPM load balancer & cooldown priority.
+    If all keys are in cooldown, returns all keys in balanced order so provider never hard-locks.
     """
-    n = len(keys)
-    if n == 0:
+    if not keys:
         return []
-    if start_idx is None:
-        start_idx = _get_start_key_idx(p_id, n)
-    rotated = [((start_idx + i) % n, keys[(start_idx + i) % n]) for i in range(n)]
-    ready = [(idx, k) for idx, k in rotated if is_key_in_cooldown(p_id, k, model) == 0]
-    chosen = ready if ready else rotated
+    if "select_balanced_keys_ordered" in globals():
+        cooldown_fn = globals().get("is_key_in_cooldown")
+        chosen = select_balanced_keys_ordered(p_id, keys, model=model, is_cooldown_fn=cooldown_fn)
+    else:
+        n = len(keys)
+        start = (start_idx or 0) % n
+        rotated = [((start + i) % n, keys[(start + i) % n]) for i in range(n)]
+        ready = [(idx, k) for idx, k in rotated if globals().get("is_key_in_cooldown", lambda *_: 0)(p_id, k, model) == 0]
+        chosen = ready if ready else rotated
     if max_count is not None:
         chosen = chosen[:max_count]
     return chosen
@@ -173,7 +179,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                         current_coarena_idx = idx
                         clear_key_cooldown("coarena", key, coarena_model)
                         p_name = p_info.get("name", "Coarena")
-                        _record_winner_usage(handler, "coarena", p_name, coarena_model, f"Key #{idx+1}", resp_data, req_t0)
+                        _record_winner_usage(handler, "coarena", p_name, coarena_model, f"Key #{idx+1}", resp_data, req_t0, key=key)
                         resp_data = append_signature_to_response(resp_data, p_name, coarena_model)
                         handler.send_response(resp.status)
                         for k, val in resp.headers.items():
@@ -242,7 +248,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                     resp_data = resp.read()
                     clear_key_cooldown("agentrouter", key, ar_model)
                     p_name = p_info.get("name", "AgentRouter")
-                    _record_winner_usage(handler, "agentrouter", p_name, ar_model, f"Key #{attempt+1}", resp_data, req_t0)
+                    _record_winner_usage(handler, "agentrouter", p_name, ar_model, f"Key #{attempt+1}", resp_data, req_t0, key=key)
                     resp_data = append_signature_to_response(resp_data, p_name, ar_model)
                     handler.send_response(resp.status)
                     for k, val in resp.headers.items():
@@ -349,7 +355,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                             _advance_key_idx(p_id, attempt, len(p_keys), on_error=False)
                             clear_key_cooldown(p_id, key, target_model)
                             p_name = p_info.get("name", p_id)
-                            _record_winner_usage(handler, p_id, p_name, target_model, f"Key #{attempt+1}", resp_data, req_t0)
+                            _record_winner_usage(handler, p_id, p_name, target_model, f"Key #{attempt+1}", resp_data, req_t0, key=key)
                             resp_data = append_signature_to_response(resp_data, p_name, target_model)
                             handler.send_response(resp.status)
                             for k, val in resp.headers.items():
@@ -416,7 +422,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                             text = resp_data.decode('utf-8', errors='ignore')
                             if is_stream or "data:" in text:
                                 anth_resp = convert_openai_stream_to_anthropic(text, p_name, target_model)
-                                _record_winner_usage(handler, p_id, p_name, target_model, f"Key #{attempt+1}", anth_resp, req_t0)
+                                _record_winner_usage(handler, p_id, p_name, target_model, f"Key #{attempt+1}", anth_resp, req_t0, key=key)
                                 handler.send_response(200)
                                 handler.send_header('Content-Type', 'text/event-stream; charset=utf-8')
                                 handler.send_header('Content-Length', str(len(anth_resp)))
@@ -427,7 +433,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                                 try:
                                     o_json = json.loads(text)
                                     anth_resp = convert_openai_json_to_anthropic(o_json, p_name, target_model)
-                                    _record_winner_usage(handler, p_id, p_name, target_model, f"Key #{attempt+1}", anth_resp, req_t0)
+                                    _record_winner_usage(handler, p_id, p_name, target_model, f"Key #{attempt+1}", anth_resp, req_t0, key=key)
                                     handler.send_response(200)
                                     handler.send_header('Content-Type', 'application/json')
                                     handler.send_header('Content-Length', str(len(anth_resp)))
@@ -436,7 +442,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                                     return True
                                 except Exception:
                                     pass
-                            _record_winner_usage(handler, p_id, p_name, target_model, f"Key #{attempt+1}", resp_data, req_t0)
+                            _record_winner_usage(handler, p_id, p_name, target_model, f"Key #{attempt+1}", resp_data, req_t0, key=key)
                             handler.send_response(resp.status)
                             handler.send_header('Content-Length', str(len(resp_data)))
                             handler.end_headers()
