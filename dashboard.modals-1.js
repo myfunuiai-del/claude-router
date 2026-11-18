@@ -810,52 +810,86 @@ function setMemberMode(btn, newMode) {
   }
 }
 
-function onMemberModelChange(sel) {
-  const row = sel.closest('.team-member-row');
-  if (!row) return;
-  const provSel = row.querySelector('.t-member-prov');
-  const pId = provSel?.value || '';
-  const m = sel.value;
-  const cached = (typeof _getCachedModelStatus === 'function') ? _getCachedModelStatus(pId, m) : null;
-  const dotEl = row.querySelector('.t-model-btn-indicator');
-  const textEl = row.querySelector('.t-member-model-status');
-  if (cached) {
-    if (dotEl) dotEl.innerText = cached.state === 'ok' ? '🟢' : '🔴';
-    if (textEl) {
-      textEl.innerText = cached.status || cached.short || (cached.state === 'ok' ? '🟢 Active' : '🔴 Error');
-      textEl.style.color = cached.state === 'ok' ? 'var(--success-text)' : 'var(--danger-text)';
-      textEl.title = textEl.innerText;
-    }
-  } else {
-    if (dotEl) dotEl.innerText = '⚪';
-    if (textEl) {
-      textEl.innerText = '⚪ Untested';
-      textEl.style.color = 'var(--text-muted)';
-      textEl.title = '⚪ Untested';
-    }
+function renderPanelItemsHtml(models, pId, curModel) {
+  if (!models || !models.length) {
+    return '<div style="padding:6px; color:var(--text-muted); font-size:10px; text-align:center;">No models configured for this provider.</div>';
+  }
+  return models.map(m => {
+    const cached = (typeof _getCachedModelStatus === 'function') ? _getCachedModelStatus(pId, m) : null;
+    const isSelected = (m === curModel);
+    const dot = cached ? (cached.state === 'ok' ? '🟢' : (cached.state === 'pending' ? '⏳' : '🔴')) : '⚪';
+    const statusColor = cached ? (cached.state === 'ok' ? 'var(--success-text)' : (cached.state === 'pending' ? 'var(--text-muted)' : 'var(--danger-text)')) : 'var(--text-muted)';
+    const shortStatus = cached ? (cached.short || cached.status || '') : 'Untested';
+    const borderStyle = isSelected ? 'border-color:#58a6ff; background:#162438;' : 'border-color:#1f2d40; background:#0d141f;';
+    return `
+      <div class="t-panel-item" style="display:flex; justify-content:space-between; align-items:center; padding:5px 8px; border-radius:4px; border:1px solid; ${borderStyle} cursor:pointer; transition:all 0.12s ease;" onclick="selectMemberModelFromPanel(this, '${m.replace(/'/g, "\\'")}')" title="Click to select ${m}">
+        <div style="display:flex; align-items:center; gap:6px; min-width:0; overflow:hidden;">
+          <span style="font-size:10px;">${dot}</span>
+          <span style="font-size:10.5px; font-family:var(--mono); color:#e6edf3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${m}</span>
+          ${isSelected ? '<span style="font-size:8.5px; background:#1f4277; color:#79c0ff; padding:1px 4px; border-radius:2px; font-weight:700;">SELECTED</span>' : ''}
+        </div>
+        <span style="font-size:9.5px; font-family:var(--mono); color:${statusColor}; white-space:nowrap; margin-left:6px; font-weight:600;">${shortStatus}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderPanelItemsForRow(row, pId) {
+  const panelList = row?.querySelector('.t-panel-list');
+  const curModel = row?.querySelector('.t-member-model')?.value || '';
+  const models = currentConfig?.providers?.[pId]?.models || [];
+  if (panelList) {
+    panelList.innerHTML = renderPanelItemsHtml(models, pId, curModel);
   }
 }
 
-function refreshMemberModelOptions(row) {
+function updateMemberDisplayChip(row, modelName) {
   const provSel = row?.querySelector('.t-member-prov');
-  const modelSel = row?.querySelector('.t-member-model');
-  if (!provSel || !modelSel) return;
-  const pId = provSel.value;
-  const curModel = modelSel.value;
-  const models = currentConfig?.providers?.[pId]?.models || [];
-  modelSel.innerHTML = models.map(m => {
-    const cached = (typeof _getCachedModelStatus === 'function') ? _getCachedModelStatus(pId, m) : null;
-    const dot = cached ? (cached.state === 'ok' ? '🟢' : '🔴') : '⚪';
-    const latency = cached?.short ? ` (${cached.short})` : '';
-    return `<option value="${m}" ${m === curModel ? 'selected' : ''}>${dot} ${m}${latency}</option>`;
-  }).join('');
+  const pId = provSel?.value || '';
+  const cached = (typeof _getCachedModelStatus === 'function') ? _getCachedModelStatus(pId, modelName) : null;
+  const dotEl = row?.querySelector('.t-cur-dot');
+  const nameEl = row?.querySelector('.t-cur-name');
+  const latEl = row?.querySelector('.t-cur-latency');
+
+  const dot = cached ? (cached.state === 'ok' ? '🟢' : (cached.state === 'pending' ? '⏳' : '🔴')) : '⚪';
+  const color = cached ? (cached.state === 'ok' ? 'var(--success-text)' : (cached.state === 'pending' ? 'var(--text-muted)' : 'var(--danger-text)')) : 'var(--text-muted)';
+  const latency = cached?.short || (cached ? (cached.state === 'ok' ? 'OK' : 'Fail') : '');
+
+  if (dotEl) dotEl.innerText = dot;
+  if (nameEl) nameEl.innerText = modelName;
+  if (latEl) {
+    latEl.innerText = latency;
+    latEl.style.color = color;
+  }
+}
+
+function selectMemberModelFromPanel(itemEl, modelName) {
+  const row = itemEl.closest('.team-member-row');
+  if (!row) return;
+  const hiddenInput = row.querySelector('.t-member-model');
+  if (hiddenInput) {
+    hiddenInput.value = modelName;
+  }
+  const provSel = row.querySelector('.t-member-prov');
+  const pId = provSel?.value || '';
+
+  updateMemberDisplayChip(row, modelName);
+  renderPanelItemsForRow(row, pId);
+  showToast(`Selected model: ${modelName}`);
+}
+
+function toggleMemberModelsPanel(el) {
+  const row = el.closest('.team-member-row');
+  const panel = row?.querySelector('.t-member-models-panel');
+  if (!panel) return;
+  panel.style.display = (panel.style.display === 'none') ? 'block' : 'none';
 }
 
 async function checkAllProviderModelsStatus(btn) {
   const row = btn.closest('.team-member-row');
   if (!row) return;
   const provSel = row.querySelector('.t-member-prov');
-  const modelSel = row.querySelector('.t-member-model');
+  const hiddenModel = row.querySelector('.t-member-model');
   const pId = provSel?.value;
   if (!pId) return;
 
@@ -866,51 +900,25 @@ async function checkAllProviderModelsStatus(btn) {
   }
 
   const panel = row.querySelector('.t-member-models-panel');
-  const panelList = row.querySelector('.t-panel-list');
   const panelSummary = row.querySelector('.t-panel-summary');
   const btnText = btn.querySelector('.t-btn-text');
 
-  // Toggle open
   if (panel) panel.style.display = 'block';
-
-  const renderPanelItems = () => {
-    if (!panelList) return;
-    panelList.innerHTML = models.map(m => {
-      const cached = (typeof _getCachedModelStatus === 'function') ? _getCachedModelStatus(pId, m) : null;
-      const isSelected = (modelSel && modelSel.value === m);
-      const dot = cached ? (cached.state === 'ok' ? '🟢' : (cached.state === 'pending' ? '⏳' : '🔴')) : '⚪';
-      const statusColor = cached ? (cached.state === 'ok' ? 'var(--success-text)' : (cached.state === 'pending' ? 'var(--text-muted)' : 'var(--danger-text)')) : 'var(--text-muted)';
-      const shortStatus = cached ? (cached.short || cached.status || '') : 'Untested';
-      const borderStyle = isSelected ? 'border-color:#58a6ff; background:#162438;' : 'border-color:#1f2d40; background:#0d141f;';
-      return `
-        <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 6px; border-radius:3px; border:1px solid; ${borderStyle} cursor:pointer;" onclick="selectMemberModelFromPanel(this, '${m.replace(/'/g, "\\'")}')" title="Click to select ${m}">
-          <div style="display:flex; align-items:center; gap:5px; min-width:0; overflow:hidden;">
-            <span style="font-size:10px;">${dot}</span>
-            <span style="font-size:10px; font-family:var(--mono); color:#e6edf3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${m}</span>
-            ${isSelected ? '<span style="font-size:8.5px; background:#1f4277; color:#79c0ff; padding:0 3px; border-radius:2px;">SELECTED</span>' : ''}
-          </div>
-          <span style="font-size:9.5px; font-family:var(--mono); color:${statusColor}; white-space:nowrap; margin-left:6px;">${shortStatus}</span>
-        </div>
-      `;
-    }).join('');
-  };
-
-  renderPanelItems();
 
   if (btnText) btnText.innerText = 'Pinging...';
   btn.disabled = true;
 
   let completed = 0, okCount = 0;
   const updateProgress = () => {
-    if (panelSummary) panelSummary.innerText = `MODELS STATUS (${okCount}/${models.length} active - ${completed}/${models.length} checked)`;
+    if (panelSummary) panelSummary.innerText = `MODELS STATUS (${okCount}/${models.length} ACTIVE - ${completed}/${models.length} CHECKED)`;
     if (btnText) btnText.innerText = `⏳ ${completed}/${models.length}`;
-    renderPanelItems();
-    refreshMemberModelOptions(row);
+    renderPanelItemsForRow(row, pId);
+    if (hiddenModel) updateMemberDisplayChip(row, hiddenModel.value);
   };
 
   const pingPromises = models.map(m => {
     _setCachedModelStatus(pId, m, { state: 'pending', short: '⏳...', status: 'Pinging...' });
-    renderPanelItems();
+    renderPanelItemsForRow(row, pId);
 
     return fetch('/api/ui/test-models', {
       method: 'POST',
@@ -939,23 +947,9 @@ async function checkAllProviderModelsStatus(btn) {
     if (panelSummary) panelSummary.innerText = `MODELS STATUS (${okCount}/${models.length} ACTIVE)`;
     if (btnText) btnText.innerText = `📊 ${okCount}/${models.length} OK`;
     showToast(`${currentConfig?.providers?.[pId]?.name || pId}: ${okCount}/${models.length} models active`);
-    if (modelSel) onMemberModelChange(modelSel);
   } finally {
     btn.disabled = false;
   }
-}
-
-function selectMemberModelFromPanel(itemEl, modelName) {
-  const row = itemEl.closest('.team-member-row');
-  if (!row) return;
-  const modelSel = row.querySelector('.t-member-model');
-  if (modelSel) {
-    modelSel.value = modelName;
-    onMemberModelChange(modelSel);
-  }
-  const panel = row.querySelector('.t-member-models-panel');
-  if (panel) panel.style.display = 'none';
-  showToast(`Selected model: ${modelName}`);
 }
 
 async function testSingleMemberModel(btn) {
@@ -977,15 +971,10 @@ async function testAllModalMembers() {
   let okCount = 0;
   const promises = rows.map(async row => {
     const provSel = row.querySelector('.t-member-prov');
-    const modelSel = row.querySelector('.t-member-model');
-    const dotEl = row.querySelector('.t-model-btn-indicator');
-    const textEl = row.querySelector('.t-member-model-status');
+    const hiddenModel = row.querySelector('.t-member-model');
     const pId = provSel?.value;
-    const m = modelSel?.value;
+    const m = hiddenModel?.value;
     if (!pId || !m) return;
-
-    if (dotEl) dotEl.innerText = '⏳';
-    if (textEl) textEl.innerText = '⏳ Testing...';
 
     try {
       const res = await fetch('/api/ui/test-models', {
@@ -999,34 +988,18 @@ async function testAllModalMembers() {
         okCount++;
         const info = { state: 'ok', short: resObj.short || '🟢 200', status: resObj.status || '🟢 200 OK' };
         if (typeof _setCachedModelStatus === 'function') _setCachedModelStatus(pId, m, info);
-        if (dotEl) dotEl.innerText = '🟢';
-        if (textEl) {
-          textEl.innerText = resObj.status || '🟢 200 OK';
-          textEl.style.color = 'var(--success-text)';
-          textEl.title = textEl.innerText;
-        }
       } else {
         const errMsg = resObj?.status || data.message || 'Failed';
         const info = { state: 'err', short: resObj?.short || '🔴 Fail', status: errMsg };
         if (typeof _setCachedModelStatus === 'function') _setCachedModelStatus(pId, m, info);
-        if (dotEl) dotEl.innerText = '🔴';
-        if (textEl) {
-          textEl.innerText = errMsg;
-          textEl.style.color = 'var(--danger-text)';
-          textEl.title = textEl.innerText;
-        }
       }
-      refreshMemberModelOptions(row);
+      updateMemberDisplayChip(row, m);
+      renderPanelItemsForRow(row, pId);
     } catch (err) {
       const info = { state: 'err', short: '🔴 Err', status: 'Network error / Timeout' };
       if (typeof _setCachedModelStatus === 'function') _setCachedModelStatus(pId, m, info);
-      if (dotEl) dotEl.innerText = '🔴';
-      if (textEl) {
-        textEl.innerText = 'Network error / Timeout';
-        textEl.style.color = 'var(--danger-text)';
-        textEl.title = textEl.innerText;
-      }
-      refreshMemberModelOptions(row);
+      updateMemberDisplayChip(row, m);
+      renderPanelItemsForRow(row, pId);
     }
   });
 
@@ -1065,17 +1038,13 @@ function addTeamMemberRow(role='', provider='', model='', prompt='', tokens='', 
   if (isHazard) row.classList.add('is-mode-hazard');
 
   const provOpts = pKeys.map(k => `<option value="${k}" ${k === curProv ? 'selected' : ''}>${providers[k]?.name || k}</option>`).join('');
-  const modelOpts = provModels.map(m => {
-    const cached = (typeof _getCachedModelStatus === 'function') ? _getCachedModelStatus(curProv, m) : null;
-    const dot = cached ? (cached.state === 'ok' ? '🟢' : '🔴') : '⚪';
-    const latency = cached?.short ? ` (${cached.short})` : '';
-    return `<option value="${m}" ${m === curModel ? 'selected' : ''}>${dot} ${m}${latency}</option>`;
-  }).join('');
 
   const curCached = (typeof _getCachedModelStatus === 'function') ? _getCachedModelStatus(curProv, curModel) : null;
   const statusDot = curCached ? (curCached.state === 'ok' ? '🟢' : '🔴') : '⚪';
   const statusColor = curCached ? (curCached.state === 'ok' ? 'var(--success-text)' : 'var(--danger-text)') : 'var(--text-muted)';
-  const statusText = curCached ? (curCached.status || curCached.short || (curCached.state === 'ok' ? '🟢 Active' : '🔴 Error')) : '⚪ Untested';
+  const curLatency = curCached?.short || (curCached ? (curCached.state === 'ok' ? 'OK' : 'Fail') : '');
+
+  const itemsHtml = renderPanelItemsHtml(provModels, curProv, curModel);
 
   row.innerHTML = `
     <!-- Top row: Member badge & remove button -->
@@ -1096,25 +1065,38 @@ function addTeamMemberRow(role='', provider='', model='', prompt='', tokens='', 
       </div>
     </div>
 
-    <!-- Assigned Model and Max Tokens Grid with Status Button -->
+    <!-- Assigned Model (Custom Dark UI) and Max Tokens Grid -->
     <div style="display:grid; grid-template-columns: 2fr 1fr; gap:6px; min-width:0;">
       <div style="min-width:0;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:3px;">
           <label style="font-size:10px; color:var(--text-muted);">Assigned Model</label>
           <button type="button" class="btn btn-xs t-member-all-status-btn" onclick="checkAllProviderModelsStatus(this)" style="padding:1px 7px; font-size:9.5px; height:20px; line-height:1; background:#182333; border:1px solid #2d3f58; color:#79c0ff; border-radius:3px;" title="Check status of all models for this provider">
-            <span class="t-btn-icon">📊</span> <span class="t-btn-text">Check Models Status</span>
+            <span class="t-btn-icon">📊</span> <span class="t-btn-text">Test Models</span>
           </button>
         </div>
-        <select class="t-member-model" onchange="onMemberModelChange(this)" style="width:100%; min-width:0; font-size:11px; padding:6px 8px; font-family:var(--mono); text-overflow:ellipsis; overflow:hidden; box-sizing:border-box; background:#0a0f16; border:1px solid #233145; border-radius:4px; color:#f0f4f8;">${modelOpts}</select>
-        <div class="t-member-model-status" style="color:${statusColor}; font-size:9.5px; font-family:var(--mono); margin-top:2px; min-height:13px;" title="${statusText}">
-          ${statusText}
-        </div>
-        <div class="t-member-models-panel" style="display:none; margin-top:4px; background:#080d14; border:1px solid #2a3a52; border-radius:4px; padding:6px; max-height:180px; overflow-y:auto;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; border-bottom:1px solid #1c2738; padding-bottom:3px;">
-            <span style="font-size:10px; font-weight:600; color:#79c0ff;" class="t-panel-summary">MODELS STATUS</span>
-            <span style="font-size:10px; color:var(--text-muted); cursor:pointer;" onclick="this.closest('.t-member-models-panel').style.display='none'">✕ Close</span>
+
+        <!-- Custom Model Trigger Chip -->
+        <div class="t-member-model-display" onclick="toggleMemberModelsPanel(this)" style="display:flex; justify-content:space-between; align-items:center; padding:6px 9px; font-size:11px; font-family:var(--mono); background:#0a0f16; border:1px solid #233145; border-radius:4px; color:#f0f4f8; cursor:pointer; min-width:0; user-select:none;" title="Click to toggle models list">
+          <div style="display:flex; align-items:center; gap:6px; min-width:0; overflow:hidden;">
+            <span class="t-cur-dot" style="font-size:10px;">${statusDot}</span>
+            <span class="t-cur-name" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600;">${curModel}</span>
           </div>
-          <div class="t-panel-list" style="display:flex; flex-direction:column; gap:3px;"></div>
+          <div style="display:flex; align-items:center; gap:5px; flex-shrink:0;">
+            <span class="t-cur-latency" style="font-size:9.5px; color:${statusColor}; font-weight:600;">${curLatency}</span>
+            <span style="font-size:9.5px; color:var(--text-muted);">▾</span>
+          </div>
+        </div>
+        <input type="hidden" class="t-member-model" value="${curModel}" />
+
+        <!-- Custom Dark Models Panel (Beautiful list matching user's preference) -->
+        <div class="t-member-models-panel" style="margin-top:4px; background:#080d14; border:1px solid #2a3a52; border-radius:4px; padding:6px; max-height:190px; overflow-y:auto;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px; border-bottom:1px solid #1c2738; padding-bottom:3px;">
+            <span style="font-size:10px; font-weight:600; color:#79c0ff;" class="t-panel-summary">MODELS STATUS (${provModels.length} AVAILABLE)</span>
+            <span style="font-size:9.5px; color:var(--text-muted); cursor:pointer;" onclick="toggleMemberModelsPanel(this)">Toggle List ▴</span>
+          </div>
+          <div class="t-panel-list" style="display:flex; flex-direction:column; gap:3px;">
+            ${itemsHtml}
+          </div>
         </div>
       </div>
       <div style="min-width:0;">
@@ -1161,22 +1143,21 @@ function reindexTeamMembers() {
 
 function updateMemberModels(selProv) {
   const row = selProv.closest('.team-member-row');
-  const selModel = row?.querySelector('.t-member-model');
-  const panel = row?.querySelector('.t-member-models-panel');
-  if (panel) panel.style.display = 'none';
-  const btnText = row?.querySelector('.t-member-all-status-btn .t-btn-text');
-  if (btnText) btnText.innerText = 'Check Models Status';
-
-  if (!selModel) return;
+  if (!row) return;
   const pId = selProv.value;
   const models = currentConfig?.providers?.[pId]?.models || [];
-  selModel.innerHTML = models.map(m => {
-    const cached = (typeof _getCachedModelStatus === 'function') ? _getCachedModelStatus(pId, m) : null;
-    const dot = cached ? (cached.state === 'ok' ? '🟢' : '🔴') : '⚪';
-    const latency = cached?.short ? ` (${cached.short})` : '';
-    return `<option value="${m}">${dot} ${m}${latency}</option>`;
-  }).join('');
-  onMemberModelChange(selModel);
+  const curModel = models[0] || '';
+  const hiddenInput = row.querySelector('.t-member-model');
+  if (hiddenInput) hiddenInput.value = curModel;
+
+  const btnText = row.querySelector('.t-member-all-status-btn .t-btn-text');
+  if (btnText) btnText.innerText = 'Test Models';
+
+  const panelSummary = row.querySelector('.t-panel-summary');
+  if (panelSummary) panelSummary.innerText = `MODELS STATUS (${models.length} AVAILABLE)`;
+
+  updateMemberDisplayChip(row, curModel);
+  renderPanelItemsForRow(row, pId);
 }
 
 async function saveTeam(e) {
