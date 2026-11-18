@@ -557,13 +557,83 @@ def is_trimmable_history(body_obj):
     except Exception:
         return False
 
+def summarize_omitted_history(omitted_msgs, max_chars=800):
+    """Extract concise context from omitted chat history (goal, recent user prompts, turns count)."""
+    if not omitted_msgs:
+        return ""
+    user_texts = []
+    for m in omitted_msgs:
+        if isinstance(m, dict) and m.get("role") == "user":
+            c = m.get("content")
+            if isinstance(c, str) and c.strip():
+                user_texts.append(c.strip())
+            elif isinstance(c, list):
+                for b in c:
+                    if isinstance(b, dict) and b.get("type") == "text" and b.get("text", "").strip():
+                        user_texts.append(b["text"].strip())
+
+    parts = []
+    if user_texts:
+        init_goal = user_texts[0]
+        if len(init_goal) > 250:
+            init_goal = init_goal[:240] + "..."
+        parts.append(f"Goal: {init_goal}")
+        if len(user_texts) > 1:
+            recent_prompts = user_texts[-3:]
+            recent_joined = " -> ".join(p[:120] for p in recent_prompts)
+            parts.append(f"Recent instructions: {recent_joined}")
+    parts.append(f"({len(omitted_msgs)} earlier turns condensed by router)")
+    res = " | ".join(parts)
+    if len(res) > max_chars:
+        res = res[:max_chars] + "..."
+    return res
+
+def make_valid_anthropic_slice(slice_msgs, summary_context=""):
+    """Prepare a sliced list of messages guaranteed to be valid for Anthropic API:
+    - Must start with role == 'user'
+    - If first user message is a tool_result, convert to clean text blocks so Anthropic doesn't reject
+    - Embed summary_context so conversational intent is strictly preserved
+    """
+    if not slice_msgs:
+        return []
+    res = copy.deepcopy(slice_msgs)
+    while res and res[0].get("role") != "user":
+        res = res[1:]
+    if not res:
+        return []
+
+    first = res[0]
+    c = first.get("content")
+    is_tool_res = isinstance(c, list) and any(isinstance(b, dict) and b.get("type") == "tool_result" for b in c)
+    if is_tool_res:
+        new_blocks = []
+        if summary_context:
+            new_blocks.append({"type": "text", "text": f"[Earlier Session Context]:\n{summary_context}"})
+        for b in c:
+            if isinstance(b, dict) and b.get("type") == "tool_result":
+                tc = b.get("content", "")
+                if isinstance(tc, list):
+                    tc = " ".join(sb.get("text", "") for sb in tc if isinstance(sb, dict) and "text" in sb)
+                new_blocks.append({"type": "text", "text": f"[Prior Tool Output]:\n{tc}"})
+            else:
+                new_blocks.append(b)
+        first["content"] = new_blocks
+    elif summary_context:
+        if isinstance(c, str):
+            first["content"] = f"[Earlier Session Context]:\n{summary_context}\n\n" + c
+        elif isinstance(c, list):
+            first["content"] = [{"type": "text", "text": f"[Earlier Session Context]:\n{summary_context}"}] + c
+
+    return res
+
 def build_history_recovery_variants(body_obj, recent_count=8, max_block_chars=800):
     """Build ordered non-mutating recovery variants on 400/403/413 errors:
     1) shrink_old_tools_keep_last: full history + untouched last message, shrinking only older large tool outputs
-    2) recent_N_msgs: keep last ~6-8 messages from a clean user boundary
-    3) last_message_only: keep only the latest message (preserving tool_use/tool_result pair if needed)
-    4) shrink_all_large_blocks: full history + last message with all large tool outputs and text blocks shrunk
-    (Stage 5 handled by forwarder: route untouched original full request to next enabled server)
+    2) shrink_all_large_blocks: full history + last message with all large tool outputs and text blocks shrunk
+    3) recent_turns_with_context: last ~3-5 turns (6-8 msgs) with embedded session summary context
+    4) last_msg_with_context: only the last message with full session context preserved
+    5) last_msg_bare: bare last message only (fallback if context block itself is rejected)
+    (Stage 6 handled by forwarder: route untouched original full request to next enabled server)
     """
     if not isinstance(body_obj, dict):
         return []
@@ -603,43 +673,39 @@ def build_history_recovery_variants(body_obj, recent_count=8, max_block_chars=80
         if any_old_tool_shrunk:
             _add_variant("shrink_old_tools_keep_last", old_shrunk)
 
-    # Stage 2: Keep only last ~6-8 messages (from a clean user boundary)
-    if len(msgs) > 2:
-        target_start = max(0, len(msgs) - recent_count)
-        start_idx = _find_clean_user_index(msgs, target_start)
-        # Prevent walking backwards past the target window
-        if start_idx < target_start:
-            # Look forward from target_start for the next clean user turn
-            fwd_idx = next((i for i in range(target_start, len(msgs))
-                            if isinstance(msgs[i], dict) and msgs[i].get("role") == "user" and not _is_tool_result_msg(msgs[i])), None)
-            start_idx = fwd_idx if fwd_idx is not None else start_idx
-        if start_idx > 0 and (len(msgs) - start_idx) <= (recent_count + 2):
-            _add_variant(f"recent_{len(msgs) - start_idx}_msgs", copy.deepcopy(msgs[start_idx:]))
-
-    # Stage 3: Keep only the last message (valid Anthropic turn)
+    # Stage 2: Full history with ALL large tool outputs & text blocks shrunk
     if len(msgs) > 1:
-        last_msg = msgs[-1]
-        if isinstance(last_msg, dict) and last_msg.get("role") == "user" and not _is_tool_result_msg(last_msg):
-            _add_variant("last_message_only", [copy.deepcopy(last_msg)])
-        elif _is_tool_result_msg(last_msg) and len(msgs) >= 2 and isinstance(msgs[-2], dict) and msgs[-2].get("role") == "assistant":
-            minimal_turn = [
-                {"role": "user", "content": "[Earlier chat history trimmed due to upstream block. Continue from latest tool result.]"},
-                copy.deepcopy(msgs[-2]),
-                copy.deepcopy(last_msg)
-            ]
-            _add_variant("last_message_only", minimal_turn)
-        else:
-            last_clean = _find_clean_user_index(msgs, len(msgs) - 1)
-            if last_clean > 0:
-                _add_variant("last_message_only", copy.deepcopy(msgs[last_clean:]))
+        all_shrunk = copy.deepcopy(msgs)
+        any_all_shrunk = False
+        for m in all_shrunk:
+            if _shrink_message_blocks(m, max_chars=max_block_chars, tools_only=False):
+                any_all_shrunk = True
+        if any_all_shrunk:
+            _add_variant("shrink_all_large_blocks", all_shrunk)
 
-    # Stage 4: Full history + last message with ALL large tool outputs & text blocks shrunk
-    all_shrunk = copy.deepcopy(msgs)
-    any_all_shrunk = False
-    for m in all_shrunk:
-        if _shrink_message_blocks(m, max_chars=max_block_chars, tools_only=False):
-            any_all_shrunk = True
-    if any_all_shrunk:
-        _add_variant("shrink_all_large_blocks", all_shrunk)
+    # Stage 3: Recent ~3-5 turns (last 6-8 messages) + Full Session Summary Context
+    if len(msgs) > 2:
+        take_count = min(len(msgs) - 1, max(4, recent_count))
+        slice_target = msgs[-take_count:]
+        omitted_target = msgs[:-take_count]
+        summary_ctx = summarize_omitted_history(omitted_target)
+        recent_valid = make_valid_anthropic_slice(slice_target, summary_context=summary_ctx)
+        if recent_valid:
+            _add_variant(f"recent_with_context_{len(recent_valid)}_msgs", recent_valid)
+
+    # Stage 4: 1 Message Only + FULL CHAT SESSION CONTEXT PRESERVED
+    if len(msgs) > 1:
+        last_target = [msgs[-1]]
+        omitted_all = msgs[:-1]
+        full_summary_ctx = summarize_omitted_history(omitted_all, max_chars=1200)
+        single_with_ctx = make_valid_anthropic_slice(last_target, summary_context=full_summary_ctx)
+        if single_with_ctx:
+            _add_variant("last_msg_with_context", single_with_ctx)
+
+    # Stage 5: Bare Last Message Only (only if upstream rejected the context header)
+    if len(msgs) > 1:
+        single_bare = make_valid_anthropic_slice([msgs[-1]], summary_context="")
+        if single_bare:
+            _add_variant("last_msg_bare", single_bare)
 
     return variants

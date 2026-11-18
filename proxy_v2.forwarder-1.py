@@ -387,12 +387,17 @@ def route_to_agentrouter(handler, raw_body, body_obj):
 def _friendly_stage_label(stage_name):
     if stage_name == "shrink_old_tools_keep_last":
         return "Stage 1: Old Tools Shrunk"
-    if stage_name.startswith("recent_"):
-        return f"Stage 2: Recent Msgs ({stage_name.replace('recent_', '').replace('_msgs', '')})"
-    if stage_name == "last_message_only":
-        return "Stage 3: Last Msg Only"
     if stage_name == "shrink_all_large_blocks":
-        return "Stage 4: All Large Blocks Shrunk"
+        return "Stage 2: All Large Blocks Shrunk"
+    if stage_name.startswith("recent_with_context_"):
+        cnt = stage_name.replace("recent_with_context_", "").replace("_msgs", "")
+        return f"Stage 3: Recent {cnt} Msgs + Full Context"
+    if stage_name.startswith("recent_"):
+        return f"Stage 3: Recent Msgs ({stage_name.replace('recent_', '').replace('_msgs', '')})"
+    if stage_name == "last_msg_with_context":
+        return "Stage 4: 1 Msg + Full Chat Context"
+    if stage_name in ("last_msg_bare", "last_message_only"):
+        return "Stage 5: 1 Msg Bare (Fallback)"
     return stage_name
 
 def try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_model):
