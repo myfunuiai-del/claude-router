@@ -380,9 +380,15 @@ def sync_to_claude_settings(cfg):
             model_list = [{"id": m} for m in models]
             if not model_list and def_m:
                 model_list = [{"id": def_m}]
+            is_routed = p_id in routed
+            route_tag = "🌐 Router" if is_routed else "🔒 Direct"
+            mode_val = (p_info.get("mode") or "agentic").lower()
+            mode_tag = "⚡ Agentic" if mode_val == "agentic" else "💡 Normal"
+            keys_count = len(p_info.get('keys', []))
+
             p_entry = {
                 "id": p_id,
-                "name": f"{p_info.get('name', p_id)} ({len(p_info.get('keys', []))} API Keys)",
+                "name": f"{p_info.get('name', p_id)} [{route_tag} | {mode_tag}] ({keys_count} Keys)",
                 "base_url": base_url,
                 "api_key": "auto",
                 "auth_mode": "bearer",
@@ -416,7 +422,7 @@ def sync_to_claude_settings(cfg):
 
             providers_out.insert(0, {
                 "id": "multiagent",
-                "name": "🤖 MULTI-AGENT TEAMS",
+                "name": "🤖 MULTI-AGENT TEAMS [⚡ Agentic Pipeline]",
                 "base_url": f"http://127.0.0.1:{PORT}/multiagent",
                 "api_key": "auto",
                 "auth_mode": "bearer",

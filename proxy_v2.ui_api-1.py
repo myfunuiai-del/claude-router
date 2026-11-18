@@ -545,6 +545,57 @@ def handle_ui_post(handler, raw_body):
             handler.wfile.write(err)
             return True
 
+    # UI API: Toggle or set server engine mode (agentic vs normal)
+    if handler.path == "/api/ui/provider-mode":
+        try:
+            data = json.loads(raw_body.decode('utf-8'))
+            p_id = (data.get("provider") or "").strip()
+            cfg = load_proxy_config()
+            p = cfg.get("providers", {}).get(p_id)
+            if not p:
+                handler.send_response(404)
+                handler.send_header('Content-Type', 'application/json')
+                handler.send_header('Access-Control-Allow-Origin', '*')
+                err = json.dumps({"status": "error", "message": "Provider not found"}).encode()
+                handler.send_header('Content-Length', str(len(err)))
+                handler.end_headers()
+                handler.wfile.write(err)
+                return True
+
+            requested_mode = (data.get("mode") or "").strip().lower()
+            current_mode = (p.get("mode") or "agentic").lower()
+            if requested_mode in ("agentic", "normal"):
+                new_mode = requested_mode
+            else:
+                new_mode = "normal" if current_mode == "agentic" else "agentic"
+
+            p["mode"] = new_mode
+            save_proxy_config(cfg)
+            mode_label = "⚡ Agentic (Full Tools)" if new_mode == "agentic" else "💡 Normal (Saves tokens)"
+            resp = json.dumps({
+                "status": "ok",
+                "provider": p_id,
+                "mode": new_mode,
+                "message": f"{p.get('name', p_id)} switched to {mode_label}",
+                "config": cfg
+            }).encode()
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            handler.send_header('Content-Length', str(len(resp)))
+            handler.end_headers()
+            handler.wfile.write(resp)
+            return True
+        except Exception as e:
+            handler.send_response(500)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            err = json.dumps({"status": "error", "message": str(e)}).encode()
+            handler.send_header('Content-Length', str(len(err)))
+            handler.end_headers()
+            handler.wfile.write(err)
+            return True
+
     # UI API: Move or reorder providers between Routed and Unrouted
     if handler.path == "/api/ui/route-pool":
         try:

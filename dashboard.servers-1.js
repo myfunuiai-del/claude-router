@@ -458,6 +458,26 @@ function deleteTeam(teamId) {
   openConfirmDeleteTeam(teamId);
 }
 
+async function toggleServerMode(pId) {
+  try {
+    const res = await fetch('/api/ui/provider-mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: pId })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      currentConfig = data.config;
+      renderLanes();
+      showToast(data.message || `Mode updated for ${pId}`);
+    } else {
+      showToast(data.message || 'Mode switch failed', true);
+    }
+  } catch (e) {
+    showToast(`Failed to switch mode: ${e.message}`, true);
+  }
+}
+
 function createServerCard(id, p, isRouted, index) {
   const isEnabled = p.enabled !== false;
   const card = document.createElement('div');
@@ -482,8 +502,8 @@ function createServerCard(id, p, isRouted, index) {
   top.className = 'server-card-top';
   const sMode = (p.mode || 'agentic').toLowerCase();
   const modeBadgeHtml = sMode === 'normal'
-    ? `<span class="server-mode-badge is-normal" title="Normal Mode: Fast Chat + Interactive Q/A only">💬 normal</span>`
-    : `<span class="server-mode-badge is-agentic" title="Agentic Mode: Full Tools, Bash &amp; File Edits">⚡ agentic</span>`;
+    ? `<span class="server-mode-badge is-normal" style="cursor:pointer;" title="Normal Mode (Saves tokens): Tap to switch to ⚡ Agentic" onclick="event.stopPropagation(); toggleServerMode('${id}')">💬 normal</span>`
+    : `<span class="server-mode-badge is-agentic" style="cursor:pointer;" title="Agentic Mode (Full tools): Tap to switch to 💡 Normal" onclick="event.stopPropagation(); toggleServerMode('${id}')">⚡ agentic</span>`;
   const hasCustomPrompt = !!(p.custom_prompt && p.custom_prompt.trim());
   const promptBadgeHtml = hasCustomPrompt
     ? `<span class="server-prompt-badge" title="Custom System Prompt Active">📝 prompt</span>`
@@ -523,6 +543,7 @@ function createServerCard(id, p, isRouted, index) {
         ${fastSwitchHtml}
       </div>
       <div class="server-card-btn-group" onclick="event.stopPropagation()">
+        <button class="btn btn-xs" id="quick-ping-btn-${id}" style="padding:1px 6px; font-size:10px;" onclick="testModels('${id}')" title="Test all models for this server">🧪 Ping</button>
         <button class="btn-reorder btn-up" title="Move Up (Higher Priority)" onclick="moveCardUp('${id}')">▲</button>
         <button class="btn-reorder btn-down" title="Move Down (Lower Priority)" onclick="moveCardDown('${id}')">▼</button>
         <button class="btn btn-xs btn-lane-toggle" onclick="moveLaneQuick('${id}')">
