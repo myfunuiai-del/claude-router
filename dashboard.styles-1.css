@@ -82,14 +82,25 @@ input:focus, select:focus, textarea:focus { border-color: var(--brand); }
 @media (max-width: 768px) {
   .pools-layout { grid-template-columns: 1fr; }
 }
-.pool-lane { background: var(--panel-bg); border: 1px solid var(--border); border-radius: 6px; display: flex; flex-direction: column; min-height: 320px; }
-.pool-lane.active-lane { border-color: #238636aa; box-shadow: 0 0 12px rgba(35, 134, 54, 0.08); }
-.lane-header { padding: 9px 12px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: #0c1219; border-radius: 6px 6px 0 0; }
+.pool-lane { background: var(--panel-bg); border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; min-height: 320px; overflow: hidden; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25); }
+.lane-header { padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; border-radius: 8px 8px 0 0; }
 .lane-title { font-size: 11px; font-weight: 600; text-transform: uppercase; display: flex; align-items: center; gap: 6px; }
 .lane-subtitle { font-size: 10px; color: var(--text-muted); font-family: var(--mono); margin-top: 2px; }
-.lane-body { padding: 8px; flex: 1; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; transition: background 0.15s, outline 0.15s; min-height: 140px; }
-.lane-body.drag-over { background: rgba(56, 139, 253, 0.08); outline: 2px dashed var(--brand); border-radius: 0 0 6px 6px; }
-.lane-empty { text-align: center; padding: 32px 14px; color: var(--text-muted); font-size: 11px; border: 1px dashed var(--border-subtle); border-radius: 4px; }
+.lane-body { padding: 10px; flex: 1; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; transition: background 0.15s, outline 0.15s; min-height: 140px; border-radius: 0 0 8px 8px; }
+.lane-body.drag-over { background: rgba(56, 139, 253, 0.08); outline: 2px dashed var(--brand); }
+.lane-empty { text-align: center; padding: 32px 14px; color: var(--text-muted); font-size: 11px; border: 1px dashed var(--border-subtle); border-radius: 6px; }
+/* Lane 1: Routed Pipeline (Active) */
+#lane-routed { border-color: rgba(63, 185, 80, 0.45); box-shadow: 0 4px 20px rgba(35, 134, 54, 0.14), inset 0 0 16px rgba(35, 134, 54, 0.03); }
+#lane-routed .lane-header { background: linear-gradient(90deg, rgba(35, 134, 54, 0.22) 0%, rgba(12, 18, 25, 0.95) 100%); border-bottom: 1px solid rgba(63, 185, 80, 0.35); }
+#lane-routed .lane-body { background: linear-gradient(180deg, #0d1520 0%, #06090e 100%); }
+/* Lane 2: Standby Pool */
+#lane-unrouted { border-color: rgba(56, 139, 253, 0.35); box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), inset 0 0 16px rgba(56, 139, 253, 0.02); }
+#lane-unrouted .lane-header { background: linear-gradient(90deg, rgba(56, 139, 253, 0.16) 0%, rgba(12, 18, 25, 0.95) 100%); border-bottom: 1px solid rgba(56, 139, 253, 0.28); }
+#lane-unrouted .lane-body { background: linear-gradient(180deg, #0c1118 0%, #06080c 100%); }
+/* Lane 3: Multi-Agent Teams */
+#lane-multiagent { border-color: rgba(137, 87, 229, 0.5); box-shadow: 0 4px 20px rgba(137, 87, 229, 0.14), inset 0 0 16px rgba(137, 87, 229, 0.03); }
+#lane-multiagent .lane-header { background: linear-gradient(90deg, rgba(137, 87, 229, 0.22) 0%, rgba(18, 14, 28, 0.95) 100%); border-bottom: 1px solid rgba(137, 87, 229, 0.35); }
+#lane-multiagent .lane-body { background: linear-gradient(180deg, #110e1c 0%, #07060c 100%); }
 
 /* DRAGGABLE ACCORDION SERVER CARDS */
 .server-card { background: var(--card-bg); border: 1px solid var(--border); border-bottom: 3px solid #334866; border-radius: 6px; overflow: hidden; transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.15s ease; position: relative; touch-action: pan-y; box-shadow: 0 2px 6px rgba(0,0,0,0.3); }
