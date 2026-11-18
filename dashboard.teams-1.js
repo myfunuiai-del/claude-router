@@ -32,7 +32,7 @@ function renderTeamsLane() {
       const cached = (typeof _getCachedModelStatus === 'function') ? _getCachedModelStatus(m.provider, m.model) : null;
       const initialStatus = cached ? (cached.state === 'ok' ? '🟢' : '🔴') : '';
       const initialTitle = cached ? (cached.status || '') : '';
-      return `<span class="chip" style="font-size:10px;"><strong style="color:#d2a8ff;">${role}:</strong> ${pName} (${mName}) <span class="chip-status" id="team-member-status-${t.id}-${idx}" title="${initialTitle}">${initialStatus}</span><span style="font-size:9.5px; color:${modeColor};" title="Engine Mode: ${mMode}">${modeIcon}</span></span>`;
+      return `<span class="chip" style="font-size:10px;"><strong style="color:#d2a8ff;">${role}:</strong> ${pName} (${mName}) <span class="chip-status" id="team-member-status-${t.id}-${idx}" title="${initialTitle}">${initialStatus}</span><span class="member-mode-glow-btn is-${mMode}" title="Mode: ${mMode === 'agentic' ? '⚡ Agentic (Full Tools)' : '💡 Normal (Saves tokens)'} — Tap to switch" onclick="event.stopPropagation(); toggleTeamMemberMode('${t.id}', ${idx})">${modeIcon}</span></span>`;
     }).join(' ');
 
     card.innerHTML = `
@@ -174,4 +174,43 @@ async function toggleTeamPower(teamId) {
 
 function deleteTeam(teamId) {
   openConfirmDeleteTeam(teamId);
+}
+
+async function toggleTeamMemberMode(tId, memberIndex) {
+  const team = currentConfig?.multi_agent_teams?.[tId];
+  if (!team || !team.members || !team.members[memberIndex]) return;
+
+  const m = team.members[memberIndex];
+  const curMode = m.mode || (memberIndex === 0 ? 'normal' : 'agentic');
+  const newMode = (curMode === 'agentic') ? 'normal' : 'agentic';
+  m.mode = newMode;
+
+  try {
+    const res = await fetch('/api/ui/multi-agent-teams', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'save',
+        id: team.id,
+        name: team.name,
+        workflow: team.workflow,
+        enabled: team.enabled !== false,
+        members: team.members
+      })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      currentConfig = data.config;
+      renderTeamsLane();
+      const modeLabel = newMode === 'agentic' ? '⚡ Agentic' : '💡 Normal';
+      showToast(`${team.name || tId} ➔ ${m.role || `Step #${memberIndex+1}`}: switched to ${modeLabel}`);
+    } else {
+      // Revert in memory if failed
+      m.mode = curMode;
+      showToast(data.message || 'Failed to switch member mode', true);
+    }
+  } catch (e) {
+    m.mode = curMode;
+    showToast(`Error switching mode: ${e.message}`, true);
+  }
 }

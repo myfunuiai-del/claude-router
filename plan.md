@@ -73,7 +73,7 @@ All files across the entire repository are strictly under the 400-500 line limit
 | `dashboard.live-1.js` | 345 | ✅ Pass | Live feed monitor, token & speed meter |
 | `proxy_v2.config_live-1.py` | 336 | ✅ Pass | Live request store, error classifier & key cooldowns |
 | `dashboard.modals_team-1.js` | 308 | ✅ Pass | Multi-Agent team builder modal & member settings |
-| `dashboard.styles-1.css` | 306 | ✅ Pass | Mobile-first cybernetic dark UI styles & glow effects |
+| `dashboard.styles-1.css` | 339 | ✅ Pass | Mobile-first cybernetic dark UI styles & glow effects |
 | `proxy_v2.transform_stream-1.py` | 304 | ✅ Pass | OpenAI SSE stream & JSON to Anthropic converter |
 | `proxy_v2.multi_agent_runner-1.py` | 303 | ✅ Pass | Team member turn executor, blueprint guard & isolation |
 | `proxy_v2.http_handlers-1.py` | 282 | ✅ Pass | HTTP GET, DELETE, OPTIONS, HEAD & dynamic asset router |
@@ -83,7 +83,7 @@ All files across the entire repository are strictly under the 400-500 line limit
 | `proxy_v2.forwarder-1.py` | 241 | ✅ Pass | Main inference router, direct routes & multi-agent dispatcher |
 | `dashboard.drag-1.js` | 224 | ✅ Pass | Touch & mouse drag-drop & priority pipeline |
 | `dashboard.team_picker-1.js` | 215 | ✅ Pass | Member model dropdown panel & member model status check |
-| `dashboard.teams-1.js` | 177 | ✅ Pass | Multi-Agent teams lane rendering, cards & test buttons |
+| `dashboard.teams-1.js` | 216 | ✅ Pass | Multi-Agent teams lane rendering, cards & test buttons |
 | `dashboard.workflow_patterns-1.js` | 165 | ✅ Pass | 6 built-in multi-agent blueprints and workflow templates |
 | `dashboard.chips-1.js` | 123 | ✅ Pass | Model chips fast switch, copy & long-press promoter |
 | `proxy_v2.py` | 122 | ✅ Pass | Root server launcher with log janitor & IPv4 DNS patch |
