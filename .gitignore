@@ -8,6 +8,8 @@ config.json.bak
 __pycache__/
 *.pyc
 delete/
+backups/
+*.tar.gz
 
 # System / editor files
 .DS_Store
