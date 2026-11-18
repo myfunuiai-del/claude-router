@@ -27,6 +27,24 @@ async function fetchStatus() {
       if (elModel) elModel.innerText = s.model || 'None';
       if (elAccount) elAccount.innerText = s.account || '';
       if (elUpdated) elUpdated.innerText = s.last_updated?.split(' ')[1] || 'Live';
+      const elMeterWrap = document.getElementById('active-meter-wrap');
+      const elMeter = document.getElementById('active-speed-meter');
+      if (elMeterWrap && elMeter) {
+        const inT = s.input_tokens || 0;
+        const outT = s.output_tokens || 0;
+        const tps = s.tok_per_sec || 0;
+        const ms = s.latency_ms || 0;
+        if (inT > 0 || outT > 0 || ms > 0) {
+          const parts = [];
+          if (inT || outT) parts.push(`${inT}→${outT} tok`);
+          if (tps > 0) parts.push(`⚡ ${tps} tok/s`);
+          if (ms > 0) parts.push(`${(ms / 1000).toFixed(1)}s`);
+          elMeter.innerText = parts.join(' • ');
+          elMeterWrap.style.display = '';
+        } else {
+          elMeterWrap.style.display = 'none';
+        }
+      }
     }
   } catch(e) {}
 }
@@ -97,6 +115,26 @@ function renderDropdown() {
     opt.value = id;
     opt.innerText = p.name || id;
     sel.appendChild(opt);
+  }
+}
+
+async function fastSwitchModel(pId, modelName) {
+  if (!modelName) return;
+  try {
+    const res = await fetch('/api/ui/provider-models', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: pId, action: 'set_default', model: modelName })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(`Default switched: ${modelName}`);
+      currentConfig = data.config;
+      renderLanes();
+      renderDropdown();
+    }
+  } catch (err) {
+    showToast('Failed to switch model', true);
   }
 }
 
@@ -270,6 +308,15 @@ function createServerCard(id, p, isRouted, index) {
   const modeBadgeHtml = sMode === 'normal'
     ? `<span class="server-mode-badge is-normal" title="Normal Mode: Fast Chat + Interactive Q/A only">💬 normal</span>`
     : `<span class="server-mode-badge is-agentic" title="Agentic Mode: Full Tools, Bash &amp; File Edits">⚡ agentic</span>`;
+  const hasCustomPrompt = !!(p.custom_prompt && p.custom_prompt.trim());
+  const promptBadgeHtml = hasCustomPrompt
+    ? `<span class="server-prompt-badge" title="Custom System Prompt Active">📝 prompt</span>`
+    : '';
+  const allModels = p.models || [];
+  const defModel = p.default_model || allModels[0] || '';
+  const fastSwitchHtml = allModels.length > 0
+    ? `<select class="fast-model-select" title="Fast switch default model" onclick="event.stopPropagation()" onchange="fastSwitchModel('${id}', this.value)">${allModels.map(m => `<option value="${m.replace(/"/g, '&quot;')}" ${m === defModel ? 'selected' : ''}>${m}</option>`).join('')}</select>`
+    : '';
 
   top.innerHTML = `
     <!-- Row 1: Drag handle, Priority Badge, Server Name, Protocol, Mode, ON/OFF Toggle, and Expand Arrow -->
@@ -280,6 +327,7 @@ function createServerCard(id, p, isRouted, index) {
         <span class="server-name" title="${p.name || id}">${p.name || id}</span>
         <span class="server-proto">${p.type || 'anthropic'}</span>
         ${modeBadgeHtml}
+        ${promptBadgeHtml}
       </div>
       <div class="server-header-right" onclick="event.stopPropagation()">
         <button type="button" class="power-toggle ${isEnabled ? 'is-on' : 'is-off'}" id="power-btn-${id}" title="${isEnabled ? 'Server ON — tap to turn OFF' : 'Server OFF — tap to turn ON'}" onclick="toggleServerPower('${id}')">
@@ -290,12 +338,13 @@ function createServerCard(id, p, isRouted, index) {
       </div>
     </div>
 
-    <!-- Row 2: Route Pill + Reorder/Route Buttons + Safe Delete Button -->
+    <!-- Row 2: Route Pill + Fast Model Switcher + Reorder/Route Buttons + Safe Delete Button -->
     <div class="server-card-controls-row">
       <div class="server-card-left-tags">
         <span style="font-size:10px; font-family:var(--mono); color:#79c0ff; background:#162438; padding:2px 6px; border-radius:4px; border:1px solid #1f4277; cursor:pointer; display:inline-flex; align-items:center; gap:3px;" title="Click to copy direct route URL" onclick="event.stopPropagation(); copyDirectRoute('${id}')">
           📋 /${id}
         </span>
+        ${fastSwitchHtml}
       </div>
       <div class="server-card-btn-group" onclick="event.stopPropagation()">
         <button class="btn-reorder btn-up" title="Move Up (Higher Priority)" onclick="moveCardUp('${id}')">▲</button>

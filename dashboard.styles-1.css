@@ -125,8 +125,12 @@ input:focus, select:focus { border-color: var(--brand); }
 
 /* Server Card Controls Row */
 .server-card-controls-row { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding-top: 4px; border-top: 1px solid #16202e; flex-wrap: wrap; }
-.server-card-left-tags { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
+.server-card-left-tags { display: flex; align-items: center; gap: 5px; min-width: 0; flex: 1; flex-wrap: wrap; }
 .server-card-btn-group { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.fast-model-select { font-size: 10px; font-family: var(--mono); background: #0e1622; color: #c9d1d9; border: 1px solid #2b4263; border-radius: 4px; padding: 2px 6px; max-width: 175px; outline: none; cursor: pointer; }
+.fast-model-select:focus { border-color: var(--brand); color: #fff; }
+.server-prompt-badge { font-size: 9px; font-family: var(--mono); padding: 1px 5px; border-radius: 3px; background: rgba(137, 87, 229, 0.2); color: #d2a8ff; border: 1px solid rgba(137, 87, 229, 0.5); white-space: nowrap; }
+.speed-meter-pill { font-size: 10px; font-family: var(--mono); padding: 1px 6px; border-radius: 999px; background: rgba(35, 134, 54, 0.16); color: #56d364; border: 1px solid rgba(63, 185, 80, 0.45); white-space: nowrap; }
 
 /* Safe Delete Button (Clearly separated to prevent misclicks) */
 .safe-delete-btn { margin-left: 6px; padding: 3px 7px; border-radius: 4px; background: rgba(218, 54, 51, 0.12); border: 1px solid rgba(218, 54, 51, 0.35); color: var(--danger-text); font-size: 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; transition: all 0.15s ease; user-select: none; }

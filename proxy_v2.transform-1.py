@@ -922,6 +922,51 @@ def convert_openai_json_to_anthropic(openai_obj, server, model):
         }
     }, ensure_ascii=False).encode('utf-8')
 
+def extract_anthropic_usage(resp_bytes):
+    """Extract (input_tokens, output_tokens) from Anthropic JSON or SSE response bytes."""
+    in_tok = 0
+    out_tok = 0
+    if not resp_bytes:
+        return 0, 0
+    try:
+        text = resp_bytes.decode('utf-8', errors='ignore')
+        stripped = text.lstrip()
+        if stripped.startswith("{"):
+            obj = json.loads(stripped)
+            u = obj.get("usage")
+            if isinstance(u, dict):
+                in_tok = int(u.get("input_tokens") or u.get("prompt_tokens") or 0)
+                out_tok = int(u.get("output_tokens") or u.get("completion_tokens") or 0)
+            return in_tok, out_tok
+        # SSE scan
+        for line in text.splitlines():
+            if not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if not payload or payload == "[DONE]" or not payload.startswith("{"):
+                continue
+            try:
+                ev = json.loads(payload)
+            except Exception:
+                continue
+            # message_start -> message.usage
+            msg_u = (ev.get("message") or {}).get("usage")
+            if isinstance(msg_u, dict):
+                if msg_u.get("input_tokens"):
+                    in_tok = max(in_tok, int(msg_u["input_tokens"]))
+                if msg_u.get("output_tokens"):
+                    out_tok = max(out_tok, int(msg_u["output_tokens"]))
+            # message_delta -> usage
+            ev_u = ev.get("usage")
+            if isinstance(ev_u, dict):
+                if ev_u.get("input_tokens"):
+                    in_tok = max(in_tok, int(ev_u["input_tokens"]))
+                if ev_u.get("output_tokens"):
+                    out_tok = max(out_tok, int(ev_u["output_tokens"]))
+    except Exception:
+        pass
+    return in_tok, out_tok
+
 def _is_tool_result_msg(msg):
     """Return True if msg is a user message containing tool_result blocks."""
     if not isinstance(msg, dict) or msg.get("role") != "user":

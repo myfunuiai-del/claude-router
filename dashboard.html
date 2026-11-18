@@ -42,6 +42,7 @@
         <div class="meta-item"><span style="color:var(--text-muted)">Active Route:</span> <span class="meta-val" id="active-server">Coarena</span></div>
         <div class="meta-item"><span style="color:var(--text-muted)">Model:</span> <span class="meta-val" id="active-model">gemini-4-carbon</span></div>
         <div class="meta-item"><span style="color:var(--text-muted)">Account:</span> <span style="font-family:var(--mono);" id="active-account">#1</span></div>
+        <div class="meta-item" id="active-meter-wrap" style="display:none;"><span class="speed-meter-pill" id="active-speed-meter">—</span></div>
       </div>
       <div class="live-route-actions">
         <button type="button" class="power-toggle is-on" id="recovery-toggle-btn" title="5-stage Auto History Recovery on 400/403/413" onclick="toggleAutoRecovery()">
@@ -207,6 +208,17 @@
         <div>
           <label style="font-size:11px; color:var(--text-muted);">Custom Headers (optional JSON, e.g. {"Originator":"codex_cli_rs"})</label>
           <input type="text" id="server-custom-headers" placeholder='{"Header-Name": "Value"}' />
+        </div>
+        <div>
+          <label style="font-size:11px; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
+            <span>Custom System Prompt / Preset (optional)</span>
+            <span style="display:inline-flex; gap:4px;">
+              <button type="button" class="btn btn-xs" style="padding:1px 5px; font-size:9.5px;" onclick="applyPromptPreset('concise')">⚡ Concise</button>
+              <button type="button" class="btn btn-xs" style="padding:1px 5px; font-size:9.5px;" onclick="applyPromptPreset('bengali')">🇧🇩 Bengali</button>
+              <button type="button" class="btn btn-xs" style="padding:1px 5px; font-size:9.5px;" onclick="applyPromptPreset('clear')">Clear</button>
+            </span>
+          </label>
+          <textarea id="server-custom-prompt" class="backup-textarea" style="min-height:54px; max-height:110px; margin-top:3px;" placeholder="Optional rules prepended to system prompt (e.g. Be extremely concise, minimal code diffs only)"></textarea>
         </div>
         <div style="display:flex; justify-content:flex-end; gap:6px; margin-top:8px;">
           <button type="button" class="btn btn-xs" onclick="closeServerModal()">Cancel</button>

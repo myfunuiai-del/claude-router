@@ -213,9 +213,15 @@ def record_live_issue(p_id, p_name, model, key_label, code, detail=""):
         if len(_LIVE_STORE.issues) > 25:
             del _LIVE_STORE.issues[25:]
 
-def record_live_request(p_id, p_name, model, key_label, status, code, latency_ms, path="/v1/messages", recovery_stage=None, failover_from=None):
+def record_live_request(p_id, p_name, model, key_label, status, code, latency_ms, path="/v1/messages", recovery_stage=None, failover_from=None, input_tokens=0, output_tokens=0, tok_per_sec=0.0):
     now = time.time()
     failover_list = list(failover_from) if failover_from else []
+    in_tok = int(input_tokens or 0)
+    out_tok = int(output_tokens or 0)
+    tps = round(float(tok_per_sec or 0.0), 1)
+    if tps <= 0 and out_tok > 0 and latency_ms and latency_ms > 50:
+        tps = round(out_tok / (latency_ms / 1000.0), 1)
+
     with _LIVE_STORE.lock:
         _LIVE_STORE.seq += 1
         if p_id and p_id != "pipeline":
@@ -223,7 +229,8 @@ def record_live_request(p_id, p_name, model, key_label, status, code, latency_ms
                 "provider": p_id, "name": p_name or p_id,
                 "total": 0, "ok": 0, "err": 0, "recoveries": 0,
                 "last_model": "", "last_key": "", "last_status": "idle",
-                "last_error": "", "last_used_at": 0, "_ms_sum": 0, "_ms_cnt": 0
+                "last_error": "", "last_used_at": 0, "_ms_sum": 0, "_ms_cnt": 0,
+                "total_in_tokens": 0, "total_out_tokens": 0, "last_tps": 0.0
             })
             st["name"] = p_name or st["name"]
             if status == "ok":
@@ -234,6 +241,10 @@ def record_live_request(p_id, p_name, model, key_label, status, code, latency_ms
                 st["last_status"] = "ok"
                 st["last_error"] = ""
                 st["last_used_at"] = now
+                st["total_in_tokens"] = st.get("total_in_tokens", 0) + in_tok
+                st["total_out_tokens"] = st.get("total_out_tokens", 0) + out_tok
+                if tps > 0:
+                    st["last_tps"] = tps
                 if recovery_stage:
                     st["recoveries"] += 1
                 if latency_ms and latency_ms > 0:
@@ -253,6 +264,9 @@ def record_live_request(p_id, p_name, model, key_label, status, code, latency_ms
             "status": status,
             "code": code,
             "latency_ms": int(latency_ms or 0),
+            "input_tokens": in_tok,
+            "output_tokens": out_tok,
+            "tok_per_sec": tps,
             "recovery_stage": recovery_stage or "",
             "failover_from": failover_list,
             "passed_by": passed_by
@@ -308,6 +322,9 @@ def get_live_snapshot():
                 "recoveries": st.get("recoveries", 0),
                 "success_rate": success_rate,
                 "avg_ms": avg_ms,
+                "total_in_tokens": st.get("total_in_tokens", 0),
+                "total_out_tokens": st.get("total_out_tokens", 0),
+                "last_tps": st.get("last_tps", 0.0),
                 "last_model": st.get("last_model") or p_info.get("default_model", ""),
                 "last_key": st.get("last_key", ""),
                 "last_status": st.get("last_status", "idle"),
@@ -437,12 +454,16 @@ def get_active_state():
     with _LIVE_STORE.lock:
         return dict(_LIVE_STORE.active_state)
 
-def save_active_state(server, model, account):
+def save_active_state(server, model, account, input_tokens=0, output_tokens=0, tok_per_sec=0.0, latency_ms=0):
     new_state = {
         "server": server,
         "model": model,
         "account": account,
         "tag": f"{server} - {model}",
+        "input_tokens": int(input_tokens or 0),
+        "output_tokens": int(output_tokens or 0),
+        "tok_per_sec": round(float(tok_per_sec or 0.0), 1),
+        "latency_ms": int(latency_ms or 0),
         "last_updated": time.strftime("%Y-%m-%d %H:%M:%S")
     }
     with _LIVE_STORE.lock:

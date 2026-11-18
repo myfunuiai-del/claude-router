@@ -144,6 +144,12 @@ def handle_ui_post(handler, raw_body):
             }
             if custom_headers:
                 p_entry["custom_headers"] = custom_headers
+            custom_prompt = data.get("custom_prompt")
+            if custom_prompt is None:
+                custom_prompt = existing_prov.get("custom_prompt", "")
+            custom_prompt = str(custom_prompt).strip()
+            if custom_prompt:
+                p_entry["custom_prompt"] = custom_prompt
             providers[p_id] = p_entry
 
             save_proxy_config(cfg)

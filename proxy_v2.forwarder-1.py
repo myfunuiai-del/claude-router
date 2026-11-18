@@ -3,6 +3,8 @@ import os
 import sys
 import json
 import gzip
+import time
+import threading
 import urllib.request
 import urllib.error
 import importlib.util
@@ -22,13 +24,60 @@ def _load_module_to_globals(filename, target_globals):
 _config_mod = _load_module_to_globals("proxy_v2.config-1.py", globals())
 _transform_mod = _load_module_to_globals("proxy_v2.transform-1.py", globals())
 
-def _select_available_keys(p_id, keys, model=None, start_idx=0, max_count=None):
-    """Return rotated [(orig_idx, key)] skipping keys currently in cooldown.
+def _inject_custom_prompt(body_obj, custom_prompt):
+    """Prepend provider-level custom system instructions cleanly to an Anthropic request body copy."""
+    if not body_obj or not isinstance(body_obj, dict):
+        return body_obj
+    cp = (custom_prompt or "").strip()
+    if not cp:
+        return body_obj
+    b = dict(body_obj)
+    sys_val = b.get("system")
+    if isinstance(sys_val, str):
+        b["system"] = f"{cp}\n\n{sys_val}" if sys_val.strip() else cp
+    elif isinstance(sys_val, list):
+        b["system"] = [{"type": "text", "text": cp}] + list(sys_val)
+    else:
+        b["system"] = cp
+    return b
+
+def _record_winner_usage(handler, p_id, p_name, model, key_label, resp_bytes, req_t0):
+    in_tok, out_tok = extract_anthropic_usage(resp_bytes)
+    elapsed_ms = max(1, int((time.time() - req_t0) * 1000))
+    tps = round(out_tok / (elapsed_ms / 1000.0), 1) if (out_tok > 0 and elapsed_ms > 50) else 0.0
+    handler._winner_info = {
+        "provider": p_id,
+        "provider_name": p_name,
+        "model": model,
+        "key_label": key_label,
+        "input_tokens": in_tok,
+        "output_tokens": out_tok,
+        "tok_per_sec": tps,
+        "latency_ms": elapsed_ms
+    }
+    save_active_state(p_name, model, key_label, input_tokens=in_tok, output_tokens=out_tok, tok_per_sec=tps, latency_ms=elapsed_ms)
+
+_PROVIDER_KEY_IDX = {}
+
+def _get_start_key_idx(p_id, n):
+    if n <= 0:
+        return 0
+    return _PROVIDER_KEY_IDX.get(p_id, 0) % n
+
+def _advance_key_idx(p_id, idx, n, on_error=False):
+    if n <= 0:
+        return
+    _PROVIDER_KEY_IDX[p_id] = (idx + 1) % n if on_error else (idx % n)
+
+def _select_available_keys(p_id, keys, model=None, start_idx=None, max_count=None):
+    """Return rotated [(orig_idx, key)] starting from last healthy key, skipping keys in cooldown.
     If every key is in cooldown, falls back to returning all rotated keys so provider never hard-locks.
     """
     n = len(keys)
     if n == 0:
         return []
+    if start_idx is None:
+        start_idx = _get_start_key_idx(p_id, n)
     rotated = [((start_idx + i) % n, keys[(start_idx + i) % n]) for i in range(n)]
     ready = [(idx, k) for idx, k in rotated if is_key_in_cooldown(p_id, k, model) == 0]
     chosen = ready if ready else rotated
@@ -50,6 +99,11 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
     if p_info.get("enabled", True) is False:
         sys.stderr.write(f"[Proxy] Provider '{p_id}' is OFF (disabled). Skipping.\n")
         return False
+
+    # Inject provider-level custom system prompt if configured
+    custom_prompt = (p_info.get("custom_prompt") or "").strip()
+    if custom_prompt and body_obj is not None:
+        body_obj = _inject_custom_prompt(body_obj, custom_prompt)
 
     if p_id == "coarena":
         candidates = [orig_model]
@@ -106,6 +160,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                 req_headers['x-api-key'] = key
 
                 req = urllib.request.Request(upstream_url, data=body, headers=req_headers, method='POST')
+                req_t0 = time.time()
                 try:
                     with urllib.request.urlopen(req, timeout=35) as resp:
                         resp_data = resp.read()
@@ -117,8 +172,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                         current_coarena_idx = idx
                         clear_key_cooldown("coarena", key, coarena_model)
                         p_name = p_info.get("name", "Coarena")
-                        handler._winner_info = {"provider": "coarena", "provider_name": p_name, "model": coarena_model, "key_label": f"Key #{idx+1}"}
-                        save_active_state(p_name, coarena_model, f"Coarena Account #{idx+1}")
+                        _record_winner_usage(handler, "coarena", p_name, coarena_model, f"Key #{idx+1}", resp_data, req_t0)
                         resp_data = append_signature_to_response(resp_data, p_name, coarena_model)
                         handler.send_response(resp.status)
                         for k, val in resp.headers.items():
@@ -181,13 +235,13 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                 'Accept-Encoding': 'identity'
             }
             req = urllib.request.Request(ar_url, data=ar_body, headers=ar_headers, method='POST')
+            req_t0 = time.time()
             try:
                 with urllib.request.urlopen(req, timeout=30) as resp:
                     resp_data = resp.read()
                     clear_key_cooldown("agentrouter", key, ar_model)
                     p_name = p_info.get("name", "AgentRouter")
-                    handler._winner_info = {"provider": "agentrouter", "provider_name": p_name, "model": ar_model, "key_label": f"Key #{attempt+1}"}
-                    save_active_state(p_name, ar_model, f"AgentRouter Key #{attempt+1}")
+                    _record_winner_usage(handler, "agentrouter", p_name, ar_model, f"Key #{attempt+1}", resp_data, req_t0)
                     resp_data = append_signature_to_response(resp_data, p_name, ar_model)
                     handler.send_response(resp.status)
                     for k, val in resp.headers.items():
@@ -287,13 +341,14 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                     if custom_hdrs and isinstance(custom_hdrs, dict):
                         fwd_headers.update(custom_hdrs)
                     req = urllib.request.Request(fwd_url, data=fwd_body, headers=fwd_headers, method='POST')
+                    req_t0 = time.time()
                     try:
                         with urllib.request.urlopen(req, timeout=30) as resp:
                             resp_data = resp.read()
+                            _advance_key_idx(p_id, attempt, len(p_keys), on_error=False)
                             clear_key_cooldown(p_id, key, target_model)
                             p_name = p_info.get("name", p_id)
-                            handler._winner_info = {"provider": p_id, "provider_name": p_name, "model": target_model, "key_label": f"Key #{attempt+1}"}
-                            save_active_state(p_name, target_model, f"Key #{attempt+1}")
+                            _record_winner_usage(handler, p_id, p_name, target_model, f"Key #{attempt+1}", resp_data, req_t0)
                             resp_data = append_signature_to_response(resp_data, p_name, target_model)
                             handler.send_response(resp.status)
                             for k, val in resp.headers.items():
@@ -310,9 +365,14 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                             err_txt = e.read().decode('utf-8', errors='ignore')[:200]
                         except Exception:
                             pass
+                        if e.code in (401, 402, 429):
+                            _advance_key_idx(p_id, attempt, len(p_keys), on_error=True)
                         mark_key_cooldown(p_id, key, e.code, target_model, err_txt)
                         record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", e.code, err_txt)
-                        sys.stderr.write(f"[Proxy] {p_id} ({target_model}) key #{attempt+1} HTTP error {e.code}. Trying next key...\n")
+                        if e.code == 429:
+                            sys.stderr.write(f"[Proxy Auto-Retry] {p_id} ({target_model}) Key #{attempt+1} hit 429/Quota! Instantly switching to next key...\n")
+                        else:
+                            sys.stderr.write(f"[Proxy] {p_id} ({target_model}) key #{attempt+1} HTTP error {e.code}. Trying next key...\n")
                         if e.code == 413 or (e.code == 400 and any(tok in err_txt.lower() for tok in ("too long", "token", "context", "length"))):
                             return False
                         if e.code == 400:
@@ -345,16 +405,17 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                     if custom_hdrs and isinstance(custom_hdrs, dict):
                         fwd_headers.update(custom_hdrs)
                     req = urllib.request.Request(fwd_url, data=fwd_body, headers=fwd_headers, method='POST')
+                    req_t0 = time.time()
                     try:
                         with urllib.request.urlopen(req, timeout=45) as resp:
                             resp_data = resp.read()
+                            _advance_key_idx(p_id, attempt, len(p_keys), on_error=False)
                             clear_key_cooldown(p_id, key, target_model)
                             p_name = p_info.get("name", p_id)
-                            handler._winner_info = {"provider": p_id, "provider_name": p_name, "model": target_model, "key_label": f"Key #{attempt+1}"}
-                            save_active_state(p_name, target_model, f"Key #{attempt+1}")
                             text = resp_data.decode('utf-8', errors='ignore')
                             if is_stream or "data:" in text:
                                 anth_resp = convert_openai_stream_to_anthropic(text, p_name, target_model)
+                                _record_winner_usage(handler, p_id, p_name, target_model, f"Key #{attempt+1}", anth_resp, req_t0)
                                 handler.send_response(200)
                                 handler.send_header('Content-Type', 'text/event-stream; charset=utf-8')
                                 handler.send_header('Content-Length', str(len(anth_resp)))
@@ -365,6 +426,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                                 try:
                                     o_json = json.loads(text)
                                     anth_resp = convert_openai_json_to_anthropic(o_json, p_name, target_model)
+                                    _record_winner_usage(handler, p_id, p_name, target_model, f"Key #{attempt+1}", anth_resp, req_t0)
                                     handler.send_response(200)
                                     handler.send_header('Content-Type', 'application/json')
                                     handler.send_header('Content-Length', str(len(anth_resp)))
@@ -373,6 +435,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                                     return True
                                 except Exception:
                                     pass
+                            _record_winner_usage(handler, p_id, p_name, target_model, f"Key #{attempt+1}", resp_data, req_t0)
                             handler.send_response(resp.status)
                             handler.send_header('Content-Length', str(len(resp_data)))
                             handler.end_headers()
@@ -385,9 +448,14 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                             err_txt = e.read().decode('utf-8', errors='ignore')[:200]
                         except Exception:
                             pass
+                        if e.code in (401, 402, 429):
+                            _advance_key_idx(p_id, attempt, len(p_keys), on_error=True)
                         mark_key_cooldown(p_id, key, e.code, target_model, err_txt)
                         record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", e.code, err_txt)
-                        sys.stderr.write(f"[Proxy] {p_id} ({target_model}) key #{attempt+1} HTTP error {e.code}. Trying next key...\n")
+                        if e.code == 429:
+                            sys.stderr.write(f"[Proxy Auto-Retry] {p_id} ({target_model}) Key #{attempt+1} hit 429/Quota! Instantly switching to next key...\n")
+                        else:
+                            sys.stderr.write(f"[Proxy] {p_id} ({target_model}) key #{attempt+1} HTTP error {e.code}. Trying next key...\n")
                         if e.code == 413 or (e.code == 400 and any(tok in err_txt.lower() for tok in ("too long", "token", "context", "length"))):
                             return False
                         if e.code == 400:
@@ -494,7 +562,10 @@ def dispatch_inference(handler, raw_body):
         record_live_request(
             w["provider"], w["provider_name"], w["model"], w["key_label"],
             status="ok", code=200, latency_ms=int((time.time() - t_start) * 1000),
-            path=handler.path, recovery_stage=rec_str, failover_from=failed_providers
+            path=handler.path, recovery_stage=rec_str, failover_from=failed_providers,
+            input_tokens=w.get("input_tokens", 0),
+            output_tokens=w.get("output_tokens", 0),
+            tok_per_sec=w.get("tok_per_sec", 0.0)
         )
 
     try:

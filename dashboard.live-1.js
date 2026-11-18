@@ -226,10 +226,10 @@ function renderLiveSnapshot(data, forceRender = false) {
             </div>
             <div class="live-srv-stats">
               <span>✅ ${s.ok} &nbsp;❌ ${s.err}${s.recoveries ? ` &nbsp;🛡 ${s.recoveries}` : ''}</span>
-              <span>${s.avg_ms ? `${s.avg_ms}ms` : '—'}</span>
+              <span>${s.last_tps ? `⚡${s.last_tps} t/s • ` : ''}${s.avg_ms ? `${s.avg_ms}ms` : '—'}</span>
             </div>
             <div class="live-rate-bar"><div class="live-rate-fill" style="width:${rate}%; background:${barColor};"></div></div>
-            <div class="live-srv-sub">${_escHtml(s.last_model || '—')} ${s.last_key ? `• ${_escHtml(s.last_key)}` : ''} • ${_escHtml(s.last_used_str)}</div>
+            <div class="live-srv-sub">${_escHtml(s.last_model || '—')} ${s.last_key ? `• ${_escHtml(s.last_key)}` : ''}${(s.total_in_tokens || s.total_out_tokens) ? ` • ${s.total_in_tokens}→${s.total_out_tokens} tok` : ''} • ${_escHtml(s.last_used_str)}</div>
             ${s.last_error ? `<div class="live-srv-err" title="${_escHtml(s.last_error)}">⚠ ${_escHtml(s.last_error)}</div>` : ''}
           </div>
         `;
@@ -285,11 +285,14 @@ function renderLiveSnapshot(data, forceRender = false) {
         const recHtml = hasRec
           ? `<div class="live-recovery-pill">🛡️ ${_escHtml(f.recovery_stage)} ➔ Passed by ${_escHtml(f.provider_name)} (${_escHtml(f.key_label)})</div>`
           : '';
+        const tokBadge = (f.input_tokens || f.output_tokens || f.tok_per_sec)
+          ? `<span class="speed-meter-pill">${f.input_tokens || 0}→${f.output_tokens || 0} tok${f.tok_per_sec ? ` • ⚡ ${f.tok_per_sec} tok/s` : ''}</span>`
+          : '';
         return `
           <div class="${rowCls}">
             <div class="live-row-top">
               <span>${badgeHtml} <span style="color:var(--text-muted); margin-left:4px;">${_escHtml(f.path)}</span></span>
-              <span style="color:var(--text-muted);">${f.latency_ms}ms • ${_escHtml(f.time)}</span>
+              <span style="color:var(--text-muted); display:inline-flex; align-items:center; gap:5px; flex-wrap:wrap;">${tokBadge}<span>${f.latency_ms}ms • ${_escHtml(f.time)}</span></span>
             </div>
             <div class="live-winner-line">${isOk ? '✅ Passed by:' : '❌ Failed:'} ${_escHtml(f.passed_by)}</div>
             ${recHtml}

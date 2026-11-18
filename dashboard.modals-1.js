@@ -519,6 +519,20 @@ function setServerMode(mode) {
   }
 }
 
+function applyPromptPreset(presetKey) {
+  const el = document.getElementById('server-custom-prompt');
+  if (!el) return;
+  if (presetKey === 'clear') {
+    el.value = '';
+    return;
+  }
+  const presets = {
+    concise: 'Be extremely concise, direct, and token-efficient. Avoid filler text and output minimal surgical code changes only.',
+    bengali: 'Answer clearly and concisely in Bengali. Keep technical terms, commands, and code snippets in English.'
+  };
+  el.value = presets[presetKey] || '';
+}
+
 function openServerModal(pId=null) {
   const modal = document.getElementById('server-modal');
   const title = document.getElementById('modal-title-text');
@@ -530,6 +544,7 @@ function openServerModal(pId=null) {
   const modelInput = document.getElementById('server-default-model');
   const keyInput = document.getElementById('server-key');
   const hdrsInput = document.getElementById('server-custom-headers');
+  const promptInput = document.getElementById('server-custom-prompt');
 
   if (pId && currentConfig?.providers[pId]) {
     const p = currentConfig.providers[pId];
@@ -543,6 +558,7 @@ function openServerModal(pId=null) {
     if (modelInput) modelInput.value = p.default_model || '';
     if (keyInput) { keyInput.value = ''; keyInput.placeholder = '(Retain keys)'; }
     if (hdrsInput) hdrsInput.value = p.custom_headers ? JSON.stringify(p.custom_headers) : '';
+    if (promptInput) promptInput.value = p.custom_prompt || '';
   } else {
     if (title) title.innerText = 'Add Server';
     if (editId) editId.value = '';
@@ -554,6 +570,7 @@ function openServerModal(pId=null) {
     if (modelInput) modelInput.value = '';
     if (keyInput) { keyInput.value = ''; keyInput.placeholder = 'sk-...'; }
     if (hdrsInput) hdrsInput.value = '';
+    if (promptInput) promptInput.value = '';
   }
   if (modal) modal.classList.add('active');
 }
@@ -573,6 +590,7 @@ async function saveServer(e) {
   const sModel = document.getElementById('server-default-model').value.trim();
   const sKey = document.getElementById('server-key').value.trim();
   const sHdrs = document.getElementById('server-custom-headers')?.value.trim();
+  const sPrompt = document.getElementById('server-custom-prompt')?.value.trim() || '';
 
   const payload = {
     id: sId,
@@ -581,7 +599,8 @@ async function saveServer(e) {
     type: sType,
     mode: sMode,
     default_model: sModel,
-    models: [sModel]
+    models: [sModel],
+    custom_prompt: sPrompt
   };
   if (sKey) payload.keys = [sKey];
   if (sHdrs) payload.custom_headers = sHdrs;
