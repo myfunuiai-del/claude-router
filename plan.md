@@ -60,7 +60,7 @@
 All files across the entire repository are strictly under the 400-500 line limit (Rule 2):
 | Module File | Line Count | Status | Logic Description |
 | :--- | :---: | :---: | :--- |
-| `dashboard.modals_models-1.js` | 495 | ✅ Pass | Models selector modal, model testing & ping cache |
+| `dashboard.modals_models-1.js` | 494 | ✅ Pass | Models selector modal, model testing & ping cache |
 | `proxy_v2.ui_api-1.py` | 493 | ✅ Pass | Web dashboard backend APIs & provider/key CRUD |
 | `dashboard.html` | 484 | ✅ Pass | Web console semantic HTML markup & modal dialogs |
 | `dashboard.styles-1.css` | 483 | ✅ Pass | Mobile-first cybernetic dark UI styles, trace & playground |

@@ -3,7 +3,6 @@ let activeDiscoveredModels = [];
 let activeFilteredModels = [];
 let onlyWorkingModelsFilter = false;
 let modalTestRunId = 0;
-let logsRefreshTimer = null;
 const modelPingCache = {}; // { [providerId]: { [modelId]: { state: 'ok'|'err'|'pending', short, status } } }
 
 function _getCachedModelStatus(pId, m) {
