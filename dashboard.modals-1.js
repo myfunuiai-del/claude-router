@@ -542,12 +542,14 @@ const WORKFLOW_TEMPLATES = {
         role: 'architect',
         provHint: 'coarena',
         modelHint: 'gemini-4-carbon',
-        prompt: 'You are the Lead Software Architect. Formulate a structured, modular blueprint and specification for the request.'
+        tokens: '',
+        prompt: 'You are the Lead Software Architect. Formulate a structured blueprint. Be concise, output a structured blueprint only without filler text.'
       },
       {
         role: 'coder',
         provHint: 'groq',
         modelHint: 'openai/gpt-oss-120b',
+        tokens: '',
         prompt: 'You are the Senior Implementation Engineer. Execute the approved architectural plan with clean, complete code and necessary tool calls.'
       }
     ]
@@ -560,18 +562,21 @@ const WORKFLOW_TEMPLATES = {
         role: 'councilor_1',
         provHint: 'coarena',
         modelHint: 'gemini-4-carbon',
-        prompt: 'Expert perspective 1: Deep reasoning, architectural soundness, and mathematical rigor.'
+        tokens: '',
+        prompt: 'Expert perspective 1: Deep reasoning & architectural rigor. Be concise, output a structured blueprint only without filler text.'
       },
       {
         role: 'councilor_2',
         provHint: 'groq',
         modelHint: 'openai/gpt-oss-120b',
+        tokens: '',
         prompt: 'Expert perspective 2: Fast pragmatic engineering, algorithm optimization, and edge-case prevention.'
       },
       {
         role: 'judge',
         provHint: 'googlestudio',
         modelHint: 'models/gemini-3.5-flash-lite',
+        tokens: '',
         prompt: 'You are Supreme Judge and Synthesizer. Review all candidate solutions above, eliminate discrepancies, combine strengths, and deliver the final authoritative, bug-free solution.'
       }
     ]
@@ -584,18 +589,21 @@ const WORKFLOW_TEMPLATES = {
         role: 'architect',
         provHint: 'coarena',
         modelHint: 'gemini-4-carbon',
-        prompt: 'System Architect: Analyze requirements, outline components, interfaces, and safety invariants.'
+        tokens: '',
+        prompt: 'System Architect: Analyze requirements, outline components and safety invariants. Be concise, output a structured blueprint only without filler text.'
       },
       {
         role: 'builder',
         provHint: 'groq',
         modelHint: 'openai/gpt-oss-120b',
+        tokens: '',
         prompt: 'Lead Builder: Implement complete, functional code following the architectural plan.'
       },
       {
         role: 'auditor',
         provHint: 'googlestudio',
         modelHint: 'models/gemini-3.5-flash-lite',
+        tokens: '',
         prompt: 'Security & Quality Auditor: Rigorously audit the built code for edge cases, security flaws, and performance regressions; output the final verified version.'
       }
     ]
@@ -608,12 +616,14 @@ const WORKFLOW_TEMPLATES = {
         role: 'fast_drafter',
         provHint: 'googlestudio',
         modelHint: 'models/gemini-3.5-flash-lite',
-        prompt: 'Rapid Prototyper: Generate an immediate structural scaffold, pseudocode, and key draft without hesitation.'
+        tokens: '',
+        prompt: 'Rapid Prototyper: Generate an immediate structural scaffold and pseudocode. Be concise, output a structured blueprint only without filler text.'
       },
       {
         role: 'deep_finisher',
         provHint: 'coarena',
         modelHint: 'gemini-4-carbon',
+        tokens: '',
         prompt: 'Deep Reasoning Finisher: Take the rapid draft, complete all implementations, enforce production hardening, and produce the final polished response.'
       }
     ]
@@ -626,12 +636,14 @@ const WORKFLOW_TEMPLATES = {
         role: 'gatekeeper',
         provHint: 'googlestudio',
         modelHint: 'models/gemini-3.5-flash-lite',
-        prompt: 'Complexity Gatekeeper: Classify user query complexity (1-10) and outline whether it requires simple immediate answer or full deep analysis.'
+        tokens: '',
+        prompt: 'Complexity Gatekeeper: Classify user query complexity (1-10) and outline requirements. Be concise, output a structured blueprint only without filler text.'
       },
       {
         role: 'expert',
         provHint: 'groq',
         modelHint: 'openai/gpt-oss-120b',
+        tokens: '',
         prompt: 'Domain Specialist: Deliver the complete authoritative solution tailored to the evaluated complexity.'
       }
     ]
@@ -644,12 +656,14 @@ const WORKFLOW_TEMPLATES = {
         role: 'worker',
         provHint: 'groq',
         modelHint: 'openai/gpt-oss-120b',
-        prompt: 'Primary Worker: Draft initial complete response addressing the user request.'
+        tokens: '',
+        prompt: 'Primary Worker: Draft initial complete response. Be concise, output a structured blueprint only without filler text.'
       },
       {
         role: 'reviewer',
         provHint: 'coarena',
         modelHint: 'gemini-4-carbon',
+        tokens: '',
         prompt: 'Senior Reviewer: Polish wording, correct any technical inaccuracies, and present the final refined answer.'
       }
     ]
@@ -683,7 +697,7 @@ function openTeamModal(tId=null) {
     if (slugInput) { slugInput.value = tId; slugInput.disabled = true; }
     if (nameInput) nameInput.value = t.name || '';
     if (wfInput) wfInput.value = t.workflow || 'role_pipeline';
-    (t.members || []).forEach(m => addTeamMemberRow(m.role, m.provider, m.model, m.prompt));
+    (t.members || []).forEach(m => addTeamMemberRow(m.role, m.provider, m.model, m.prompt, m.tokens || m.max_tokens));
   } else {
     if (title) title.innerText = '🤖 BUILD MULTI-AGENT TEAM';
     if (editId) editId.value = '';
@@ -712,7 +726,7 @@ function onTeamWorkflowChange(val) {
 
   tmpl.members.forEach(mDef => {
     const res = _resolveProviderAndModel(mDef.provHint, mDef.modelHint);
-    addTeamMemberRow(mDef.role, res.provider, res.model, mDef.prompt);
+    addTeamMemberRow(mDef.role, res.provider, res.model, mDef.prompt, mDef.tokens);
   });
 
   // If adding new team and user hasn't typed custom name/slug, set suggested defaults
@@ -726,7 +740,7 @@ function onTeamWorkflowChange(val) {
   }
 }
 
-function addTeamMemberRow(role='', provider='', model='', prompt='') {
+function addTeamMemberRow(role='', provider='', model='', prompt='', tokens='') {
   const listEl = document.getElementById('team-members-list');
   if (!listEl) return;
   const memberIndex = listEl.children.length + 1;
@@ -762,15 +776,24 @@ function addTeamMemberRow(role='', provider='', model='', prompt='') {
       </div>
     </div>
 
-    <!-- Assigned Model full width -->
-    <div style="min-width:0;">
-      <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;">Assigned Model</label>
-      <select class="t-member-model" style="width:100%; min-width:0; font-size:11px; padding:5px 8px; font-family:var(--mono); text-overflow:ellipsis; overflow:hidden; box-sizing:border-box;">${modelOpts}</select>
+    <!-- Assigned Model and Max Tokens Grid -->
+    <div style="display:grid; grid-template-columns: 2fr 1fr; gap:6px; min-width:0;">
+      <div style="min-width:0;">
+        <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;">Assigned Model</label>
+        <select class="t-member-model" style="width:100%; min-width:0; font-size:11px; padding:5px 8px; font-family:var(--mono); text-overflow:ellipsis; overflow:hidden; box-sizing:border-box;">${modelOpts}</select>
+      </div>
+      <div style="min-width:0;">
+        <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;" title="Leave empty for auto safe default">Max Tokens</label>
+        <input type="number" class="t-member-tokens" placeholder="Auto" value="${tokens || ''}" min="100" max="65536" style="width:100%; min-width:0; font-size:11px; padding:5px 8px; font-family:var(--mono); box-sizing:border-box;" />
+      </div>
     </div>
 
     <!-- Role System Instructions -->
     <div style="min-width:0;">
-      <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;">Role System Instructions (Optional)</label>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+        <label style="font-size:10px; color:var(--text-muted);">Role System Instructions (Optional)</label>
+        ${memberIndex === 1 ? '<span style="font-size:9.5px; color:#58a6ff; font-weight:600;" title="Hidden backend concise invariant guard is always active">⚡ Concise Guard Active</span>' : ''}
+      </div>
       <textarea class="t-member-prompt" rows="2" placeholder="e.g. You are the Architect..." style="width:100%; min-width:0; font-size:11px; padding:5px 8px; color:#c9d1d9; background:var(--bg); border:1px solid var(--border); border-radius:4px; box-sizing:border-box; resize:vertical;">${prompt || ''}</textarea>
     </div>
   `;
@@ -802,12 +825,17 @@ async function saveTeam(e) {
   const wf = document.getElementById('team-workflow').value;
   const rows = [...document.querySelectorAll('.team-member-row')];
 
-  const members = rows.map(r => ({
-    role: r.querySelector('.t-member-role')?.value.trim() || 'worker',
-    provider: r.querySelector('.t-member-prov')?.value || '',
-    model: r.querySelector('.t-member-model')?.value || '',
-    prompt: r.querySelector('.t-member-prompt')?.value.trim() || ''
-  })).filter(m => m.provider && m.model);
+  const members = rows.map(r => {
+    const tokVal = r.querySelector('.t-member-tokens')?.value.trim();
+    const tokNum = tokVal ? parseInt(tokVal, 10) : null;
+    return {
+      role: r.querySelector('.t-member-role')?.value.trim() || 'worker',
+      provider: r.querySelector('.t-member-prov')?.value || '',
+      model: r.querySelector('.t-member-model')?.value || '',
+      tokens: (tokNum && tokNum > 0) ? tokNum : null,
+      prompt: r.querySelector('.t-member-prompt')?.value.trim() || ''
+    };
+  }).filter(m => m.provider && m.model);
 
   if (!members.length) {
     showToast('Add at least one member', true);

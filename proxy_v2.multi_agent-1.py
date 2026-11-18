@@ -89,7 +89,16 @@ def preflight_check_team(team, all_providers):
 
     return True, None
 
-def _execute_member_turn(handler, pid, p_obj, target_model, body_obj, role_prompt=None):
+MANDATORY_CONCISE_RULE = "Be concise, output a structured blueprint only without filler text."
+
+def _trim_handoff_text(text, max_chars=8000):
+    """Smart Input Trimmer: Trims giant intermediate agent responses to prevent context/TPM explosion."""
+    if not text or len(text) <= max_chars:
+        return text
+    half = (max_chars - 200) // 2
+    return f"{text[:half]}\n\n[... Truncated for token limit ({len(text)} chars) ...]\n\n{text[-half:]}"
+
+def _execute_member_turn(handler, pid, p_obj, target_model, body_obj, role_prompt=None, max_tokens=None, is_intermediate=False, is_first_member=False):
     """
     Executes a single step with a specific member provider.
     Returns (True, response_bytes, in_tok, out_tok, elapsed_ms) or (False, error_msg, in_tok, out_tok, elapsed_ms).
@@ -100,17 +109,41 @@ def _execute_member_turn(handler, pid, p_obj, target_model, body_obj, role_promp
     p_keys = p_obj.get("keys", [])
     t0 = time.time()
 
-    # Prepend role prompt if given
     b_copy = copy.deepcopy(body_obj) if body_obj else {"messages": []}
     b_copy["model"] = target_model
-    if role_prompt and role_prompt.strip():
+
+    # 1. Enforce Member 1 Invariant: even if user customizes prompt, concise rule is strictly preserved
+    eff_prompt = (role_prompt or "").strip()
+    if is_first_member:
+        if not eff_prompt:
+            eff_prompt = MANDATORY_CONCISE_RULE
+        elif MANDATORY_CONCISE_RULE.lower() not in eff_prompt.lower():
+            eff_prompt = f"{eff_prompt}\n\n[MANDATORY CONSTRAINT]: {MANDATORY_CONCISE_RULE}"
+
+    # 2. Token Limit Management: User specified > Auto default
+    tok_val = int(max_tokens) if (max_tokens and str(max_tokens).isdigit() and int(max_tokens) > 0) else None
+    if tok_val:
+        b_copy["max_tokens"] = tok_val
+    elif is_intermediate:
+        # Default safe token cap for intermediate planner/drafter to prevent output bloat
+        orig_max = b_copy.get("max_tokens")
+        b_copy["max_tokens"] = min(orig_max, 1500) if (orig_max and orig_max > 0) else 1500
+
+    # 3. Smart Input Trimmer Guard: If conversation has many turns, prune older turns for intermediate stages
+    messages = b_copy.get("messages", [])
+    if is_intermediate and len(messages) > 6:
+        # Keep initial task instruction + recent 4 turns (saves thousands of input tokens for intermediate agents)
+        b_copy["messages"] = [messages[0]] + messages[-4:]
+
+    # 4. System prompt assembly
+    if eff_prompt:
         cur_sys = b_copy.get("system")
         if isinstance(cur_sys, str):
-            b_copy["system"] = f"{role_prompt.strip()}\n\n{cur_sys}" if cur_sys.strip() else role_prompt.strip()
+            b_copy["system"] = f"{eff_prompt}\n\n{cur_sys}" if cur_sys.strip() else eff_prompt
         elif isinstance(cur_sys, list):
-            b_copy["system"] = [{"type": "text", "text": role_prompt.strip()}] + list(cur_sys)
+            b_copy["system"] = [{"type": "text", "text": eff_prompt}] + list(cur_sys)
         else:
-            b_copy["system"] = role_prompt.strip()
+            b_copy["system"] = eff_prompt
 
     available_keys = [k for k in p_keys if is_key_in_cooldown(pid, k, target_model) == 0] or p_keys
     if not available_keys and pid != "agentrouter":
@@ -310,7 +343,11 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
             c_mdl = mem.get("model")
             c_role = mem.get("role") or f"Councilor #{idx+1}"
             c_prompt = mem.get("prompt") or f"You are {c_role}. Provide your complete, independent solution to the problem."
-            ok, data, in_t, out_t, ms = _execute_member_turn(handler, c_pid, c_pobj, c_mdl, body_obj, c_prompt)
+            c_tok = mem.get("tokens") or mem.get("max_tokens")
+            ok, data, in_t, out_t, ms = _execute_member_turn(
+                handler, c_pid, c_pobj, c_mdl, body_obj, c_prompt,
+                max_tokens=c_tok, is_intermediate=True, is_first_member=(idx == 0)
+            )
             return idx, c_pid, c_pobj.get("name", c_pid), c_mdl, c_role, ok, data, in_t, out_t, ms
 
         t_fanout = time.time()
@@ -343,7 +380,7 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
             total_in += cr["in_t"]
             total_out += cr["out_t"]
             c_summaries.append(f"{cr['pname']} ({cr['ms']}ms)")
-            c_text = _extract_text_content(cr["data"])
+            c_text = _trim_handoff_text(_extract_text_content(cr["data"]))
             council_opinions_text += f"\n--- [COUNCILOR CANDIDATE #{idx+1}: {cr['role']} ({cr['pname']} • {cr['model']})] ---\n{c_text.strip()}\n"
 
         steps_log.append(f"Parallel Council [{', '.join(c_summaries)} in {parallel_ms}ms]")
@@ -357,9 +394,13 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         )
         j_prompt = judge.get("prompt") or judge_default_prompt
         combined_judge_prompt = f"{j_prompt}\n\n{council_opinions_text}\n--- [END OF COUNCIL OPINIONS] ---"
+        j_tok = judge.get("tokens") or judge.get("max_tokens")
 
         sys.stderr.write(f"[Multi-Agent Parallel Council '{tname}'] Phase 2: Supreme Judge ({j_pobj.get('name', j_pid)} - {j_mdl}) evaluating...\n")
-        j_ok, j_data, j_in, j_out, j_ms = _execute_member_turn(handler, j_pid, j_pobj, j_mdl, body_obj, combined_judge_prompt)
+        j_ok, j_data, j_in, j_out, j_ms = _execute_member_turn(
+            handler, j_pid, j_pobj, j_mdl, body_obj, combined_judge_prompt,
+            max_tokens=j_tok, is_intermediate=False, is_first_member=False
+        )
         if not j_ok:
             _send_team_error(handler, tname, j_pid, j_data, t_start)
             return True
@@ -380,28 +421,34 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         pobj1, pobj2, pobj3 = all_providers[pid1], all_providers[pid2], all_providers[pid3]
         mdl1, mdl2, mdl3 = m1.get("model"), m2.get("model"), m3.get("model")
 
-        r1_prompt = m1.get("prompt") or "System Architect: Analyze requirements, outline components, interfaces, and safety invariants."
+        r1_prompt = m1.get("prompt") or "System Architect: Analyze requirements, outline components, interfaces, and safety invariants. Be concise, output a structured blueprint only without filler text."
         sys.stderr.write(f"[Multi-Agent Tri-Tier '{tname}'] Tier 1: Architect ({pobj1.get('name', pid1)} - {mdl1})...\n")
-        s1_ok, s1_data, in_t1, out_t1, ms1 = _execute_member_turn(handler, pid1, pobj1, mdl1, body_obj, r1_prompt)
+        s1_ok, s1_data, in_t1, out_t1, ms1 = _execute_member_turn(
+            handler, pid1, pobj1, mdl1, body_obj, r1_prompt,
+            max_tokens=m1.get("tokens"), is_intermediate=True, is_first_member=True
+        )
         if not s1_ok:
             _send_team_error(handler, tname, pid1, s1_data, t_start)
             return True
         total_in += in_t1
         total_out += out_t1
         steps_log.append(f"Architect ({pobj1.get('name', pid1)}): {ms1}ms")
-        plan_text = _extract_text_content(s1_data)
+        plan_text = _trim_handoff_text(_extract_text_content(s1_data))
 
         r2_prompt = m2.get("prompt") or "Lead Builder: Implement complete, functional code following the architectural plan."
         builder_combined = f"{r2_prompt}\n\n[ARCHITECTURAL SPECIFICATION FROM {pobj1.get('name', pid1)}]:\n{plan_text}"
         sys.stderr.write(f"[Multi-Agent Tri-Tier '{tname}'] Tier 2: Builder ({pobj2.get('name', pid2)} - {mdl2})...\n")
-        s2_ok, s2_data, in_t2, out_t2, ms2 = _execute_member_turn(handler, pid2, pobj2, mdl2, body_obj, builder_combined)
+        s2_ok, s2_data, in_t2, out_t2, ms2 = _execute_member_turn(
+            handler, pid2, pobj2, mdl2, body_obj, builder_combined,
+            max_tokens=m2.get("tokens"), is_intermediate=True, is_first_member=False
+        )
         if not s2_ok:
             _send_team_error(handler, tname, pid2, s2_data, t_start)
             return True
         total_in += in_t2
         total_out += out_t2
         steps_log.append(f"Builder ({pobj2.get('name', pid2)}): {ms2}ms")
-        code_text = _extract_text_content(s2_data)
+        code_text = _trim_handoff_text(_extract_text_content(s2_data))
 
         r3_prompt = m3.get("prompt") or "Security & Bug Auditor: Rigorously audit the built code for edge cases, security flaws, and performance regressions; output the final verified version."
         auditor_combined = (
@@ -411,7 +458,10 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
             f"TASK: Conduct final audit against specifications, patch all edge-cases/bugs, and deliver the final verified solution to the user."
         )
         sys.stderr.write(f"[Multi-Agent Tri-Tier '{tname}'] Tier 3: Auditor ({pobj3.get('name', pid3)} - {mdl3})...\n")
-        s3_ok, s3_data, in_t3, out_t3, ms3 = _execute_member_turn(handler, pid3, pobj3, mdl3, body_obj, auditor_combined)
+        s3_ok, s3_data, in_t3, out_t3, ms3 = _execute_member_turn(
+            handler, pid3, pobj3, mdl3, body_obj, auditor_combined,
+            max_tokens=m3.get("tokens"), is_intermediate=False, is_first_member=False
+        )
         if not s3_ok:
             _send_team_error(handler, tname, pid3, s3_data, t_start)
             return True
@@ -431,16 +481,19 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         pobj1, pobj2 = all_providers[pid1], all_providers[pid2]
         mdl1, mdl2 = m1.get("model"), m2.get("model")
 
-        r1_prompt = m1.get("prompt") or "Rapid Prototyper: Generate an immediate structural scaffold, pseudocode, and key draft without hesitation."
+        r1_prompt = m1.get("prompt") or "Rapid Prototyper: Generate an immediate structural scaffold, pseudocode, and key draft without hesitation. Be concise, output a structured blueprint only without filler text."
         sys.stderr.write(f"[Multi-Agent Speculative Draft '{tname}'] Stage 1: Lightning Drafter ({pobj1.get('name', pid1)} - {mdl1})...\n")
-        s1_ok, s1_data, in_t1, out_t1, ms1 = _execute_member_turn(handler, pid1, pobj1, mdl1, body_obj, r1_prompt)
+        s1_ok, s1_data, in_t1, out_t1, ms1 = _execute_member_turn(
+            handler, pid1, pobj1, mdl1, body_obj, r1_prompt,
+            max_tokens=m1.get("tokens"), is_intermediate=True, is_first_member=True
+        )
         if not s1_ok:
             _send_team_error(handler, tname, pid1, s1_data, t_start)
             return True
         total_in += in_t1
         total_out += out_t1
         steps_log.append(f"Fast Draft ({pobj1.get('name', pid1)}): {ms1}ms")
-        draft_text = _extract_text_content(s1_data)
+        draft_text = _trim_handoff_text(_extract_text_content(s1_data))
 
         r2_prompt = m2.get("prompt") or "Deep Reasoning Finisher: Take the rapid draft, complete all implementations, enforce production hardening, and produce the final polished response."
         combined_prompt = (
@@ -449,7 +502,10 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
             f"TASK: Expand, harden, and produce the complete, production-ready solution."
         )
         sys.stderr.write(f"[Multi-Agent Speculative Draft '{tname}'] Stage 2: Deep Finisher ({pobj2.get('name', pid2)} - {mdl2})...\n")
-        s2_ok, s2_data, in_t2, out_t2, ms2 = _execute_member_turn(handler, pid2, pobj2, mdl2, body_obj, combined_prompt)
+        s2_ok, s2_data, in_t2, out_t2, ms2 = _execute_member_turn(
+            handler, pid2, pobj2, mdl2, body_obj, combined_prompt,
+            max_tokens=m2.get("tokens"), is_intermediate=False, is_first_member=False
+        )
         if not s2_ok:
             _send_team_error(handler, tname, pid2, s2_data, t_start)
             return True
@@ -469,16 +525,19 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         pobj1, pobj2 = all_providers[pid1], all_providers[pid2]
         mdl1, mdl2 = m1.get("model"), m2.get("model")
 
-        r1_prompt = m1.get("prompt") or "Complexity Gatekeeper: Classify user query complexity (1-10) and outline whether it requires simple immediate answer or full deep analysis."
+        r1_prompt = m1.get("prompt") or "Complexity Gatekeeper: Classify user query complexity (1-10) and outline whether it requires simple immediate answer or full deep analysis. Be concise, output a structured blueprint only without filler text."
         sys.stderr.write(f"[Multi-Agent Router Evaluator '{tname}'] Stage 1: Gatekeeper ({pobj1.get('name', pid1)} - {mdl1})...\n")
-        s1_ok, s1_data, in_t1, out_t1, ms1 = _execute_member_turn(handler, pid1, pobj1, mdl1, body_obj, r1_prompt)
+        s1_ok, s1_data, in_t1, out_t1, ms1 = _execute_member_turn(
+            handler, pid1, pobj1, mdl1, body_obj, r1_prompt,
+            max_tokens=m1.get("tokens"), is_intermediate=True, is_first_member=True
+        )
         if not s1_ok:
             _send_team_error(handler, tname, pid1, s1_data, t_start)
             return True
         total_in += in_t1
         total_out += out_t1
         steps_log.append(f"Gatekeeper ({pobj1.get('name', pid1)}): {ms1}ms")
-        eval_text = _extract_text_content(s1_data)
+        eval_text = _trim_handoff_text(_extract_text_content(s1_data))
 
         r2_prompt = m2.get("prompt") or "Domain Specialist: Deliver the complete authoritative solution tailored to the evaluated complexity."
         combined_prompt = (
@@ -487,7 +546,10 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
             f"TASK: Provide the complete authoritative answer adhering to the evaluated scope and requirements."
         )
         sys.stderr.write(f"[Multi-Agent Router Evaluator '{tname}'] Stage 2: Expert Specialist ({pobj2.get('name', pid2)} - {mdl2})...\n")
-        s2_ok, s2_data, in_t2, out_t2, ms2 = _execute_member_turn(handler, pid2, pobj2, mdl2, body_obj, combined_prompt)
+        s2_ok, s2_data, in_t2, out_t2, ms2 = _execute_member_turn(
+            handler, pid2, pobj2, mdl2, body_obj, combined_prompt,
+            max_tokens=m2.get("tokens"), is_intermediate=False, is_first_member=False
+        )
         if not s2_ok:
             _send_team_error(handler, tname, pid2, s2_data, t_start)
             return True
@@ -507,16 +569,19 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         pobj1, pobj2 = all_providers[pid1], all_providers[pid2]
         mdl1, mdl2 = m1.get("model"), m2.get("model")
 
-        r1_prompt = m1.get("prompt") or "Primary Worker: Draft initial complete response addressing the user request."
+        r1_prompt = m1.get("prompt") or "Primary Worker: Draft initial complete response addressing the user request. Be concise, output a structured blueprint only without filler text."
         sys.stderr.write(f"[Multi-Agent Worker-Reviewer '{tname}'] Stage 1: Worker ({pobj1.get('name', pid1)} - {mdl1})...\n")
-        s1_ok, s1_data, in_t1, out_t1, ms1 = _execute_member_turn(handler, pid1, pobj1, mdl1, body_obj, r1_prompt)
+        s1_ok, s1_data, in_t1, out_t1, ms1 = _execute_member_turn(
+            handler, pid1, pobj1, mdl1, body_obj, r1_prompt,
+            max_tokens=m1.get("tokens"), is_intermediate=True, is_first_member=True
+        )
         if not s1_ok:
             _send_team_error(handler, tname, pid1, s1_data, t_start)
             return True
         total_in += in_t1
         total_out += out_t1
         steps_log.append(f"Worker ({pobj1.get('name', pid1)}): {ms1}ms")
-        draft_text = _extract_text_content(s1_data)
+        draft_text = _trim_handoff_text(_extract_text_content(s1_data))
 
         r2_prompt = m2.get("prompt") or "Senior Reviewer: Polish wording, correct any technical inaccuracies, and present the final refined answer."
         combined_prompt = (
@@ -525,7 +590,10 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
             f"TASK: Thoroughly review, polish, fix any errors, and deliver the final refined response."
         )
         sys.stderr.write(f"[Multi-Agent Worker-Reviewer '{tname}'] Stage 2: Reviewer ({pobj2.get('name', pid2)} - {mdl2})...\n")
-        s2_ok, s2_data, in_t2, out_t2, ms2 = _execute_member_turn(handler, pid2, pobj2, mdl2, body_obj, combined_prompt)
+        s2_ok, s2_data, in_t2, out_t2, ms2 = _execute_member_turn(
+            handler, pid2, pobj2, mdl2, body_obj, combined_prompt,
+            max_tokens=m2.get("tokens"), is_intermediate=False, is_first_member=False
+        )
         if not s2_ok:
             _send_team_error(handler, tname, pid2, s2_data, t_start)
             return True
@@ -543,17 +611,20 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
     pid1 = m1.get("provider")
     p_obj1 = all_providers[pid1]
     mdl1 = m1.get("model")
-    r1_prompt = m1.get("prompt") or "You are the Lead Architect / Planner. Analyze the user request thoroughly and provide a concise architectural plan."
+    r1_prompt = m1.get("prompt") or "You are the Lead Architect / Planner. Analyze the user request thoroughly and provide a concise architectural plan. Be concise, output a structured blueprint only without filler text."
 
     sys.stderr.write(f"[Multi-Agent Team '{tname}'] Step 1/2: Running Architect/Planner ({p_obj1.get('name', pid1)} - {mdl1})...\n")
-    s1_ok, s1_data, in_t1, out_t1, ms1 = _execute_member_turn(handler, pid1, p_obj1, mdl1, body_obj, r1_prompt)
+    s1_ok, s1_data, in_t1, out_t1, ms1 = _execute_member_turn(
+        handler, pid1, p_obj1, mdl1, body_obj, r1_prompt,
+        max_tokens=m1.get("tokens"), is_intermediate=True, is_first_member=True
+    )
     if not s1_ok:
         _send_team_error(handler, tname, pid1, s1_data, t_start)
         return True
     total_in += in_t1
     total_out += out_t1
     steps_log.append(f"Step 1 ({p_obj1.get('name', pid1)}): {ms1}ms")
-    step1_text = _extract_text_content(s1_data)
+    step1_text = _trim_handoff_text(_extract_text_content(s1_data))
 
     m2 = members[1]
     pid2 = m2.get("provider")
@@ -563,7 +634,10 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
     combined_prompt = f"{r2_prompt}\n\n[TEAM ARCHITECTURAL PLAN FROM {p_obj1.get('name', pid1)}]:\n{step1_text}"
 
     sys.stderr.write(f"[Multi-Agent Team '{tname}'] Step 2/2: Running Executor/Coder ({p_obj2.get('name', pid2)} - {mdl2})...\n")
-    s2_ok, s2_data, in_t2, out_t2, ms2 = _execute_member_turn(handler, pid2, p_obj2, mdl2, body_obj, combined_prompt)
+    s2_ok, s2_data, in_t2, out_t2, ms2 = _execute_member_turn(
+        handler, pid2, p_obj2, mdl2, body_obj, combined_prompt,
+        max_tokens=m2.get("tokens"), is_intermediate=False, is_first_member=False
+    )
     if not s2_ok:
         _send_team_error(handler, tname, pid2, s2_data, t_start)
         return True
