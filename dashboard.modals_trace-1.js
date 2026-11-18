@@ -8,7 +8,12 @@ function openTraceModal(reqId) {
   if (!modal) return;
 
   // Search in global feed data or fetch live snapshot
-  const feed = (typeof lastLiveSnapshot !== 'undefined' && lastLiveSnapshot?.feed) ? lastLiveSnapshot.feed : [];
+  let feed = [];
+  try {
+    if (typeof lastLiveSnapshot !== 'undefined' && lastLiveSnapshot && Array.isArray(lastLiveSnapshot.feed)) {
+      feed = lastLiveSnapshot.feed;
+    }
+  } catch (e) {}
   const item = feed.find(f => f.id === reqId);
 
   if (!item) {

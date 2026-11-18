@@ -1,6 +1,17 @@
 // dashboard.chips-1.js - Model chip interaction, default model setting, and long-press promoter
 // Modularized per gemini.md Rule 2 (Limit 400-500 lines)
 
+function _esc(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+window._esc = _esc;
+
 async function fastSwitchModel(pId, modelName) {
   if (!modelName) return;
   try {

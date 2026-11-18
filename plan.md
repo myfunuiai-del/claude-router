@@ -87,9 +87,9 @@ All files across the entire repository are strictly under the 400-500 line limit
 | `dashboard.modals_playground-1.js` | 171 | ✅ Pass | In-Dashboard Multi-Agent Dry Run Playground UI modal |
 | `dashboard.workflow_patterns-1.js` | 165 | ✅ Pass | 6 built-in multi-agent blueprints and workflow templates |
 | `proxy_v2.ui_playground-1.py` | 155 | ✅ Pass | Multi-Agent Dry Run test API endpoint (/api/ui/team-dry-run) |
-| `dashboard.chips-1.js` | 123 | ✅ Pass | Model chips fast switch, copy & long-press promoter |
+| `dashboard.chips-1.js` | 134 | ✅ Pass | Model chips fast switch, HTML escaper & long-press promoter |
 | `proxy_v2.py` | 122 | ✅ Pass | Root server launcher with log janitor & IPv4 DNS patch |
-| `dashboard.modals_trace-1.js` | 90 | ✅ Pass | Multi-Agent Step-Trace Timeline Modal & visualizer |
+| `dashboard.modals_trace-1.js` | 95 | ✅ Pass | Multi-Agent Step-Trace Timeline Modal & visualizer |
 | `proxy_v2.key_balancer-1.py` | 151 | ✅ Pass | Smart Key Load Balancer & Sliding 60s TPM/RPM Rotator |
 | `proxy_v2.transform-1.py` | 29 | ✅ Pass | Master transform submodules orchestrator |
 | `dashboard.modals-1.js` | 8 | ✅ Pass | Master frontend modals submodules documentation stub |
