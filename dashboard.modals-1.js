@@ -573,9 +573,10 @@ function closeTeamModal() {
 function addTeamMemberRow(role='', provider='', model='', prompt='') {
   const listEl = document.getElementById('team-members-list');
   if (!listEl) return;
+  const memberIndex = listEl.children.length + 1;
   const row = document.createElement('div');
   row.className = 'team-member-row';
-  row.style.cssText = 'background:#0b1118; border:1px solid #26354a; border-radius:5px; padding:7px; display:flex; flex-direction:column; gap:5px;';
+  row.style.cssText = 'background:#0d1520; border:1px solid #2b3d56; border-left:3px solid #8957e5; border-radius:6px; padding:10px; display:flex; flex-direction:column; gap:8px;';
 
   const providers = currentConfig?.providers || {};
   const pKeys = Object.keys(providers);
@@ -588,15 +589,46 @@ function addTeamMemberRow(role='', provider='', model='', prompt='') {
   const modelOpts = provModels.map(m => `<option value="${m}" ${m === curModel ? 'selected' : ''}>${m}</option>`).join('');
 
   row.innerHTML = `
-    <div style="display:grid; grid-template-columns: 1fr 1.2fr 1.5fr auto; gap:5px; align-items:center;">
-      <input type="text" class="t-member-role" placeholder="Role (e.g. planner)" value="${role || 'worker'}" style="font-size:11px; padding:3px 6px;" required />
-      <select class="t-member-prov" style="font-size:11px; padding:3px 6px;" onchange="updateMemberModels(this)">${provOpts}</select>
-      <select class="t-member-model" style="font-size:11px; padding:3px 6px;">${modelOpts}</select>
-      <button type="button" class="btn btn-xs btn-danger" style="padding:2px 6px;" onclick="this.closest('.team-member-row').remove()">✕</button>
+    <!-- Top row: Member badge & remove button -->
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <span style="font-size:11px; font-weight:700; color:#d2a8ff; font-family:var(--mono);">MEMBER #${memberIndex}</span>
+      <button type="button" class="btn btn-xs btn-danger" style="padding:1px 6px; font-size:10.5px;" onclick="this.closest('.team-member-row').remove(); reindexTeamMembers();">✕ Remove</button>
     </div>
-    <input type="text" class="t-member-prompt" placeholder="Special role prompt instructions (optional)" value="${prompt || ''}" style="font-size:10px; padding:2px 6px; color:#c9d1d9;" />
+
+    <!-- Field 1: Role -->
+    <div>
+      <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;">Role Name</label>
+      <input type="text" class="t-member-role" placeholder="e.g. planner, coder, reviewer" value="${role || 'worker'}" style="width:100%; font-size:11.5px; padding:6px 8px;" required />
+    </div>
+
+    <!-- Field 2 & 3: Server Provider and Model (Clean 2-Column Grid) -->
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+      <div>
+        <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;">Server Provider</label>
+        <select class="t-member-prov" style="width:100%; font-size:11.5px; padding:6px 8px;" onchange="updateMemberModels(this)">${provOpts}</select>
+      </div>
+      <div>
+        <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;">Assigned Model</label>
+        <select class="t-member-model" style="width:100%; font-size:11.5px; padding:6px 8px;">${modelOpts}</select>
+      </div>
+    </div>
+
+    <!-- Field 4: Role Prompt -->
+    <div>
+      <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;">Role System Instructions (Optional)</label>
+      <input type="text" class="t-member-prompt" placeholder="e.g. You are the Architect. Analyze and write a clean plan." value="${prompt || ''}" style="width:100%; font-size:11px; padding:5px 8px; color:#c9d1d9;" />
+    </div>
   `;
   listEl.appendChild(row);
+}
+
+function reindexTeamMembers() {
+  const listEl = document.getElementById('team-members-list');
+  if (!listEl) return;
+  [...listEl.children].forEach((row, idx) => {
+    const badge = row.querySelector('span');
+    if (badge) badge.innerText = `MEMBER #${idx + 1}`;
+  });
 }
 
 function updateMemberModels(selProv) {
