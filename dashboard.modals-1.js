@@ -875,6 +875,11 @@ function selectMemberModelFromPanel(itemEl, modelName) {
 
   updateMemberDisplayChip(row, modelName);
   renderPanelItemsForRow(row, pId);
+
+  // Auto-close on selection
+  const panel = row.querySelector('.t-member-models-panel');
+  if (panel) panel.style.display = 'none';
+
   showToast(`Selected model: ${modelName}`);
 }
 
@@ -882,7 +887,12 @@ function toggleMemberModelsPanel(el) {
   const row = el.closest('.team-member-row');
   const panel = row?.querySelector('.t-member-models-panel');
   if (!panel) return;
-  panel.style.display = (panel.style.display === 'none') ? 'block' : 'none';
+  const isHidden = (panel.style.display === 'none' || !panel.style.display);
+  // Close other open panels for clean UI
+  document.querySelectorAll('.t-member-models-panel').forEach(p => {
+    if (p !== panel) p.style.display = 'none';
+  });
+  panel.style.display = isHidden ? 'block' : 'none';
 }
 
 async function checkAllProviderModelsStatus(btn) {
@@ -1088,11 +1098,11 @@ function addTeamMemberRow(role='', provider='', model='', prompt='', tokens='', 
         </div>
         <input type="hidden" class="t-member-model" value="${curModel}" />
 
-        <!-- Custom Dark Models Panel (Beautiful list matching user's preference) -->
-        <div class="t-member-models-panel" style="margin-top:4px; background:#080d14; border:1px solid #2a3a52; border-radius:4px; padding:6px; max-height:190px; overflow-y:auto;">
+        <!-- Custom Dark Models Panel (Collapsible dropdown on tap) -->
+        <div class="t-member-models-panel" style="display:none; margin-top:4px; background:#080d14; border:1px solid #2a3a52; border-radius:4px; padding:6px; max-height:190px; overflow-y:auto;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px; border-bottom:1px solid #1c2738; padding-bottom:3px;">
             <span style="font-size:10px; font-weight:600; color:#79c0ff;" class="t-panel-summary">MODELS STATUS (${provModels.length} AVAILABLE)</span>
-            <span style="font-size:9.5px; color:var(--text-muted); cursor:pointer;" onclick="toggleMemberModelsPanel(this)">Toggle List ▴</span>
+            <span style="font-size:9.5px; color:var(--text-muted); cursor:pointer;" onclick="toggleMemberModelsPanel(this)">✕ Close</span>
           </div>
           <div class="t-panel-list" style="display:flex; flex-direction:column; gap:3px;">
             ${itemsHtml}
