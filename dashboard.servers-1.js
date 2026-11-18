@@ -311,7 +311,10 @@ function renderTeamsLane() {
       const mMode = m.mode || (idx === 0 ? 'normal' : 'agentic');
       const modeIcon = mMode === 'agentic' ? '⚡' : '💡';
       const modeColor = mMode === 'agentic' ? '#79c0ff' : '#f2cc60';
-      return `<span class="chip" style="font-size:10px;"><strong style="color:#d2a8ff;">${role}:</strong> ${pName} (${mName}) <span style="font-size:9.5px; color:${modeColor};" title="Engine Mode: ${mMode}">${modeIcon}</span></span>`;
+      const cached = (typeof _getCachedModelStatus === 'function') ? _getCachedModelStatus(m.provider, m.model) : null;
+      const initialStatus = cached ? (cached.state === 'ok' ? '🟢' : '🔴') : '';
+      const initialTitle = cached ? (cached.status || '') : '';
+      return `<span class="chip" style="font-size:10px;"><strong style="color:#d2a8ff;">${role}:</strong> ${pName} (${mName}) <span class="chip-status" id="team-member-status-${t.id}-${idx}" title="${initialTitle}">${initialStatus}</span><span style="font-size:9.5px; color:${modeColor};" title="Engine Mode: ${mMode}">${modeIcon}</span></span>`;
     }).join(' ');
 
     card.innerHTML = `
@@ -322,10 +325,13 @@ function renderTeamsLane() {
             <span class="server-name" style="color:#fff;">${t.name || t.id}</span>
             <span class="server-proto" style="background:#241b35; color:#d2a8ff; border-color:#8957e555;">${t.workflow || 'pipeline'}</span>
           </div>
-          <div class="server-header-right">
+          <div class="server-header-right" style="display:flex; flex-direction:column; align-items:flex-end; gap:5px;">
             <button type="button" class="power-toggle ${isEn ? 'is-on' : 'is-off'}" onclick="toggleTeamPower('${t.id}')">
               <span class="power-dot"></span>
               <span class="power-label">${isEn ? 'ON' : 'OFF'}</span>
+            </button>
+            <button type="button" class="btn btn-xs" id="team-test-btn-${t.id}" style="padding:1px 8px; font-size:10px;" onclick="testTeamMembers('${t.id}')">
+              🧪 Test
             </button>
           </div>
         </div>
@@ -341,10 +347,93 @@ function renderTeamsLane() {
             <button class="safe-delete-btn" onclick="deleteTeam('${t.id}')">🗑️</button>
           </div>
         </div>
+        <div class="ping-summary" id="team-ping-${t.id}" style="margin-top:4px;"></div>
       </div>
     `;
     cTeams.appendChild(card);
   });
+}
+
+async function testTeamMembers(tId) {
+  const team = currentConfig?.multi_agent_teams?.[tId];
+  if (!team) return;
+  const members = team.members || [];
+  if (!members.length) {
+    showToast('No members configured in team', true);
+    return;
+  }
+
+  const btn = document.getElementById(`team-test-btn-${tId}`);
+  const summaryBox = document.getElementById(`team-ping-${tId}`);
+
+  if (btn) {
+    btn.innerText = '⏳...';
+    btn.disabled = true;
+  }
+
+  members.forEach((m, idx) => {
+    const el = document.getElementById(`team-member-status-${tId}-${idx}`);
+    if (el) {
+      el.innerHTML = '⏳';
+      el.title = 'Testing member...';
+    }
+  });
+
+  let completed = 0, okCount = 0;
+  const updateSummary = () => {
+    if (summaryBox) summaryBox.innerText = `${okCount}/${members.length} active (${completed}/${members.length} checked)`;
+  };
+  updateSummary();
+
+  const pingPromises = members.map((m, idx) => {
+    const pId = m.provider;
+    const model = m.model;
+    const el = document.getElementById(`team-member-status-${tId}-${idx}`);
+
+    return fetch('/api/ui/test-models', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: pId, model: model, discover_only: false })
+    }).then(res => res.json()).then(data => {
+      completed++;
+      const resObj = (data.models || [])[0];
+      if (resObj && resObj.active) {
+        okCount++;
+        if (typeof _setCachedModelStatus === 'function') {
+          _setCachedModelStatus(pId, model, { state: 'ok', short: resObj.short || '🟢 200', status: resObj.status || '🟢 200 OK' });
+        }
+        if (el) { el.innerHTML = '🟢'; el.title = resObj.status || '🟢 200 OK'; }
+      } else {
+        if (typeof _setCachedModelStatus === 'function') {
+          _setCachedModelStatus(pId, model, { state: 'err', short: resObj?.short || '🔴 Fail', status: resObj?.status || 'Failed' });
+        }
+        if (el) { el.innerHTML = '🔴'; el.title = resObj?.status || 'Failed'; }
+      }
+      updateSummary();
+    }).catch(() => {
+      completed++;
+      if (typeof _setCachedModelStatus === 'function') {
+        _setCachedModelStatus(pId, model, { state: 'err', short: '🔴 Err', status: 'Network error / Timeout' });
+      }
+      if (el) { el.innerHTML = '🔴'; el.title = 'Network error / Timeout'; }
+      updateSummary();
+    });
+  });
+
+  try {
+    await Promise.all(pingPromises);
+    if (summaryBox) {
+      const isAllOk = okCount === members.length;
+      summaryBox.innerText = `${okCount}/${members.length} active (${isAllOk ? '🟢 Strict Ready' : '🔴 Strict Halted'})`;
+      summaryBox.style.color = isAllOk ? 'var(--success-text)' : 'var(--danger-text)';
+    }
+    showToast(`${team.name || tId}: ${okCount}/${members.length} members active`);
+  } finally {
+    if (btn) {
+      btn.innerText = '🧪 Test';
+      btn.disabled = false;
+    }
+  }
 }
 
 async function toggleTeamPower(teamId) {
