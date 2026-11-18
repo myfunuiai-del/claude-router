@@ -533,6 +533,138 @@ function applyPromptPreset(presetKey) {
   el.value = presets[presetKey] || '';
 }
 
+const WORKFLOW_TEMPLATES = {
+  role_pipeline: {
+    defaultName: 'Duo Architect & Coder',
+    defaultSlug: 'duo_architect_coder',
+    members: [
+      {
+        role: 'architect',
+        provHint: 'coarena',
+        modelHint: 'gemini-4-carbon',
+        prompt: 'You are the Lead Software Architect. Formulate a structured, modular blueprint and specification for the request.'
+      },
+      {
+        role: 'coder',
+        provHint: 'groq',
+        modelHint: 'openai/gpt-oss-120b',
+        prompt: 'You are the Senior Implementation Engineer. Execute the approved architectural plan with clean, complete code and necessary tool calls.'
+      }
+    ]
+  },
+  parallel_council: {
+    defaultName: 'Supreme Judge Consensus',
+    defaultSlug: 'supreme_judge_council',
+    members: [
+      {
+        role: 'councilor_1',
+        provHint: 'coarena',
+        modelHint: 'gemini-4-carbon',
+        prompt: 'Expert perspective 1: Deep reasoning, architectural soundness, and mathematical rigor.'
+      },
+      {
+        role: 'councilor_2',
+        provHint: 'groq',
+        modelHint: 'openai/gpt-oss-120b',
+        prompt: 'Expert perspective 2: Fast pragmatic engineering, algorithm optimization, and edge-case prevention.'
+      },
+      {
+        role: 'judge',
+        provHint: 'googlestudio',
+        modelHint: 'models/gemini-3.5-flash-lite',
+        prompt: 'You are Supreme Judge and Synthesizer. Review all candidate solutions above, eliminate discrepancies, combine strengths, and deliver the final authoritative, bug-free solution.'
+      }
+    ]
+  },
+  plan_execute_audit: {
+    defaultName: 'Full Cycle Tri-Tier Team',
+    defaultSlug: 'full_cycle_team',
+    members: [
+      {
+        role: 'architect',
+        provHint: 'coarena',
+        modelHint: 'gemini-4-carbon',
+        prompt: 'System Architect: Analyze requirements, outline components, interfaces, and safety invariants.'
+      },
+      {
+        role: 'builder',
+        provHint: 'groq',
+        modelHint: 'openai/gpt-oss-120b',
+        prompt: 'Lead Builder: Implement complete, functional code following the architectural plan.'
+      },
+      {
+        role: 'auditor',
+        provHint: 'googlestudio',
+        modelHint: 'models/gemini-3.5-flash-lite',
+        prompt: 'Security & Quality Auditor: Rigorously audit the built code for edge cases, security flaws, and performance regressions; output the final verified version.'
+      }
+    ]
+  },
+  speculative_draft: {
+    defaultName: 'Speculative Lightning Draft',
+    defaultSlug: 'speculative_draft_team',
+    members: [
+      {
+        role: 'fast_drafter',
+        provHint: 'googlestudio',
+        modelHint: 'models/gemini-3.5-flash-lite',
+        prompt: 'Rapid Prototyper: Generate an immediate structural scaffold, pseudocode, and key draft without hesitation.'
+      },
+      {
+        role: 'deep_finisher',
+        provHint: 'coarena',
+        modelHint: 'gemini-4-carbon',
+        prompt: 'Deep Reasoning Finisher: Take the rapid draft, complete all implementations, enforce production hardening, and produce the final polished response.'
+      }
+    ]
+  },
+  router_evaluator: {
+    defaultName: 'Smart Dynamic Router Team',
+    defaultSlug: 'dynamic_router_team',
+    members: [
+      {
+        role: 'gatekeeper',
+        provHint: 'googlestudio',
+        modelHint: 'models/gemini-3.5-flash-lite',
+        prompt: 'Complexity Gatekeeper: Classify user query complexity (1-10) and outline whether it requires simple immediate answer or full deep analysis.'
+      },
+      {
+        role: 'expert',
+        provHint: 'groq',
+        modelHint: 'openai/gpt-oss-120b',
+        prompt: 'Domain Specialist: Deliver the complete authoritative solution tailored to the evaluated complexity.'
+      }
+    ]
+  },
+  worker_reviewer: {
+    defaultName: 'Worker & Polisher Team',
+    defaultSlug: 'worker_reviewer_team',
+    members: [
+      {
+        role: 'worker',
+        provHint: 'groq',
+        modelHint: 'openai/gpt-oss-120b',
+        prompt: 'Primary Worker: Draft initial complete response addressing the user request.'
+      },
+      {
+        role: 'reviewer',
+        provHint: 'coarena',
+        modelHint: 'gemini-4-carbon',
+        prompt: 'Senior Reviewer: Polish wording, correct any technical inaccuracies, and present the final refined answer.'
+      }
+    ]
+  }
+};
+
+function _resolveProviderAndModel(provHint, modelHint) {
+  const providers = currentConfig?.providers || {};
+  const pKeys = Object.keys(providers);
+  let p = provHint && providers[provHint] ? provHint : (pKeys[0] || '');
+  let models = providers[p]?.models || [];
+  let m = modelHint && models.includes(modelHint) ? modelHint : (models[0] || '');
+  return { provider: p, model: m };
+}
+
 function openTeamModal(tId=null) {
   const modal = document.getElementById('team-modal');
   const title = document.getElementById('team-modal-title');
@@ -555,12 +687,10 @@ function openTeamModal(tId=null) {
   } else {
     if (title) title.innerText = '🤖 BUILD MULTI-AGENT TEAM';
     if (editId) editId.value = '';
-    if (slugInput) { slugInput.value = ''; slugInput.disabled = false; }
-    if (nameInput) nameInput.value = '';
+    if (slugInput) { slugInput.value = 'duo_architect_coder'; slugInput.disabled = false; }
+    if (nameInput) nameInput.value = 'Duo Architect & Coder';
     if (wfInput) wfInput.value = 'role_pipeline';
-    // Defaults: Member 1 Planner + Member 2 Coder
-    addTeamMemberRow('planner', 'coarena', 'gemini-4-carbon', 'Architect / Planner');
-    addTeamMemberRow('coder', 'groq', 'openai/gpt-oss-120b', 'Implementation / Coder');
+    onTeamWorkflowChange('role_pipeline');
   }
   if (modal) modal.classList.add('active');
 }
@@ -571,14 +701,28 @@ function closeTeamModal() {
 }
 
 function onTeamWorkflowChange(val) {
+  const tmpl = WORKFLOW_TEMPLATES[val] || WORKFLOW_TEMPLATES.role_pipeline;
   const listEl = document.getElementById('team-members-list');
+  const editId = document.getElementById('team-edit-id')?.value;
+  const slugInput = document.getElementById('team-slug');
+  const nameInput = document.getElementById('team-name');
+
   if (!listEl) return;
-  // If user selected parallel council and has < 3 members, auto suggest Councilor 1, 2 + Judge
-  if (val === 'parallel_council' && listEl.children.length < 3) {
-    listEl.innerHTML = '';
-    addTeamMemberRow('councilor_1', 'coarena', 'gemini-4-carbon', 'Expert perspective 1: Deep reasoning & architecture');
-    addTeamMemberRow('councilor_2', 'groq', 'openai/gpt-oss-120b', 'Expert perspective 2: Fast algorithmic & code implementation');
-    addTeamMemberRow('judge', 'googlestudio', 'models/gemini-3.5-flash-lite', 'Supreme Judge: Compare both candidates, eliminate flaws, and synthesize the ultimate solution');
+  listEl.innerHTML = '';
+
+  tmpl.members.forEach(mDef => {
+    const res = _resolveProviderAndModel(mDef.provHint, mDef.modelHint);
+    addTeamMemberRow(mDef.role, res.provider, res.model, mDef.prompt);
+  });
+
+  // If adding new team and user hasn't typed custom name/slug, set suggested defaults
+  if (!editId) {
+    if (nameInput && (!nameInput.value || Object.values(WORKFLOW_TEMPLATES).some(t => t.defaultName === nameInput.value))) {
+      nameInput.value = tmpl.defaultName;
+    }
+    if (slugInput && (!slugInput.value || Object.values(WORKFLOW_TEMPLATES).some(t => t.defaultSlug === slugInput.value))) {
+      slugInput.value = tmpl.defaultSlug;
+    }
   }
 }
 
@@ -588,7 +732,6 @@ function addTeamMemberRow(role='', provider='', model='', prompt='') {
   const memberIndex = listEl.children.length + 1;
   const row = document.createElement('div');
   row.className = 'team-member-row';
-  row.style.cssText = 'background:#0d1520; border:1px solid #2b3d56; border-left:3px solid #8957e5; border-radius:6px; padding:10px; display:flex; flex-direction:column; gap:8px;';
 
   const providers = currentConfig?.providers || {};
   const pKeys = Object.keys(providers);
@@ -604,31 +747,31 @@ function addTeamMemberRow(role='', provider='', model='', prompt='') {
     <!-- Top row: Member badge & remove button -->
     <div style="display:flex; justify-content:space-between; align-items:center;">
       <span style="font-size:11px; font-weight:700; color:#d2a8ff; font-family:var(--mono);">MEMBER #${memberIndex}</span>
-      <button type="button" class="btn btn-xs btn-danger" style="padding:1px 6px; font-size:10.5px;" onclick="this.closest('.team-member-row').remove(); reindexTeamMembers();">✕ Remove</button>
+      <button type="button" class="btn btn-xs btn-danger" style="padding:2px 7px; font-size:10px;" onclick="this.closest('.team-member-row').remove(); reindexTeamMembers();">✕ Remove</button>
     </div>
 
-    <!-- Field 1: Role -->
-    <div>
-      <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;">Role Name</label>
-      <input type="text" class="t-member-role" placeholder="e.g. planner, coder, reviewer" value="${role || 'worker'}" style="width:100%; font-size:11.5px; padding:6px 8px;" required />
-    </div>
-
-    <!-- Field 2 & 3: Server Provider and Model (Clean 2-Column Grid) -->
-    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
-      <div>
+    <!-- Role Name and Server Provider Grid -->
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:6px; min-width:0;">
+      <div style="min-width:0;">
+        <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;">Role Name</label>
+        <input type="text" class="t-member-role" placeholder="e.g. architect, coder" value="${role || 'worker'}" style="width:100%; min-width:0; font-size:11.5px; padding:5px 8px; box-sizing:border-box;" required />
+      </div>
+      <div style="min-width:0;">
         <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;">Server Provider</label>
-        <select class="t-member-prov" style="width:100%; font-size:11.5px; padding:6px 8px;" onchange="updateMemberModels(this)">${provOpts}</select>
-      </div>
-      <div>
-        <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;">Assigned Model</label>
-        <select class="t-member-model" style="width:100%; font-size:11.5px; padding:6px 8px;">${modelOpts}</select>
+        <select class="t-member-prov" style="width:100%; min-width:0; font-size:11.5px; padding:5px 8px; box-sizing:border-box;" onchange="updateMemberModels(this)">${provOpts}</select>
       </div>
     </div>
 
-    <!-- Field 4: Role Prompt -->
-    <div>
+    <!-- Assigned Model full width -->
+    <div style="min-width:0;">
+      <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;">Assigned Model</label>
+      <select class="t-member-model" style="width:100%; min-width:0; font-size:11px; padding:5px 8px; font-family:var(--mono); text-overflow:ellipsis; overflow:hidden; box-sizing:border-box;">${modelOpts}</select>
+    </div>
+
+    <!-- Role System Instructions -->
+    <div style="min-width:0;">
       <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;">Role System Instructions (Optional)</label>
-      <input type="text" class="t-member-prompt" placeholder="e.g. You are the Architect. Analyze and write a clean plan." value="${prompt || ''}" style="width:100%; font-size:11px; padding:5px 8px; color:#c9d1d9;" />
+      <textarea class="t-member-prompt" rows="2" placeholder="e.g. You are the Architect..." style="width:100%; min-width:0; font-size:11px; padding:5px 8px; color:#c9d1d9; background:var(--bg); border:1px solid var(--border); border-radius:4px; box-sizing:border-box; resize:vertical;">${prompt || ''}</textarea>
     </div>
   `;
   listEl.appendChild(row);

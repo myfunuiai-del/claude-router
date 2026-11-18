@@ -258,21 +258,24 @@
       <form onsubmit="saveTeam(event)" style="display:flex; flex-direction:column; gap:10px;">
         <input type="hidden" id="team-edit-id" value="" />
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-          <div>
-            <label style="font-size:11px; color:var(--text-muted);">Team ID (Slug)</label>
-            <input type="text" id="team-slug" placeholder="team_code_craft" required />
+          <div style="min-width:0;">
+            <label style="font-size:11px; color:var(--text-muted); display:block; margin-bottom:2px;">Team ID (Slug)</label>
+            <input type="text" id="team-slug" placeholder="team_code_craft" required style="width:100%; box-sizing:border-box;" />
           </div>
-          <div>
-            <label style="font-size:11px; color:var(--text-muted);">Display Name</label>
-            <input type="text" id="team-name" placeholder="Code-Craft Team" required />
+          <div style="min-width:0;">
+            <label style="font-size:11px; color:var(--text-muted); display:block; margin-bottom:2px;">Display Name</label>
+            <input type="text" id="team-name" placeholder="Code-Craft Team" required style="width:100%; box-sizing:border-box;" />
           </div>
         </div>
         <div>
           <label style="font-size:11px; color:var(--text-muted);">Workflow Pattern</label>
           <select id="team-workflow" style="margin-top:3px;" onchange="onTeamWorkflowChange(this.value)">
-            <option value="role_pipeline">Role Pipeline (Member 1 Architect ➔ Member 2 Coder)</option>
-            <option value="parallel_council">⚖️ Parallel Council (Parallel Solvers ➔ Judge Synthesizer)</option>
-            <option value="worker_reviewer">Worker ➔ Reviewer</option>
+            <option value="role_pipeline">1. ⚡ Role Pipeline (Architect ➔ Coder)</option>
+            <option value="parallel_council">2. ⚖️ Judge Consensus (Parallel Solvers ➔ Supreme Judge)</option>
+            <option value="plan_execute_audit">3. 🛡️ Full Cycle Tri-Tier (Architect ➔ Builder ➔ Auditor)</option>
+            <option value="speculative_draft">4. 🚀 Speculative Draft (Lightning Draft ➔ Deep Finisher)</option>
+            <option value="router_evaluator">5. 🎯 Smart Router Evaluator (Complexity Gatekeeper ➔ Expert)</option>
+            <option value="worker_reviewer">6. 🔍 Worker ➔ Reviewer (Draft ➔ Polish)</option>
           </select>
         </div>
         <div>

@@ -195,6 +195,43 @@ def _execute_member_turn(handler, pid, p_obj, target_model, body_obj, role_promp
 
     return False, f"Unsupported provider type '{p_type}' for {p_name}", 0, 0, 0
 
+def _extract_text_content(resp_data):
+    """Reliably extracts plain text response from Anthropic or OpenAI payloads."""
+    try:
+        data_str = resp_data.decode('utf-8', errors='ignore')
+        # Check if streaming SSE
+        if "data: " in data_str:
+            lines = data_str.split("\n")
+            text = ""
+            for line in lines:
+                if line.startswith("data: ") and not line.startswith("data: [DONE]"):
+                    try:
+                        chunk = json.loads(line[6:].strip())
+                        delta = chunk.get("delta", {})
+                        if isinstance(delta, dict) and delta.get("text"):
+                            text += delta["text"]
+                        choices = chunk.get("choices", [])
+                        if choices and choices[0].get("delta", {}).get("content"):
+                            text += choices[0]["delta"]["content"]
+                    except Exception:
+                        pass
+            if text.strip():
+                return text.strip()
+
+        # Regular JSON
+        s_obj = json.loads(data_str)
+        if "content" in s_obj and isinstance(s_obj["content"], list):
+            text = "".join(blk.get("text", "") for blk in s_obj["content"] if isinstance(blk, dict) and blk.get("type") == "text")
+            if text.strip():
+                return text.strip()
+        if "choices" in s_obj and isinstance(s_obj["choices"], list) and len(s_obj["choices"]) > 0:
+            msg = s_obj["choices"][0].get("message", {})
+            if msg.get("content"):
+                return msg["content"].strip()
+        return data_str[:2500].strip()
+    except Exception:
+        return resp_data.decode('utf-8', errors='ignore')[:2500].strip()
+
 def execute_multi_agent_team(handler, team, body_obj, raw_body):
     """
     Executes a Multi-Agent Team with Strict All-or-Nothing Isolation.
@@ -252,11 +289,9 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         return True
 
     # ==========================================
-    # STRATEGY A: PARALLEL COUNCIL / CONSENSUS
+    # STRATEGY 1: PARALLEL COUNCIL / JUDGE CONSENSUS
     # ==========================================
-    if wf in ("parallel_council", "consensus"):
-        # First N-1 members are Councilors who solve the problem in parallel.
-        # Last member is the Supreme Judge / Synthesizer who combines & finalizes.
+    if wf in ("parallel_council", "consensus", "judge_consensus"):
         councilors = members[:-1]
         judge = members[-1]
 
@@ -308,17 +343,7 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
             total_in += cr["in_t"]
             total_out += cr["out_t"]
             c_summaries.append(f"{cr['pname']} ({cr['ms']}ms)")
-
-            # Extract text from councilor response
-            c_text = ""
-            try:
-                c_json = json.loads(cr["data"].decode('utf-8', errors='ignore'))
-                for blk in c_json.get("content", []):
-                    if isinstance(blk, dict) and blk.get("type") == "text":
-                        c_text += blk.get("text", "")
-            except Exception:
-                c_text = cr["data"].decode('utf-8', errors='ignore')[:1500]
-
+            c_text = _extract_text_content(cr["data"])
             council_opinions_text += f"\n--- [COUNCILOR CANDIDATE #{idx+1}: {cr['role']} ({cr['pname']} • {cr['model']})] ---\n{c_text.strip()}\n"
 
         steps_log.append(f"Parallel Council [{', '.join(c_summaries)} in {parallel_ms}ms]")
@@ -347,7 +372,172 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         return True
 
     # ==========================================
-    # STRATEGY B: ROLE-PIPELINE (Architect -> Coder)
+    # STRATEGY 2: FULL CYCLE TRI-TIER (Architect ➔ Builder ➔ Auditor)
+    # ==========================================
+    if wf == "plan_execute_audit" and len(members) >= 3:
+        m1, m2, m3 = members[0], members[1], members[2]
+        pid1, pid2, pid3 = m1.get("provider"), m2.get("provider"), m3.get("provider")
+        pobj1, pobj2, pobj3 = all_providers[pid1], all_providers[pid2], all_providers[pid3]
+        mdl1, mdl2, mdl3 = m1.get("model"), m2.get("model"), m3.get("model")
+
+        r1_prompt = m1.get("prompt") or "System Architect: Analyze requirements, outline components, interfaces, and safety invariants."
+        sys.stderr.write(f"[Multi-Agent Tri-Tier '{tname}'] Tier 1: Architect ({pobj1.get('name', pid1)} - {mdl1})...\n")
+        s1_ok, s1_data, in_t1, out_t1, ms1 = _execute_member_turn(handler, pid1, pobj1, mdl1, body_obj, r1_prompt)
+        if not s1_ok:
+            _send_team_error(handler, tname, pid1, s1_data, t_start)
+            return True
+        total_in += in_t1
+        total_out += out_t1
+        steps_log.append(f"Architect ({pobj1.get('name', pid1)}): {ms1}ms")
+        plan_text = _extract_text_content(s1_data)
+
+        r2_prompt = m2.get("prompt") or "Lead Builder: Implement complete, functional code following the architectural plan."
+        builder_combined = f"{r2_prompt}\n\n[ARCHITECTURAL SPECIFICATION FROM {pobj1.get('name', pid1)}]:\n{plan_text}"
+        sys.stderr.write(f"[Multi-Agent Tri-Tier '{tname}'] Tier 2: Builder ({pobj2.get('name', pid2)} - {mdl2})...\n")
+        s2_ok, s2_data, in_t2, out_t2, ms2 = _execute_member_turn(handler, pid2, pobj2, mdl2, body_obj, builder_combined)
+        if not s2_ok:
+            _send_team_error(handler, tname, pid2, s2_data, t_start)
+            return True
+        total_in += in_t2
+        total_out += out_t2
+        steps_log.append(f"Builder ({pobj2.get('name', pid2)}): {ms2}ms")
+        code_text = _extract_text_content(s2_data)
+
+        r3_prompt = m3.get("prompt") or "Security & Bug Auditor: Rigorously audit the built code for edge cases, security flaws, and performance regressions; output the final verified version."
+        auditor_combined = (
+            f"{r3_prompt}\n\n"
+            f"[SYSTEM ARCHITECT SPECIFICATION]:\n{plan_text}\n\n"
+            f"[BUILDER IMPLEMENTATION FROM {pobj2.get('name', pid2)}]:\n{code_text}\n\n"
+            f"TASK: Conduct final audit against specifications, patch all edge-cases/bugs, and deliver the final verified solution to the user."
+        )
+        sys.stderr.write(f"[Multi-Agent Tri-Tier '{tname}'] Tier 3: Auditor ({pobj3.get('name', pid3)} - {mdl3})...\n")
+        s3_ok, s3_data, in_t3, out_t3, ms3 = _execute_member_turn(handler, pid3, pobj3, mdl3, body_obj, auditor_combined)
+        if not s3_ok:
+            _send_team_error(handler, tname, pid3, s3_data, t_start)
+            return True
+        total_in += in_t3
+        total_out += out_t3
+        steps_log.append(f"Auditor ({pobj3.get('name', pid3)}): {ms3}ms")
+
+        _finish_team_success(handler, team, pobj3.get('name', pid3), mdl3, s3_data, t_start, total_in, total_out, steps_log)
+        return True
+
+    # ==========================================
+    # STRATEGY 3: SPECULATIVE DRAFT (Fast Drafter ➔ Deep Finisher)
+    # ==========================================
+    if wf == "speculative_draft" and len(members) >= 2:
+        m1, m2 = members[0], members[1]
+        pid1, pid2 = m1.get("provider"), m2.get("provider")
+        pobj1, pobj2 = all_providers[pid1], all_providers[pid2]
+        mdl1, mdl2 = m1.get("model"), m2.get("model")
+
+        r1_prompt = m1.get("prompt") or "Rapid Prototyper: Generate an immediate structural scaffold, pseudocode, and key draft without hesitation."
+        sys.stderr.write(f"[Multi-Agent Speculative Draft '{tname}'] Stage 1: Lightning Drafter ({pobj1.get('name', pid1)} - {mdl1})...\n")
+        s1_ok, s1_data, in_t1, out_t1, ms1 = _execute_member_turn(handler, pid1, pobj1, mdl1, body_obj, r1_prompt)
+        if not s1_ok:
+            _send_team_error(handler, tname, pid1, s1_data, t_start)
+            return True
+        total_in += in_t1
+        total_out += out_t1
+        steps_log.append(f"Fast Draft ({pobj1.get('name', pid1)}): {ms1}ms")
+        draft_text = _extract_text_content(s1_data)
+
+        r2_prompt = m2.get("prompt") or "Deep Reasoning Finisher: Take the rapid draft, complete all implementations, enforce production hardening, and produce the final polished response."
+        combined_prompt = (
+            f"{r2_prompt}\n\n"
+            f"[LIGHTNING DRAFT / SKELETON FROM {pobj1.get('name', pid1)}]:\n{draft_text}\n\n"
+            f"TASK: Expand, harden, and produce the complete, production-ready solution."
+        )
+        sys.stderr.write(f"[Multi-Agent Speculative Draft '{tname}'] Stage 2: Deep Finisher ({pobj2.get('name', pid2)} - {mdl2})...\n")
+        s2_ok, s2_data, in_t2, out_t2, ms2 = _execute_member_turn(handler, pid2, pobj2, mdl2, body_obj, combined_prompt)
+        if not s2_ok:
+            _send_team_error(handler, tname, pid2, s2_data, t_start)
+            return True
+        total_in += in_t2
+        total_out += out_t2
+        steps_log.append(f"Deep Finish ({pobj2.get('name', pid2)}): {ms2}ms")
+
+        _finish_team_success(handler, team, pobj2.get('name', pid2), mdl2, s2_data, t_start, total_in, total_out, steps_log)
+        return True
+
+    # ==========================================
+    # STRATEGY 4: ROUTER EVALUATOR (Complexity Gatekeeper ➔ Expert)
+    # ==========================================
+    if wf == "router_evaluator" and len(members) >= 2:
+        m1, m2 = members[0], members[1]
+        pid1, pid2 = m1.get("provider"), m2.get("provider")
+        pobj1, pobj2 = all_providers[pid1], all_providers[pid2]
+        mdl1, mdl2 = m1.get("model"), m2.get("model")
+
+        r1_prompt = m1.get("prompt") or "Complexity Gatekeeper: Classify user query complexity (1-10) and outline whether it requires simple immediate answer or full deep analysis."
+        sys.stderr.write(f"[Multi-Agent Router Evaluator '{tname}'] Stage 1: Gatekeeper ({pobj1.get('name', pid1)} - {mdl1})...\n")
+        s1_ok, s1_data, in_t1, out_t1, ms1 = _execute_member_turn(handler, pid1, pobj1, mdl1, body_obj, r1_prompt)
+        if not s1_ok:
+            _send_team_error(handler, tname, pid1, s1_data, t_start)
+            return True
+        total_in += in_t1
+        total_out += out_t1
+        steps_log.append(f"Gatekeeper ({pobj1.get('name', pid1)}): {ms1}ms")
+        eval_text = _extract_text_content(s1_data)
+
+        r2_prompt = m2.get("prompt") or "Domain Specialist: Deliver the complete authoritative solution tailored to the evaluated complexity."
+        combined_prompt = (
+            f"{r2_prompt}\n\n"
+            f"[QUERY COMPLEXITY EVALUATION FROM {pobj1.get('name', pid1)}]:\n{eval_text}\n\n"
+            f"TASK: Provide the complete authoritative answer adhering to the evaluated scope and requirements."
+        )
+        sys.stderr.write(f"[Multi-Agent Router Evaluator '{tname}'] Stage 2: Expert Specialist ({pobj2.get('name', pid2)} - {mdl2})...\n")
+        s2_ok, s2_data, in_t2, out_t2, ms2 = _execute_member_turn(handler, pid2, pobj2, mdl2, body_obj, combined_prompt)
+        if not s2_ok:
+            _send_team_error(handler, tname, pid2, s2_data, t_start)
+            return True
+        total_in += in_t2
+        total_out += out_t2
+        steps_log.append(f"Expert ({pobj2.get('name', pid2)}): {ms2}ms")
+
+        _finish_team_success(handler, team, pobj2.get('name', pid2), mdl2, s2_data, t_start, total_in, total_out, steps_log)
+        return True
+
+    # ==========================================
+    # STRATEGY 5: WORKER ➔ REVIEWER (Draft ➔ Polish)
+    # ==========================================
+    if wf == "worker_reviewer" and len(members) >= 2:
+        m1, m2 = members[0], members[1]
+        pid1, pid2 = m1.get("provider"), m2.get("provider")
+        pobj1, pobj2 = all_providers[pid1], all_providers[pid2]
+        mdl1, mdl2 = m1.get("model"), m2.get("model")
+
+        r1_prompt = m1.get("prompt") or "Primary Worker: Draft initial complete response addressing the user request."
+        sys.stderr.write(f"[Multi-Agent Worker-Reviewer '{tname}'] Stage 1: Worker ({pobj1.get('name', pid1)} - {mdl1})...\n")
+        s1_ok, s1_data, in_t1, out_t1, ms1 = _execute_member_turn(handler, pid1, pobj1, mdl1, body_obj, r1_prompt)
+        if not s1_ok:
+            _send_team_error(handler, tname, pid1, s1_data, t_start)
+            return True
+        total_in += in_t1
+        total_out += out_t1
+        steps_log.append(f"Worker ({pobj1.get('name', pid1)}): {ms1}ms")
+        draft_text = _extract_text_content(s1_data)
+
+        r2_prompt = m2.get("prompt") or "Senior Reviewer: Polish wording, correct any technical inaccuracies, and present the final refined answer."
+        combined_prompt = (
+            f"{r2_prompt}\n\n"
+            f"[INITIAL DRAFT FROM WORKER {pobj1.get('name', pid1)}]:\n{draft_text}\n\n"
+            f"TASK: Thoroughly review, polish, fix any errors, and deliver the final refined response."
+        )
+        sys.stderr.write(f"[Multi-Agent Worker-Reviewer '{tname}'] Stage 2: Reviewer ({pobj2.get('name', pid2)} - {mdl2})...\n")
+        s2_ok, s2_data, in_t2, out_t2, ms2 = _execute_member_turn(handler, pid2, pobj2, mdl2, body_obj, combined_prompt)
+        if not s2_ok:
+            _send_team_error(handler, tname, pid2, s2_data, t_start)
+            return True
+        total_in += in_t2
+        total_out += out_t2
+        steps_log.append(f"Reviewer ({pobj2.get('name', pid2)}): {ms2}ms")
+
+        _finish_team_success(handler, team, pobj2.get('name', pid2), mdl2, s2_data, t_start, total_in, total_out, steps_log)
+        return True
+
+    # ==========================================
+    # STRATEGY 6: ROLE-PIPELINE (Architect ➔ Coder / Default Sequential)
     # ==========================================
     m1 = members[0]
     pid1 = m1.get("provider")
@@ -363,18 +553,8 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
     total_in += in_t1
     total_out += out_t1
     steps_log.append(f"Step 1 ({p_obj1.get('name', pid1)}): {ms1}ms")
+    step1_text = _extract_text_content(s1_data)
 
-    # Extract text from Step 1 response
-    step1_text = ""
-    try:
-        s1_obj = json.loads(s1_data.decode('utf-8', errors='ignore'))
-        for blk in s1_obj.get("content", []):
-            if isinstance(blk, dict) and blk.get("type") == "text":
-                step1_text += blk.get("text", "")
-    except Exception:
-        step1_text = s1_data.decode('utf-8', errors='ignore')[:1500]
-
-    # Step 2: Executor / Coder takes the plan + user instructions
     m2 = members[1]
     pid2 = m2.get("provider")
     p_obj2 = all_providers[pid2]
