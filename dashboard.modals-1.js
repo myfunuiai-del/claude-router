@@ -944,3 +944,10 @@ async function importConfigBackup() {
   }
 }
 
+// Auto-blur focused input on Enter / Done on mobile keyboard
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target && e.target.tagName === 'INPUT' && e.target.type !== 'submit') {
+    e.target.blur();
+  }
+});
+
