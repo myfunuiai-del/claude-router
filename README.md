@@ -12,55 +12,62 @@ It unifies multiple AI providers and API keys behind one local endpoint (`http:/
 
 ## ✨ Key Features & How Each One Works
 
-### 1. ⚡ Dual-Pool Priority Routing & Failover
-- **⚡ ROUTED PIPELINE (ACTIVE):** Requests try enabled servers strictly from top to bottom (`#1 PRIMARY` ➔ `#2 FALLBACK 1` ➔ `#3 FALLBACK 2` ...). If a server fails or runs out of quota, traffic automatically cascades to the next active server.
-- **💤 STANDBY / FREE POOL:** Reserve servers kept out of the automatic failover chain. Standby servers are **never** silently used as a hidden fallback.
+### 1. ⚡ Dual-Pool Priority Routing, Isolation & Intra-Server Multi-Model Fallback
+- **⚡ ROUTED PIPELINE (ACTIVE):** Requests try enabled servers strictly from top to bottom (`#1 PRIMARY` ➔ `#2 FALLBACK 1` ➔ `#3 FALLBACK 2` ...). Before failing over to the next priority server, each server sequentially tries **all of its configured models** so healthy models on your primary server are exhausted first.
+- **💤 STANDBY / FREE POOL (Strict Isolation):** Reserve servers kept out of the automatic failover chain. Dedicated requests sent to a standby route (e.g. `http://127.0.0.1:8999/googlestudio`) stay **strictly isolated** within that server — sequentially trying all of that server's models without ever cascading into the active routed pipeline.
 - **Direct Provider Routes (`/{provider_id}`):** Every server exposes its own direct route (e.g. `http://127.0.0.1:8999/coarena`). Tap the `📋 /provider` pill on any card to copy its direct URL.
 
-### 2. 🟢 Per-Server `ON / OFF` Switch & Live Chat Dropdown Sync
-- Every server card has a compact **`● ON` / `● OFF`** toggle button in its header.
-- **When turned `OFF`:**
-  - The server is strictly blocked in the proxy backend (skipped in direct routes, smart model routes, and the failover pipeline).
-  - Its models are **immediately removed** from the chat box model selector (`~/.claude/agy_providers.json`).
-- **When turned `ON`:**
-  - Routing resumes immediately and its models **reappear** in the chat dropdown automatically.
+### 2. 🤖 Modern Engine Modes (`⚡ Agentic` vs `💬 Normal`) for Anthropic & OpenAI
+- Available for **both Anthropic and OpenAI** protocol servers (`⚡ Agentic` is default):
+  - **`⚡ Agentic` Mode (Default):** Full bidirectional tool calling (`tool_use` / `tool_result` ↔ `tool_calls` / `role: "tool"`), streaming tool call assembly, `tool_choice`, thinking/reasoning blocks, strict OpenAI `tool_call_id` normalization (for Groq/Mistral/OpenAI), JSON Schema sanitization (for Google AI Studio/Gemini), and bidirectional **Gemini 3.x `thought_signature` round-trip caching**.
+  - **`💬 Normal` Mode:** Strips heavy agent/coding tool definitions to save ~10k+ tokens per request while **preserving interactive clarification question tools** (`ask_question`, etc.) so the model can still present multiple-choice questions mid-task.
 
-### 3. 🛡️ 5-Stage Auto History-Recovery (`Recovery: ON / OFF`)
+### 3. 🟢 Per-Server `ON / OFF` Switch, Fast Model Switcher & Long-Press Default
+- **Per-Server `ON / OFF`:** Every server card has a compact **`● ON` / `● OFF`** toggle button in its header. Turning a server `OFF` blocks it in the proxy backend and immediately removes its models from `~/.claude/agy_providers.json`; turning it `ON` restores routing and chat dropdown sync automatically.
+- **Fast Model Switcher:** Each server card includes a compact inline dropdown right next to its `📋 /id` route pill to switch the server's default model in one tap.
+- **Long-Press Model Chip (~550ms):** Press and hold any model chip inside a server card to **copy the model name** to your clipboard, trigger haptic feedback, promote it to **1st position**, and set it as that server's **Default Model**.
+
+### 4. 🛡️ Context-Preserving 5-Stage Auto History-Recovery (`Recovery: ON / OFF`)
 When a long chat hits an upstream firewall/WAF or payload-size block (**HTTP `400` / `403` / `413`**) — and the request contains trimmable history — the router recovers the chat **without forcing you to open a new chat** and **without mutating your original chat history**:
 
 | Stage | What It Sends | Why It Helps |
 | :--- | :--- | :--- |
 | **Original** | Full untouched chat history | Normal path (zero overhead when no error occurs) |
 | **Stage 1** | Full history + **untouched last message**, shrinking only **older large `tool_result` outputs** | Keeps 100% of your conversation context intact while removing giant old logs/HTML dumps |
-| **Stage 2** | Last **6–8 messages** (starting from a clean `user` turn) | Drops older problematic messages while preserving recent context |
-| **Stage 3** | **Last message only** (preserving valid `tool_use`/`tool_result` pair if mid-tool-call) | Recovers when a recent turn contains a blocked pattern |
-| **Stage 4** | Full history + last message with **all large tool outputs & text blocks shrunk** | Recovers even when the latest message itself contains a huge tool output |
-| **Stage 5** | **Untouched original full request** routed to the **next `ON` server** in the pipeline | Seamless failover to another provider if the current server refuses all stages |
+| **Stage 2** | Full history with **all large tool outputs & text blocks shrunk** | Recovers even when recent turns contain huge tool outputs |
+| **Stage 3** | **Recent 3–5 turns** + compact **session summary** of earlier omitted history | Preserves conversation continuity while drastically reducing payload size |
+| **Stage 4** | **Last assistant response + last user message** paired with full **session summary context** | Recovers extreme context-limit/WAF cases while keeping the agent aware of the prior step |
+| **Stage 5** | Bare last message fallback ➔ **untouched full request** failover to next `ON` server | Seamless failover across providers if the current server refuses all stages |
 
 > - Recovery **never** triggers on `401` (bad key), `404` (invalid model), or `429` (rate limit).
 > - You can toggle this feature anytime using the **`● Recovery: ON / OFF`** switch in the Live Status Bar.
 
-### 4. ❄️ Smart API Key Auto-Cooldown
-Avoids wasting time retrying dead or rate-limited keys on every single request:
-- **`HTTP 401` (Invalid / Revoked Key):** Key is placed on a **10-minute** cooldown across all models.
-- **`HTTP 429` (Rate Limit):** Key is placed on a **3-minute** cooldown across all models.
+### 5. ❄️ Smart API Key Auto-Cooldown & Sticky 429 Auto-Retry
+Zero-downtime rotation across multi-key pools without hammering dead or rate-limited keys:
+- **Sticky Key Pointer & Instant 429 Switch:** Tracks the last healthy key per provider. When a key hits `429` (Rate Limit / Daily Quota), `401`, or `402`, the pointer immediately advances to the next healthy key and **auto-retries the request transparently**.
+- **`HTTP 401` (Invalid / Revoked Key):** Placed on a **10-minute** cooldown across all models.
+- **`HTTP 429` (Rate Limit / Daily Quota):** Placed on a **3-minute** cooldown (or **30-minute** cooldown if daily quota exhaustion is detected).
 - **`HTTP 402` (Payment Required / Paid Model):** Only that specific **`(key + model)`** pair is placed on a **5-minute** cooldown — so the same key continues working normally for your free models.
 - **Safe Fallback & Auto-Clear:** If *all* keys for a provider are in cooldown, the router still tries them so the provider never hard-locks. Any `200 OK` response or passing manual `Test` clears cooldown immediately.
 
-### 5. 🧪 Live Concurrent Testers (60s Timeout, Progressive Updates)
+### 6. 📊 Real-Time Token & Speed Meter + Custom System Prompt Presets
+- **Token & Speed Meter (`tok/s`):** Automatically extracts `input_tokens`, `output_tokens`, throughput (`tok/s`), and latency (`ms`) from both Anthropic and OpenAI (SSE & JSON) responses. Displays live green speed pills (`in→out tok • ⚡ X.X tok/s • Y.Ys`) in the Console Status Bar, Live Request Feed, and per-server Live Usage cards.
+- **Custom System Prompt / Presets:** Configure per-server system instructions in `✏️ Edit` with 1-tap presets (**`⚡ Concise`**, **`🇧🇩 Bengali`**, **`Clear`**). Servers with an active prompt show a purple `📝 prompt` badge on their card and prepend the instructions cleanly to both Anthropic and OpenAI requests.
+
+### 7. 🧪 Live Concurrent Testers (60s Timeout, Progressive Updates)
 - **API Keys Tester (`KEYS` ➔ `Test`):** Tests every key on a server in parallel (up to 60s timeout each). Whichever key responds first immediately displays `🟢 200 OK (ms)` or `🔴 401/402/...` right next to that key along with a live summary (`X/Y keys active`).
 - **Models Compatibility Tester (`MODELS` ➔ `Select`):**
   - Discovers available models from the provider and automatically checks whether they work with your current API keys & settings.
   - Shows live status pills (`🟢 963ms`, `🔴 402`, `🔴 404`, etc.) next to every model before you add it.
   - Tap **`🟢 Only`** to filter the list down to working models only, **`Test All`** to test all visible/filtered models, or tap any individual model's status pill to test/re-test just that model.
 
-### 6. 📡 `Console | Live Monitor` Switch Tab, Logs & Backup
-- **`Console | Live Monitor` Tabs:** Switch between settings (`Console`) and real-time observability (`Live Monitor`) in one tap:
-  - **⚡ Now Active (In-Flight):** Shows live requests currently being processed (server, model, key `#N`, stage, elapsed seconds).
-  - **📊 Live Server Usage:** Per-server `OK / Fail` counts, success rate bar, average latency (`ms`), recoveries, and last error.
-  - **🚨 Live Issues & Cooldowns:** Real-time error list with clear root-cause explanations (`401` invalid key, `402` paid model/no credit, `429` rate limit, `403` firewall block, `400/413` oversized history, timeouts), active cooldown countdowns, and 1-tap `Clear Cooldowns`.
-  - **📡 Live Request Feed:** Reverse-chronological stream showing **which stage of the 5-stage Recovery / Failover passed** and **which server, model & key passed it** (`✅ Passed by: ...`).
-- **`Logs` Button (Header):** Opens a live log viewer showing the latest 80 proxy log lines with **`Hide /status`** noise filter, **3-second Auto-Refresh**, and active **Cooldown count**.
+### 8. 📡 `Console | Live Monitor` Switch Tab, Logs & Backup
+- **`Console | Live Monitor` Tabs:** Zero background `/api/ui/live` polling while on `Console` (or when tab is hidden) for smooth, zero-lag mobile performance. Switch to `Live Monitor` in one tap for:
+  - **📡 Live Request Feed (Top):** Reverse-chronological stream with LIVE clock pill, new-entry flash highlight, **token & speed (`tok/s`) pill**, **recovery stage**, and winning server/model/key (`✅ Passed by: ...`).
+  - **⚡ Now Active (In-Flight):** Live requests currently being processed (server, model, key `#N`, stage, elapsed seconds).
+  - **📊 Live Server Usage:** Per-server `OK / Fail` counts, success rate bar, token totals, `tok/s`, average latency (`ms`), recoveries, and last error.
+  - **🚨 Live Issues & Cooldowns:** Real-time error list with clear root-cause explanations (`401`, `402`, `429`, `403`, `400/413`, timeouts), active cooldown countdowns, and 1-tap `Clear Cooldowns`.
+- **`Logs` Button (Header):** Opens a live log viewer showing the latest 80 proxy log lines with **`Hide /status`** noise filter, **3-second Auto-Refresh**, auto-trim above 500KB, and active **Cooldown count**.
 - **`Backup` Button (Header):**
   - **Export JSON:** Download a dated config backup (`claude-router-backup-YYYY-MM-DD.json`), with an optional **"Include API Keys"** checkbox.
   - **Restore JSON:** Upload a `.json` file or paste JSON to restore servers & settings. Automatically saves your previous config to `config.json.bak` first and re-syncs `~/.claude/agy_providers.json`.
@@ -75,13 +82,18 @@ Avoids wasting time retrying dead or rate-limited keys on every single request:
 | **`Backup`** | Top Header | Opens Backup & Restore modal (Export JSON / Import JSON with auto `.bak` safety) |
 | **`+ New Server`** | Top Header | Adds a new Anthropic or OpenAI-compatible provider server |
 | **`● Recovery: ON/OFF`** | Live Status Bar | Enables or disables the 5-stage Auto History-Recovery system |
-| **`Sync`** | Live Status Bar | Refreshes the active route, model, and account status immediately |
+| **`in→out tok • ⚡ tok/s`** | Live Status Bar & Live Feed | Real-time token count, generation speed (`tok/s`), and latency meter |
+| **`Sync`** | Live Status Bar | Refreshes the active route, model, token meter, and account status immediately |
 | **`+ Add Key`** | Quick Key Panel | Adds a new API key to the selected provider's key pool |
 | **`● ON` / `● OFF`** | Each Server Card | Hard enables/disables the server in both routing and the chat model dropdown |
-| **`⠿` / `▲` / `▼`** | Each Server Card | Drag-and-drop or 1-tap reorder failover priority |
-| **`💤 Standby` / `⚡ Route`** | Each Server Card | Moves server between Active Routed Pipeline and Standby Pool |
+| **`⚡ agentic` / `💬 normal`** | Each Server Card | Shows active engine mode (Full Tools vs Chat + Q/A token-saver); editable in `✏️ Edit` |
+| **`📝 prompt`** | Each Server Card | Indicates an active Custom System Prompt / Preset configured for that server |
+| **`⠿` / `▲` / `▼`** | Each Server Card | Touch-safe drag-and-drop or 1-tap reorder failover priority |
+| **`💤 Standby` / `⚡ Route`** | Each Server Card | Moves server between Active Routed Pipeline and Isolated Standby Pool |
 | **`📋 /server_id`** | Each Server Card | Copies the dedicated direct route URL (`http://127.0.0.1:8999/<id>`) |
-| **`✏️ Edit` / `🗑️`** | Each Server Card | Edits server settings or safely deletes with a 10-second Undo countdown bar |
+| **Fast Model Dropdown** | Each Server Card | 1-tap switcher to promote any configured model to 1st / Default Model |
+| **Long-Press Model Chip** | Inside Card (`MODELS`) | Hold (~550ms) on any model chip to copy its name and promote it to 1st / Default Model |
+| **`✏️ Edit` / `🗑️`** | Each Server Card | Edits protocol, mode, custom headers, custom prompt presets, or safely deletes with 10s Undo |
 | **`Select` / `Ping`** | Inside Card (`MODELS`) | Opens model discovery + compatibility tester modal / pings added models |
 | **`🟢 Only` / `Test All`** | Inside `MODELS` Modal | Filters to working (`🟢`) models only / runs progressive compatibility check on visible models |
 | **`Test`** | Inside Card (`KEYS`) | Concurrently tests all API keys on that server (60s timeout, fastest result shown first) |
@@ -180,18 +192,18 @@ export ANTHROPIC_API_KEY="auto"
 
 ### Local HTTP API Reference
 - `GET /ui` — Web Console dashboard
-- `GET /status` — Active server, model, account, and last update timestamp
+- `GET /status` — Active server, model, account, token counts, `tok_per_sec`, latency, and last update timestamp
 - `GET /api/ui/config` — Current full router configuration
 - `GET /api/ui/logs?lines=80&hide_status=1` — Tail of `proxy_v2.log` + active key cooldowns
-- `GET /api/ui/live` — Live Monitor snapshot (in-flight requests, per-server stats, issues with root cause, request feed with recovery stage & winner, active cooldowns)
+- `GET /api/ui/live` — Live Monitor snapshot (in-flight requests, per-server stats + tokens/tps, issues with root cause, request feed with recovery stage, tokens/tps & winner, active cooldowns)
 - `POST /api/ui/live-action` — Clear active cooldowns or live telemetry (`clear_cooldowns`, `clear_issues`, `clear_all`)
-- `POST /api/ui/providers` / `DELETE /api/ui/providers` — Create, edit, or delete a provider
+- `POST /api/ui/providers` / `DELETE /api/ui/providers` — Create, edit (protocol, `mode`, `custom_headers`, `custom_prompt`), or delete a provider
 - `POST /api/ui/provider-toggle` — Toggle a provider `ON` / `OFF` (`enabled: true | false`)
 - `POST /api/ui/route-pool` — Update Active Pipeline order & Standby pool
 - `POST /api/ui/keys` / `DELETE /api/ui/keys` — Add or revoke API keys
 - `POST /api/ui/test-key` — Test a single API key (60s timeout) and clear its cooldown on `200 OK`
 - `POST /api/ui/test-models` — Discover provider models and/or test model compatibility (60s timeout)
-- `POST /api/ui/provider-models` — Add, remove, or set default model on a provider
+- `POST /api/ui/provider-models` — Add, remove, or promote/set default model to 1st position (`set_default`) on a provider
 - `POST /api/ui/settings` — Update global settings (`auto_recovery: true | false`)
 - `POST /api/ui/config-import` — Safely restore config JSON (saves `config.json.bak` first)
 
