@@ -118,13 +118,27 @@ def handle_ui_post(handler, raw_body):
             if not isinstance(custom_headers, dict):
                 custom_headers = {}
 
-            existing_enabled = providers.get(p_id, {}).get("enabled", True)
+            existing_prov = providers.get(p_id, {})
+            existing_enabled = existing_prov.get("enabled", True)
+            existing_mode = existing_prov.get("mode", "agentic")
+            p_mode = (data.get("mode") or existing_mode or "agentic").strip().lower()
+            if p_mode not in ("agentic", "normal"):
+                p_mode = "agentic"
+
+            # Preserve existing models when editing via server modal (don't wipe multi-model lists)
+            existing_models = existing_prov.get("models", [])
+            final_models = list(existing_models) if (existing_models and len(models) <= 1) else list(models)
+            eff_default = default_model or (final_models[0] if final_models else "")
+            if eff_default and eff_default not in final_models:
+                final_models.insert(0, eff_default)
+
             p_entry = {
                 "name": name,
                 "type": p_type,
+                "mode": p_mode,
                 "base_url": base_url,
-                "default_model": default_model or (models[0] if models else ""),
-                "models": models if models else [default_model] if default_model else [],
+                "default_model": eff_default,
+                "models": final_models,
                 "keys": keys,
                 "enabled": data.get("enabled", existing_enabled)
             }

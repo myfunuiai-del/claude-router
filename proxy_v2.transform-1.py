@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import sys
 import copy
 import json
 import re
@@ -244,75 +245,376 @@ def append_signature_to_response(resp_data, server, model):
         pass
     return resp_data
 
-def anthropic_to_openai_body(body_obj, default_model="openai/gpt-oss-120b"):
-    """Convert incoming Anthropic Messages body into standard OpenAI Chat Completion body for Groq, with Smart Prompt Trimmer for Groq's 7,000 ITPM limit."""
+_INTERACTIVE_Q_TOKENS = ("ask_question", "askuserquestion", "ask_user", "user_question", "prompt_user")
+
+def _is_interactive_question_tool(name):
+    """Return True if tool name is an interactive user-question tool (kept even in Normal mode)."""
+    n = (name or "").lower().replace("-", "_")
+    return any(tok in n for tok in _INTERACTIVE_Q_TOKENS)
+
+def _extract_tool_result_text(content, is_error=False):
+    """Flatten Anthropic tool_result content (string or block list) into clean text."""
+    if isinstance(content, str):
+        txt = content
+    elif isinstance(content, list):
+        parts = []
+        for sub in content:
+            if isinstance(sub, dict):
+                st = sub.get("type")
+                if st == "text" and isinstance(sub.get("text"), str):
+                    parts.append(sub["text"])
+                elif st == "tool_reference":
+                    parts.append(f"[tool_reference: {sub.get('tool_name') or sub.get('name') or 'tool'}]")
+                elif st == "image":
+                    parts.append("[image]")
+            elif isinstance(sub, str):
+                parts.append(sub)
+        txt = "\n".join(parts)
+    else:
+        txt = ""
+    if is_error and txt:
+        return f"[Error]: {txt}"
+    return txt or "(empty)"
+
+def apply_engine_mode_to_anthropic_body(body_obj, mode="agentic"):
+    """Apply server engine mode ('agentic' vs 'normal') to an Anthropic Messages payload.
+    - agentic: full tools, tool_choice, thinking, and multi-turn tool calls untouched.
+    - normal: strip heavy coding/exec tools (saving ~10k+ tokens/turn) while KEEPING interactive
+      question tools (e.g. ask_question / AskUserQuestion) so the model can still ask options.
+      Historical tool_use/tool_result blocks for stripped tools are converted cleanly to text.
+    """
+    if not isinstance(body_obj, dict) or (mode or "agentic").lower() != "normal":
+        return dict(body_obj) if isinstance(body_obj, dict) else body_obj
+
+    b = copy.deepcopy(body_obj)
+    raw_tools = b.get("tools")
+    kept_tools = []
+    kept_names = set()
+    if isinstance(raw_tools, list):
+        for t in raw_tools:
+            if isinstance(t, dict) and _is_interactive_question_tool(t.get("name")):
+                kept_tools.append(t)
+                kept_names.add(t.get("name"))
+
+    if kept_tools:
+        b["tools"] = kept_tools
+        tc = b.get("tool_choice")
+        if isinstance(tc, dict) and tc.get("type") == "tool" and tc.get("name") not in kept_names:
+            b["tool_choice"] = {"type": "auto"}
+    else:
+        b.pop("tools", None)
+        b.pop("tool_choice", None)
+
+    # Convert historical tool_use/tool_result for stripped tools into clean text so upstream won't 400
+    kept_call_ids = set()
+    msgs = b.get("messages")
+    if isinstance(msgs, list):
+        for m in msgs:
+            if not isinstance(m, dict) or not isinstance(m.get("content"), list):
+                continue
+            new_content = []
+            for blk in m["content"]:
+                if not isinstance(blk, dict):
+                    new_content.append(blk)
+                    continue
+                btype = blk.get("type")
+                if btype == "tool_use":
+                    tname = blk.get("name", "tool")
+                    tid = blk.get("id", "")
+                    if tname in kept_names:
+                        if tid:
+                            kept_call_ids.add(tid)
+                        new_content.append(blk)
+                    else:
+                        try:
+                            tinp = json.dumps(blk.get("input", {}), ensure_ascii=False)[:400]
+                        except Exception:
+                            tinp = ""
+                        new_content.append({"type": "text", "text": f"[Earlier Tool Call: {tname}({tinp})]"})
+                elif btype == "tool_result":
+                    tid = blk.get("tool_use_id", "")
+                    if tid and tid in kept_call_ids:
+                        new_content.append(blk)
+                    else:
+                        res_txt = _extract_tool_result_text(blk.get("content", ""), blk.get("is_error", False))[:1200]
+                        new_content.append({"type": "text", "text": f"[Earlier Tool Result]: {res_txt}"})
+                else:
+                    new_content.append(blk)
+            m["content"] = new_content
+
+    return b
+
+_OPENAI_ALLOWED_FORMATS = {"enum", "date-time"}
+_OPENAI_STRIP_SCHEMA_KEYS = {
+    "$schema", "$id", "$defs", "definitions", "additionalProperties",
+    "propertyNames", "examples", "exclusiveMinimum", "exclusiveMaximum",
+    "const", "patternProperties", "$comment", "minProperties", "maxProperties",
+    "minLength", "maxLength", "pattern", "uniqueItems", "minItems", "maxItems"
+}
+
+def _sanitize_openai_schema(schema):
+    """Recursively sanitize JSON Schema for strict OpenAI-compatible endpoints (especially Google Gemini)."""
+    if not isinstance(schema, dict):
+        return {"type": "object", "properties": {}}
+
+    out = {}
+    # Handle anyOf / oneOf simplification (e.g. nullable types)
+    for union_key in ("anyOf", "oneOf"):
+        if union_key in schema and isinstance(schema[union_key], list):
+            non_null = [s for s in schema[union_key] if isinstance(s, dict) and s.get("type") != "null"]
+            if non_null:
+                merged = dict(non_null[0])
+                if "description" in schema and "description" not in merged:
+                    merged["description"] = schema["description"]
+                return _sanitize_openai_schema(merged)
+
+    for k, v in schema.items():
+        if k in _OPENAI_STRIP_SCHEMA_KEYS:
+            continue
+        if k == "format":
+            if isinstance(v, str) and v in _OPENAI_ALLOWED_FORMATS:
+                out[k] = v
+            continue
+        if k == "type":
+            if isinstance(v, list):
+                non_null = [t for t in v if t != "null"]
+                out["type"] = non_null[0] if non_null else "string"
+            else:
+                out["type"] = v
+        elif k == "properties" and isinstance(v, dict):
+            out["properties"] = {pk: _sanitize_openai_schema(pv) for pk, pv in v.items() if isinstance(pv, dict)}
+        elif k == "items":
+            if isinstance(v, dict):
+                out["items"] = _sanitize_openai_schema(v)
+            elif isinstance(v, list) and v and isinstance(v[0], dict):
+                out["items"] = _sanitize_openai_schema(v[0])
+            else:
+                out["items"] = {"type": "string"}
+        elif k == "required" and isinstance(v, list):
+            out["required"] = list(v)
+        elif k == "enum" and isinstance(v, list):
+            # Gemini OpenAI-compat requires enum values to be strings
+            out["enum"] = [str(item) for item in v]
+        else:
+            out[k] = v
+
+    if "type" not in out:
+        if "properties" in out:
+            out["type"] = "object"
+        elif "items" in out:
+            out["type"] = "array"
+        else:
+            out["type"] = "string"
+
+    if out.get("type") == "object":
+        if "properties" not in out or not isinstance(out["properties"], dict):
+            out["properties"] = {}
+        if "required" in out:
+            valid_req = [r for r in out["required"] if r in out["properties"]]
+            if valid_req:
+                out["required"] = valid_req
+            else:
+                out.pop("required", None)
+    elif out.get("type") == "array":
+        if "items" not in out:
+            out["items"] = {"type": "string"}
+
+    return out
+
+# Process-wide cache for Gemini 3.x OpenAI-compat thought_signature per tool_call_id
+if "_claude_router_thought_sigs" not in sys.modules:
+    sys.modules["_claude_router_thought_sigs"] = {}
+_THOUGHT_SIG_CACHE = sys.modules["_claude_router_thought_sigs"]
+
+def _store_thought_sig(tc_id, extra_content):
+    if not tc_id or not isinstance(extra_content, dict):
+        return
+    sig = (extra_content.get("google") or {}).get("thought_signature")
+    if isinstance(sig, str) and sig:
+        if len(_THOUGHT_SIG_CACHE) > 500:
+            # Drop oldest ~100 entries to keep memory bounded
+            for old_k in list(_THOUGHT_SIG_CACHE.keys())[:100]:
+                _THOUGHT_SIG_CACHE.pop(old_k, None)
+        _THOUGHT_SIG_CACHE[tc_id] = sig
+
+def anthropic_to_openai_body(body_obj, default_model="openai/gpt-oss-120b", p_id="", mode="agentic", base_url=""):
+    """Modern bidirectional Anthropic Messages -> OpenAI Chat Completions converter.
+    Supports:
+    - Agentic Mode (default): Full tools, tool_choice, multi-turn tool_calls/tool_result pairing,
+      Gemini 3.x thought_signature round-trip preservation, vision images, and full context window.
+    - Normal Mode: Lightweight fast chat while preserving interactive ask_question tools.
+    - Groq-specific compaction guard only when targeting Groq free tier.
+    """
+    eff_mode = (mode or "agentic").lower()
+    is_groq = (p_id or "").lower() == "groq"
+    is_gemini_oai = (
+        "generativelanguage.googleapis.com" in (base_url or "").lower()
+        or (p_id or "").lower() in ("googlestudio", "google", "gemini")
+        or "gemini" in (default_model or "").lower()
+    )
+
+    # 1. Convert Tools according to mode
+    raw_tools = body_obj.get("tools") or []
+    openai_tools = []
+    active_tool_names = set()
+    if isinstance(raw_tools, list):
+        for t in raw_tools:
+            if not isinstance(t, dict):
+                continue
+            tname = t.get("name")
+            if not tname:
+                continue
+            if eff_mode == "normal" and not _is_interactive_question_tool(tname):
+                continue
+            params = _sanitize_openai_schema(t.get("input_schema") or {"type": "object", "properties": {}})
+            desc = t.get("description") or f"Tool {tname}"
+            if is_groq and len(desc) > 400:
+                desc = desc[:400] + "..."
+            openai_tools.append({
+                "type": "function",
+                "function": {
+                    "name": tname,
+                    "description": desc,
+                    "parameters": params
+                }
+            })
+            active_tool_names.add(tname)
+
+    # 2. System prompt
     messages = []
     sys_prompt = body_obj.get("system")
     if sys_prompt:
         if isinstance(sys_prompt, list):
             sys_prompt = "\n".join([p.get("text", "") for p in sys_prompt if isinstance(p, dict) and p.get("type") == "text"])
-        if isinstance(sys_prompt, str):
-            # Smart Prompt Trimmer: Groq free tier limit is 7,000 ITPM. Keep system prompt compact.
-            if len(sys_prompt) > 1500:
-                sys_prompt = sys_prompt[:1500] + "\n[System instructions trimmed for Groq context budget]"
+        if isinstance(sys_prompt, str) and sys_prompt.strip():
+            if is_groq and eff_mode == "normal" and len(sys_prompt) > 2500:
+                sys_prompt = sys_prompt[:2500] + "\n[System instructions trimmed for Groq context budget]"
             messages.append({"role": "system", "content": sys_prompt})
 
+    # 3. Convert multi-turn messages with strict tool_call_id pairing
     raw_msgs = body_obj.get("messages", [])
     conv_msgs = []
+    valid_call_ids = set()
+
     for m in raw_msgs:
+        if not isinstance(m, dict):
+            continue
         role = m.get("role", "user")
         c = m.get("content", "")
-        if isinstance(c, str):
-            txt = c.strip()
-        elif isinstance(c, list):
-            parts = []
-            for p in c:
-                if not isinstance(p, dict):
-                    continue
-                ptype = p.get("type")
-                if ptype == "text" and isinstance(p.get("text"), str):
-                    parts.append(p["text"])
-                elif ptype == "tool_use":
-                    tname = p.get("name", "tool")
-                    try:
-                        tinp = json.dumps(p.get("input", {}), ensure_ascii=False)[:400]
-                    except Exception:
-                        tinp = ""
-                    parts.append(f"[Tool Call: {tname}({tinp})]")
-                elif ptype == "tool_result":
-                    tc = p.get("content", "")
-                    if isinstance(tc, str):
-                        t_txt = tc[:1200]
-                    elif isinstance(tc, list):
-                        sub_parts = []
-                        for sub in tc:
-                            if isinstance(sub, dict):
-                                if sub.get("type") == "text" and isinstance(sub.get("text"), str):
-                                    sub_parts.append(sub["text"])
-                                elif sub.get("type") == "tool_reference":
-                                    sub_parts.append(f"[tool_reference: {sub.get('tool_name') or sub.get('name') or 'tool'}]")
-                        t_txt = "\n".join(sub_parts)[:1200]
-                    else:
-                        t_txt = ""
-                    if t_txt:
-                        parts.append(f"[Tool Result: {t_txt}]")
-                elif ptype == "tool_reference":
-                    parts.append(f"[tool_reference: {p.get('tool_name') or p.get('name') or 'tool'}]")
-            txt = "\n".join(x for x in parts if x).strip()
+
+        if role == "assistant":
+            text_parts = []
+            assistant_tool_calls = []
+            if isinstance(c, str):
+                if c.strip():
+                    text_parts.append(c.strip())
+            elif isinstance(c, list):
+                for p in c:
+                    if not isinstance(p, dict):
+                        continue
+                    ptype = p.get("type")
+                    if ptype == "text" and isinstance(p.get("text"), str) and p["text"].strip():
+                        text_parts.append(p["text"])
+                    elif ptype == "tool_use":
+                        tname = p.get("name", "tool")
+                        tid = p.get("id") or f"call_{uuid.uuid4().hex[:12]}"
+                        tinp_obj = p.get("input", {})
+                        try:
+                            tinp_json = json.dumps(tinp_obj, ensure_ascii=False)
+                        except Exception:
+                            tinp_json = "{}"
+                        if tname in active_tool_names:
+                            tc_obj = {
+                                "id": tid,
+                                "type": "function",
+                                "function": {
+                                    "name": tname,
+                                    "arguments": tinp_json
+                                }
+                            }
+                            if is_gemini_oai:
+                                sig = _THOUGHT_SIG_CACHE.get(tid) or "skip_thought_signature_validator"
+                                tc_obj["extra_content"] = {"google": {"thought_signature": sig}}
+                            assistant_tool_calls.append(tc_obj)
+                            valid_call_ids.add(tid)
+                        else:
+                            text_parts.append(f"[Tool Call: {tname}({tinp_json[:400]})]")
+            msg_out = {"role": "assistant"}
+            joined_txt = "\n".join(text_parts).strip()
+            if assistant_tool_calls:
+                msg_out["content"] = joined_txt if joined_txt else None
+                msg_out["tool_calls"] = assistant_tool_calls
+                conv_msgs.append(msg_out)
+            elif joined_txt:
+                msg_out["content"] = joined_txt
+                conv_msgs.append(msg_out)
+
         else:
-            txt = ""
-        if txt:
-            conv_msgs.append({"role": role, "content": txt})
+            # role == "user" (may contain tool_result, text, image blocks)
+            tool_result_msgs = []
+            user_text_parts = []
+            user_content_blocks = []
+            has_image = False
+
+            if isinstance(c, str):
+                if c.strip():
+                    user_text_parts.append(c.strip())
+            elif isinstance(c, list):
+                for p in c:
+                    if not isinstance(p, dict):
+                        continue
+                    ptype = p.get("type")
+                    if ptype == "tool_result":
+                        tid = p.get("tool_use_id") or ""
+                        res_txt = _extract_tool_result_text(p.get("content", ""), p.get("is_error", False))
+                        if is_groq and len(res_txt) > 3000:
+                            res_txt = res_txt[:3000] + "\n...[trimmed for Groq]"
+                        if tid and tid in valid_call_ids:
+                            tool_result_msgs.append({
+                                "role": "tool",
+                                "tool_call_id": tid,
+                                "content": res_txt
+                            })
+                        else:
+                            user_text_parts.append(f"[Tool Result]: {res_txt[:2000]}")
+                    elif ptype == "text" and isinstance(p.get("text"), str) and p["text"].strip():
+                        user_text_parts.append(p["text"])
+                        user_content_blocks.append({"type": "text", "text": p["text"]})
+                    elif ptype == "image" and isinstance(p.get("source"), dict):
+                        src = p["source"]
+                        if src.get("type") == "base64" and src.get("data"):
+                            mtype = src.get("media_type", "image/jpeg")
+                            has_image = True
+                            user_content_blocks.append({
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{mtype};base64,{src['data']}"}
+                            })
+                    elif ptype == "tool_reference":
+                        ref_txt = f"[tool_reference: {p.get('tool_name') or p.get('name') or 'tool'}]"
+                        user_text_parts.append(ref_txt)
+                        user_content_blocks.append({"type": "text", "text": ref_txt})
+
+            # Emit paired role="tool" messages first (immediately following assistant tool_calls)
+            conv_msgs.extend(tool_result_msgs)
+
+            if has_image and user_content_blocks:
+                conv_msgs.append({"role": "user", "content": user_content_blocks})
+            else:
+                joined_u = "\n".join(x for x in user_text_parts if x).strip()
+                if joined_u:
+                    conv_msgs.append({"role": "user", "content": joined_u})
+
     if not conv_msgs:
         conv_msgs = [{"role": "user", "content": "Continue"}]
 
-    # Groq free tier has a strict 7,000 ITPM (~18,000 chars) limit. Keep last 2-4 messages and under 6,000 chars.
-    if len(conv_msgs) > 2:
-        conv_msgs = conv_msgs[-2:]
-    total_chars = sum(len(m["content"]) for m in conv_msgs)
-    if total_chars > 6000:
+    # Apply Groq-specific free-tier budget guard only for Groq normal mode
+    if is_groq and eff_mode == "normal":
+        if len(conv_msgs) > 4:
+            conv_msgs = conv_msgs[-4:]
+            while conv_msgs and conv_msgs[0].get("role") == "tool":
+                conv_msgs = conv_msgs[1:]
         for m in conv_msgs:
-            if len(m["content"]) > 3000:
+            if isinstance(m.get("content"), str) and len(m["content"]) > 3000:
                 m["content"] = m["content"][:3000] + "\n[Message content trimmed for Groq limit]"
 
     messages.extend(conv_msgs)
@@ -323,7 +625,12 @@ def anthropic_to_openai_body(body_obj, default_model="openai/gpt-oss-120b"):
     if not model or model == "unknown":
         model = default_model
 
-    max_tokens = min(body_obj.get("max_tokens", 2048), 2048)
+    req_max_tokens = body_obj.get("max_tokens")
+    if isinstance(req_max_tokens, int) and req_max_tokens > 0:
+        max_tokens = min(req_max_tokens, 4096 if is_groq else 8192)
+    else:
+        max_tokens = 2048 if is_groq else 4096
+
     stream = body_obj.get("stream", False)
 
     payload = {
@@ -332,14 +639,113 @@ def anthropic_to_openai_body(body_obj, default_model="openai/gpt-oss-120b"):
         "max_tokens": max_tokens,
         "stream": stream
     }
-    if "temperature" in body_obj:
+    if "temperature" in body_obj and body_obj["temperature"] is not None:
         payload["temperature"] = body_obj["temperature"]
+
+    if openai_tools:
+        payload["tools"] = openai_tools
+        tc = body_obj.get("tool_choice")
+        if isinstance(tc, dict):
+            tc_type = tc.get("type")
+            if tc_type == "auto":
+                payload["tool_choice"] = "auto"
+            elif tc_type == "any":
+                payload["tool_choice"] = "required"
+            elif tc_type == "none":
+                payload["tool_choice"] = "none"
+            elif tc_type == "tool" and tc.get("name") in active_tool_names:
+                payload["tool_choice"] = {"type": "function", "function": {"name": tc["name"]}}
+
     return payload
 
+def _parse_tool_args_safely(args_str):
+    """Parse OpenAI function arguments string into dict + valid JSON string."""
+    s = (args_str or "").strip()
+    if not s:
+        return {}, "{}"
+    try:
+        parsed = json.loads(s)
+        if isinstance(parsed, dict):
+            return parsed, json.dumps(parsed, ensure_ascii=False)
+        return {"value": parsed}, json.dumps({"value": parsed}, ensure_ascii=False)
+    except Exception:
+        return {"raw": s}, json.dumps({"raw": s}, ensure_ascii=False)
+
 def convert_openai_stream_to_anthropic(openai_stream_text, server, model):
-    """Convert Groq OpenAI SSE stream into Anthropic SSE stream."""
+    """Convert OpenAI SSE stream into full Anthropic SSE stream with thinking, text, and tool_use blocks."""
     msg_id = f"msg_{uuid.uuid4().hex[:24]}"
     anthropic_events = []
+
+    lines = openai_stream_text.splitlines()
+    text_content = ""
+    reasoning_content = ""
+    tool_calls_map = {}  # index -> {"id": str, "name": str, "arguments": str}
+    finish_reason = None
+    input_tokens = 10
+    output_tokens = 0
+
+    for line in lines:
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        data_str = line[5:].strip()
+        if not data_str or data_str == "[DONE]":
+            continue
+        try:
+            chunk = json.loads(data_str)
+        except Exception:
+            continue
+
+        usage = chunk.get("usage")
+        if isinstance(usage, dict):
+            if usage.get("prompt_tokens"):
+                input_tokens = usage["prompt_tokens"]
+            if usage.get("completion_tokens"):
+                output_tokens = usage["completion_tokens"]
+
+        choices = chunk.get("choices", [])
+        if not choices:
+            continue
+        c0 = choices[0]
+        if c0.get("finish_reason"):
+            finish_reason = c0["finish_reason"]
+
+        delta = c0.get("delta") or {}
+        if not isinstance(delta, dict):
+            continue
+
+        r_piece = delta.get("reasoning_content") or delta.get("reasoning")
+        if isinstance(r_piece, str) and r_piece:
+            reasoning_content += r_piece
+
+        c_piece = delta.get("content")
+        if isinstance(c_piece, str) and c_piece:
+            text_content += c_piece
+
+        tc_deltas = delta.get("tool_calls")
+        if isinstance(tc_deltas, list):
+            for tcd in tc_deltas:
+                if not isinstance(tcd, dict):
+                    continue
+                tc_idx = tcd.get("index", 0)
+                if tc_idx not in tool_calls_map:
+                    tool_calls_map[tc_idx] = {
+                        "id": tcd.get("id") or f"toolu_{uuid.uuid4().hex[:18]}",
+                        "name": "",
+                        "arguments": ""
+                    }
+                elif tcd.get("id"):
+                    tool_calls_map[tc_idx]["id"] = tcd["id"]
+                if tcd.get("extra_content"):
+                    _store_thought_sig(tool_calls_map[tc_idx]["id"], tcd["extra_content"])
+                fn = tcd.get("function") or {}
+                if isinstance(fn, dict):
+                    if fn.get("name"):
+                        tool_calls_map[tc_idx]["name"] += fn["name"]
+                    if fn.get("arguments"):
+                        tool_calls_map[tc_idx]["arguments"] += fn["arguments"]
+
+    assembled_tools = [tool_calls_map[k] for k in sorted(tool_calls_map.keys()) if tool_calls_map[k].get("name")]
 
     # 1. message_start
     msg_start = {
@@ -352,118 +758,147 @@ def convert_openai_stream_to_anthropic(openai_stream_text, server, model):
             "content": [],
             "stop_reason": None,
             "stop_sequence": None,
-            "usage": {"input_tokens": 10, "output_tokens": 0}
+            "usage": {"input_tokens": input_tokens, "output_tokens": 0}
         }
     }
-    anthropic_events.append(f"event: message_start\ndata: {json.dumps(msg_start)}")
+    anthropic_events.append(f"event: message_start\ndata: {json.dumps(msg_start, ensure_ascii=False)}")
 
-    # 2. content_block_start
-    blk_start = {
-        "type": "content_block_start",
-        "index": 0,
-        "content_block": {"type": "text", "text": ""}
-    }
-    anthropic_events.append(f"event: content_block_start\ndata: {json.dumps(blk_start)}")
+    blk_idx = 0
 
-    lines = openai_stream_text.splitlines()
-    text_content = ""
-    for line in lines:
-        line = line.strip()
-        if not line.startswith("data:"):
-            continue
-        data_str = line[5:].strip()
-        if not data_str or data_str == "[DONE]":
-            continue
-        try:
-            chunk = json.loads(data_str)
-            choices = chunk.get("choices", [])
-            if not choices:
-                continue
-            delta = choices[0].get("delta", {})
-            content_piece = delta.get("content")
-            if content_piece:
-                text_content += content_piece
-                delta_ev = {
-                    "type": "content_block_delta",
-                    "index": 0,
-                    "delta": {"type": "text_delta", "text": content_piece}
-                }
-                anthropic_events.append(f"event: content_block_delta\ndata: {json.dumps(delta_ev)}")
-        except Exception:
-            continue
+    # 2. Thinking block (if model produced reasoning_content / reasoning)
+    if reasoning_content.strip():
+        anthropic_events.append(f"event: content_block_start\ndata: {json.dumps({'type': 'content_block_start', 'index': blk_idx, 'content_block': {'type': 'thinking', 'thinking': ''}}, ensure_ascii=False)}")
+        anthropic_events.append(f"event: content_block_delta\ndata: {json.dumps({'type': 'content_block_delta', 'index': blk_idx, 'delta': {'type': 'thinking_delta', 'thinking': reasoning_content}}, ensure_ascii=False)}")
+        anthropic_events.append(f"event: content_block_stop\ndata: {json.dumps({'type': 'content_block_stop', 'index': blk_idx}, ensure_ascii=False)}")
+        blk_idx += 1
 
-    if not text_content.strip():
-        # Fallback to reasoning tokens if content was empty
-        reasoning_text = ""
-        for line in lines:
-            line = line.strip()
-            if line.startswith("data:") and "[DONE]" not in line:
-                try:
-                    c = json.loads(line[5:].strip())
-                    r = c.get("choices", [{}])[0].get("delta", {}).get("reasoning", "")
-                    if r:
-                        reasoning_text += r
-                except Exception:
-                    pass
-        text_content = reasoning_text.strip() if reasoning_text.strip() else "Hello!"
-        delta_ev = {
+    # 3. Text block (emit if text present, OR if no tool calls were produced)
+    has_text = bool(text_content.strip())
+    if has_text or not assembled_tools:
+        final_text = text_content if has_text else (reasoning_content.strip() if reasoning_content.strip() else "...")
+        # Append [Server - Model] signature on final text turns (avoid cluttering pure tool-call turns)
+        if not assembled_tools:
+            final_text += f"\n\n[{server} - {model}]"
+        anthropic_events.append(f"event: content_block_start\ndata: {json.dumps({'type': 'content_block_start', 'index': blk_idx, 'content_block': {'type': 'text', 'text': ''}}, ensure_ascii=False)}")
+        anthropic_events.append(f"event: content_block_delta\ndata: {json.dumps({'type': 'content_block_delta', 'index': blk_idx, 'delta': {'type': 'text_delta', 'text': final_text}}, ensure_ascii=False)}")
+        anthropic_events.append(f"event: content_block_stop\ndata: {json.dumps({'type': 'content_block_stop', 'index': blk_idx}, ensure_ascii=False)}")
+        blk_idx += 1
+
+    # 4. Tool Use blocks (triggers native Claude Code tool execution!)
+    for tc in assembled_tools:
+        _, valid_json_str = _parse_tool_args_safely(tc.get("arguments", ""))
+        tc_start = {
+            "type": "content_block_start",
+            "index": blk_idx,
+            "content_block": {
+                "type": "tool_use",
+                "id": tc["id"],
+                "name": tc["name"],
+                "input": {}
+            }
+        }
+        tc_delta = {
             "type": "content_block_delta",
-            "index": 0,
-            "delta": {"type": "text_delta", "text": text_content}
+            "index": blk_idx,
+            "delta": {
+                "type": "input_json_delta",
+                "partial_json": valid_json_str
+            }
         }
-        anthropic_events.append(f"event: content_block_delta\ndata: {json.dumps(delta_ev)}")
+        tc_stop = {"type": "content_block_stop", "index": blk_idx}
+        anthropic_events.append(f"event: content_block_start\ndata: {json.dumps(tc_start, ensure_ascii=False)}")
+        anthropic_events.append(f"event: content_block_delta\ndata: {json.dumps(tc_delta, ensure_ascii=False)}")
+        anthropic_events.append(f"event: content_block_stop\ndata: {json.dumps(tc_stop, ensure_ascii=False)}")
+        blk_idx += 1
 
-    # Append signature
-    sig = f"\n\n[{server} - {model}]"
-    sig_ev = {
-        "type": "content_block_delta",
-        "index": 0,
-        "delta": {"type": "text_delta", "text": sig}
-    }
-    anthropic_events.append(f"event: content_block_delta\ndata: {json.dumps(sig_ev)}")
+    # 5. message_delta with exact Anthropic stop_reason
+    if assembled_tools or finish_reason in ("tool_calls", "function_call"):
+        stop_reason = "tool_use"
+    elif finish_reason == "length":
+        stop_reason = "max_tokens"
+    else:
+        stop_reason = "end_turn"
 
-    # 3. content_block_stop
-    blk_stop = {"type": "content_block_stop", "index": 0}
-    anthropic_events.append(f"event: content_block_stop\ndata: {json.dumps(blk_stop)}")
+    if not output_tokens:
+        est_len = len(text_content) + len(reasoning_content) + sum(len(tc.get("arguments", "")) for tc in assembled_tools)
+        output_tokens = max(est_len // 4, 1)
 
-    # 4. message_delta
     msg_delta = {
         "type": "message_delta",
-        "delta": {"stop_reason": "end_turn", "stop_sequence": None},
-        "usage": {"output_tokens": max(len(text_content) // 4, 1)}
+        "delta": {"stop_reason": stop_reason, "stop_sequence": None},
+        "usage": {"output_tokens": output_tokens}
     }
-    anthropic_events.append(f"event: message_delta\ndata: {json.dumps(msg_delta)}")
+    anthropic_events.append(f"event: message_delta\ndata: {json.dumps(msg_delta, ensure_ascii=False)}")
 
-    # 5. message_stop
-    msg_stop = {"type": "message_stop"}
-    anthropic_events.append(f"event: message_stop\ndata: {json.dumps(msg_stop)}")
+    # 6. message_stop
+    anthropic_events.append(f"event: message_stop\ndata: {json.dumps({'type': 'message_stop'})}")
 
     return ("\n\n".join(anthropic_events) + "\n\n").encode('utf-8')
 
 def convert_openai_json_to_anthropic(openai_obj, server, model):
-    """Convert Groq OpenAI JSON into Anthropic Message JSON."""
+    """Convert OpenAI Chat Completion JSON into Anthropic Message JSON with thinking, text & tool_use."""
     msg_id = f"msg_{uuid.uuid4().hex[:24]}"
     choices = openai_obj.get("choices", [])
+    content_blocks = []
+    finish_reason = None
+    tool_calls = []
     content_text = ""
+    reasoning_text = ""
+
     if choices:
-        msg = choices[0].get("message", {})
-        content_text = msg.get("content") or msg.get("reasoning") or ""
-    if not content_text:
-        content_text = "Hello!"
-    sig = f"\n\n[{server} - {model}]"
-    usage = openai_obj.get("usage", {})
+        c0 = choices[0]
+        finish_reason = c0.get("finish_reason")
+        msg = c0.get("message", {}) or {}
+        content_text = msg.get("content") or ""
+        reasoning_text = msg.get("reasoning_content") or msg.get("reasoning") or ""
+        tool_calls = msg.get("tool_calls") or []
+
+    if reasoning_text.strip():
+        content_blocks.append({"type": "thinking", "thinking": reasoning_text})
+
+    valid_tools = []
+    if isinstance(tool_calls, list):
+        for tc in tool_calls:
+            if not isinstance(tc, dict):
+                continue
+            fn = tc.get("function") or {}
+            tname = fn.get("name")
+            if not tname:
+                continue
+            tid = tc.get("id") or f"toolu_{uuid.uuid4().hex[:18]}"
+            if tc.get("extra_content"):
+                _store_thought_sig(tid, tc["extra_content"])
+            parsed_inp, _ = _parse_tool_args_safely(fn.get("arguments", ""))
+            valid_tools.append({
+                "type": "tool_use",
+                "id": tid,
+                "name": tname,
+                "input": parsed_inp
+            })
+
+    if content_text.strip() or not valid_tools:
+        final_text = content_text if content_text.strip() else (reasoning_text.strip() if reasoning_text.strip() else "...")
+        if not valid_tools:
+            final_text += f"\n\n[{server} - {model}]"
+        content_blocks.append({"type": "text", "text": final_text})
+
+    content_blocks.extend(valid_tools)
+
+    if valid_tools or finish_reason in ("tool_calls", "function_call"):
+        stop_reason = "tool_use"
+    elif finish_reason == "length":
+        stop_reason = "max_tokens"
+    else:
+        stop_reason = "end_turn"
+
+    usage = openai_obj.get("usage", {}) or {}
     return json.dumps({
         "id": msg_id,
         "type": "message",
         "role": "assistant",
         "model": model,
-        "content": [
-            {
-                "type": "text",
-                "text": content_text + sig
-            }
-        ],
-        "stop_reason": "end_turn",
+        "content": content_blocks,
+        "stop_reason": stop_reason,
         "stop_sequence": None,
         "usage": {
             "input_tokens": usage.get("prompt_tokens", 10),

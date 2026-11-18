@@ -165,15 +165,20 @@ function createServerCard(id, p, isRouted, index) {
   // Header Line (2-Row Mobile-First Layout)
   const top = document.createElement('div');
   top.className = 'server-card-top';
+  const sMode = (p.mode || 'agentic').toLowerCase();
+  const modeBadgeHtml = sMode === 'normal'
+    ? `<span class="server-mode-badge is-normal" title="Normal Mode: Fast Chat + Interactive Q/A only">💬 normal</span>`
+    : `<span class="server-mode-badge is-agentic" title="Agentic Mode: Full Tools, Bash &amp; File Edits">⚡ agentic</span>`;
 
   top.innerHTML = `
-    <!-- Row 1: Drag handle, Priority Badge, Server Name, Protocol, ON/OFF Toggle, and Expand Arrow -->
+    <!-- Row 1: Drag handle, Priority Badge, Server Name, Protocol, Mode, ON/OFF Toggle, and Expand Arrow -->
     <div class="server-card-header-row" onclick="toggleServerCard('${id}')">
       <div class="server-card-title-group">
         <span class="drag-handle" onclick="event.stopPropagation()" title="Touch & hold or drag to reorder">⠿</span>
         <span class="priority-badge-slot"></span>
         <span class="server-name" title="${p.name || id}">${p.name || id}</span>
         <span class="server-proto">${p.type || 'anthropic'}</span>
+        ${modeBadgeHtml}
       </div>
       <div class="server-header-right" onclick="event.stopPropagation()">
         <button type="button" class="power-toggle ${isEnabled ? 'is-on' : 'is-off'}" id="power-btn-${id}" title="${isEnabled ? 'Server ON — tap to turn OFF' : 'Server OFF — tap to turn ON'}" onclick="toggleServerPower('${id}')">

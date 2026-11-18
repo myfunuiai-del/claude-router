@@ -78,10 +78,11 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
             return False
         max_key_attempts = min(2, len(coarena_keys)) if is_recovery else len(coarena_keys)
 
+        p_mode = p_info.get("mode", "agentic")
         for model_to_try in candidates:
             coarena_model = model_to_try
             if body_obj is not None:
-                b_copy = dict(body_obj)
+                b_copy = apply_engine_mode_to_anthropic_body(body_obj, p_mode)
                 b_copy['model'] = coarena_model
                 if 'max_tokens' in b_copy and isinstance(b_copy['max_tokens'], int):
                     if b_copy['max_tokens'] < 4096:
@@ -251,6 +252,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                 if m not in candidates:
                     candidates.append(m)
 
+        p_mode = p_info.get("mode", "agentic")
         for model_idx, target_model in enumerate(candidates):
             if model_idx > 0:
                 sys.stderr.write(f"[Proxy] Fallback to next model '{target_model}' (#{model_idx+1}/{len(candidates)}) on '{p_id}'...\n")
@@ -258,7 +260,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
             if p_type == "anthropic":
                 fwd_url = f"{p_base}/v1/messages" if p_base.endswith("/api") else f"{p_base}/messages"
                 if body_obj is not None:
-                    b_copy = dict(body_obj)
+                    b_copy = apply_engine_mode_to_anthropic_body(body_obj, p_mode)
                     b_copy['model'] = target_model
                     if p_id == "openrouter" and isinstance(b_copy.get('max_tokens'), int) and b_copy['max_tokens'] > 2048:
                         b_copy['max_tokens'] = 2048
@@ -311,7 +313,9 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                         mark_key_cooldown(p_id, key, e.code, target_model, err_txt)
                         record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", e.code, err_txt)
                         sys.stderr.write(f"[Proxy] {p_id} ({target_model}) key #{attempt+1} HTTP error {e.code}. Trying next key...\n")
-                        if e.code in (400, 413):
+                        if e.code == 413 or (e.code == 400 and any(tok in err_txt.lower() for tok in ("too long", "token", "context", "length"))):
+                            return False
+                        if e.code == 400:
                             break
                         continue
                     except Exception as e:
@@ -321,9 +325,9 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
 
             elif p_type == "openai":
                 is_stream = body_obj.get("stream", False) if body_obj else False
-                openai_body_obj = anthropic_to_openai_body(body_obj, target_model) if body_obj else {}
-                fwd_body = json.dumps(openai_body_obj).encode('utf-8')
-                fwd_url = f"{p_base}/chat/completions"
+                openai_body_obj = anthropic_to_openai_body(body_obj, target_model, p_id=p_id, mode=p_mode, base_url=p_base) if body_obj else {}
+                fwd_body = json.dumps(openai_body_obj, ensure_ascii=False).encode('utf-8')
+                fwd_url = p_base if p_base.endswith("/chat/completions") else f"{p_base}/chat/completions"
 
                 p_candidates = _select_available_keys(p_id, p_keys, target_model, max_count=(2 if is_recovery else None))
                 for attempt, key in p_candidates:
@@ -337,9 +341,12 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
                         'Accept-Encoding': 'identity'
                     }
+                    custom_hdrs = p_info.get("custom_headers")
+                    if custom_hdrs and isinstance(custom_hdrs, dict):
+                        fwd_headers.update(custom_hdrs)
                     req = urllib.request.Request(fwd_url, data=fwd_body, headers=fwd_headers, method='POST')
                     try:
-                        with urllib.request.urlopen(req, timeout=30) as resp:
+                        with urllib.request.urlopen(req, timeout=45) as resp:
                             resp_data = resp.read()
                             clear_key_cooldown(p_id, key, target_model)
                             p_name = p_info.get("name", p_id)
@@ -381,7 +388,9 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                         mark_key_cooldown(p_id, key, e.code, target_model, err_txt)
                         record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", e.code, err_txt)
                         sys.stderr.write(f"[Proxy] {p_id} ({target_model}) key #{attempt+1} HTTP error {e.code}. Trying next key...\n")
-                        if e.code in (400, 413):
+                        if e.code == 413 or (e.code == 400 and any(tok in err_txt.lower() for tok in ("too long", "token", "context", "length"))):
+                            return False
+                        if e.code == 400:
                             break
                         continue
                     except Exception as e:
@@ -501,43 +510,11 @@ def dispatch_inference(handler, raw_body):
             attempted_providers.add(target_dedicated_provider)
             p_info = all_providers.get(target_dedicated_provider, {})
             p_name = p_info.get("name", target_dedicated_provider)
-            p_models = p_info.get("models", [])
-            p_def_model = p_info.get("default_model", orig_model)
+            sys.stderr.write(f"[Proxy Direct Route] Request targeted specifically to '{target_dedicated_provider}' (Path: {handler.path})\n")
 
-            # Build sequential candidate list of all models configured for this standby server
-            candidate_models = []
-            if orig_model and orig_model != "unknown":
-                clean_orig = orig_model.split("/")[-1] if "/" in orig_model else orig_model
-                if orig_model in p_models:
-                    candidate_models.append(orig_model)
-                elif any(clean_orig == m.split("/")[-1] for m in p_models):
-                    matched = next(m for m in p_models if clean_orig == m.split("/")[-1])
-                    candidate_models.append(matched)
-                else:
-                    candidate_models.append(orig_model)
-
-            if p_def_model and p_def_model not in candidate_models:
-                candidate_models.append(p_def_model)
-
-            for m in p_models:
-                if m not in candidate_models:
-                    candidate_models.append(m)
-
-            if not candidate_models:
-                candidate_models = [orig_model]
-
-            sys.stderr.write(f"[Proxy Direct Route] Request targeted specifically to '{target_dedicated_provider}' (Path: {handler.path}) with model candidates: {candidate_models}\n")
-
-            standby_success = False
-            for mdl_idx, model_attempt in enumerate(candidate_models):
-                if mdl_idx > 0:
-                    sys.stderr.write(f"[Proxy Standby Fallback] Trying next model '{model_attempt}' (#{mdl_idx+1}/{len(candidate_models)}) on '{target_dedicated_provider}'...\n")
-                if try_forward_with_history_recovery(handler, target_dedicated_provider, raw_body, body_obj, model_attempt):
-                    _finish_success()
-                    standby_success = True
-                    break
-
-            if standby_success:
+            # try_forward_with_history_recovery already iterates sequentially through all configured models of this server
+            if try_forward_with_history_recovery(handler, target_dedicated_provider, raw_body, body_obj, orig_model):
+                _finish_success()
                 return
 
             # Explicit standalone/standby server route: DO NOT cascade into active routed pipeline!
@@ -551,7 +528,7 @@ def dispatch_inference(handler, raw_body):
             )
             handler.send_response(last_err)
             handler.send_header('Content-Type', 'application/json')
-            msg = json.dumps({"error": {"message": f"Server '{p_name}' ({target_dedicated_provider}) failed across all its configured models ({', '.join(candidate_models)}) and standby isolation is enforced. It did not cascade to routed pipeline."}}).encode()
+            msg = json.dumps({"error": {"message": f"Server '{p_name}' ({target_dedicated_provider}) failed across its configured models and standby isolation is enforced. It did not cascade to routed pipeline."}}).encode()
             handler.send_header('Content-Length', str(len(msg)))
             handler.end_headers()
             handler.wfile.write(msg)

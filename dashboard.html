@@ -190,6 +190,17 @@
           </div>
         </div>
         <div>
+          <label style="font-size:11px; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
+            <span>Engine Mode</span>
+            <span id="server-mode-hint" style="font-size:10px; color:#79c0ff; font-family:var(--mono);">Full tools, Bash, File Edit &amp; Q/A</span>
+          </label>
+          <input type="hidden" id="server-mode" value="agentic" />
+          <div class="proto-segmented" id="mode-segmented" style="margin-top:3px;">
+            <button type="button" class="proto-seg-btn is-active" id="btn-mode-agentic" onclick="setServerMode('agentic')">⚡ Agentic (Default)</button>
+            <button type="button" class="proto-seg-btn" id="btn-mode-normal" onclick="setServerMode('normal')">💬 Normal (Chat + Q/A)</button>
+          </div>
+        </div>
+        <div>
           <label style="font-size:11px; color:var(--text-muted);">Initial API Key (optional)</label>
           <input type="text" id="server-key" placeholder="sk-..." />
         </div>

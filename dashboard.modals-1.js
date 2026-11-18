@@ -502,6 +502,23 @@ function setServerProto(type) {
   if (btnOpenai) btnOpenai.classList.toggle('is-active', type === 'openai');
 }
 
+function setServerMode(mode) {
+  const eff = (mode === 'normal') ? 'normal' : 'agentic';
+  const hidden = document.getElementById('server-mode');
+  if (hidden) hidden.value = eff;
+  const btnAgentic = document.getElementById('btn-mode-agentic');
+  const btnNormal = document.getElementById('btn-mode-normal');
+  if (btnAgentic) btnAgentic.classList.toggle('is-active', eff === 'agentic');
+  if (btnNormal) btnNormal.classList.toggle('is-active', eff === 'normal');
+  const hint = document.getElementById('server-mode-hint');
+  if (hint) {
+    hint.innerText = eff === 'normal'
+      ? 'Fast chat + interactive Q/A only (saves tokens)'
+      : 'Full tools, Bash, File Edit & Q/A';
+    hint.style.color = eff === 'normal' ? '#d29922' : '#79c0ff';
+  }
+}
+
 function openServerModal(pId=null) {
   const modal = document.getElementById('server-modal');
   const title = document.getElementById('modal-title-text');
@@ -522,6 +539,7 @@ function openServerModal(pId=null) {
     if (nameInput) nameInput.value = p.name || '';
     if (baseInput) baseInput.value = p.base_url || '';
     setServerProto(p.type || 'anthropic');
+    setServerMode(p.mode || 'agentic');
     if (modelInput) modelInput.value = p.default_model || '';
     if (keyInput) { keyInput.value = ''; keyInput.placeholder = '(Retain keys)'; }
     if (hdrsInput) hdrsInput.value = p.custom_headers ? JSON.stringify(p.custom_headers) : '';
@@ -532,6 +550,7 @@ function openServerModal(pId=null) {
     if (nameInput) nameInput.value = '';
     if (baseInput) baseInput.value = '';
     setServerProto('anthropic');
+    setServerMode('agentic');
     if (modelInput) modelInput.value = '';
     if (keyInput) { keyInput.value = ''; keyInput.placeholder = 'sk-...'; }
     if (hdrsInput) hdrsInput.value = '';
@@ -550,6 +569,7 @@ async function saveServer(e) {
   const sName = document.getElementById('server-name').value.trim();
   const sBase = document.getElementById('server-base').value.trim();
   const sType = document.getElementById('server-type').value;
+  const sMode = document.getElementById('server-mode')?.value || 'agentic';
   const sModel = document.getElementById('server-default-model').value.trim();
   const sKey = document.getElementById('server-key').value.trim();
   const sHdrs = document.getElementById('server-custom-headers')?.value.trim();
@@ -559,6 +579,7 @@ async function saveServer(e) {
     name: sName,
     base_url: sBase,
     type: sType,
+    mode: sMode,
     default_model: sModel,
     models: [sModel]
   };
