@@ -783,8 +783,8 @@ function addTeamMemberRow(role='', provider='', model='', prompt='', tokens='') 
         <select class="t-member-model" style="width:100%; min-width:0; font-size:11px; padding:5px 8px; font-family:var(--mono); text-overflow:ellipsis; overflow:hidden; box-sizing:border-box;">${modelOpts}</select>
       </div>
       <div style="min-width:0;">
-        <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;" title="Leave empty for auto safe default">Max Tokens</label>
-        <input type="number" class="t-member-tokens" placeholder="Auto" value="${tokens || ''}" min="100" max="65536" style="width:100%; min-width:0; font-size:11px; padding:5px 8px; font-family:var(--mono); box-sizing:border-box;" />
+        <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;" title="Leave empty for unlimited tokens">Max Tokens</label>
+        <input type="number" class="t-member-tokens" placeholder="Unlimited" value="${tokens || ''}" min="100" max="128000" style="width:100%; min-width:0; font-size:11px; padding:5px 8px; font-family:var(--mono); box-sizing:border-box;" />
       </div>
     </div>
 

@@ -120,14 +120,11 @@ def _execute_member_turn(handler, pid, p_obj, target_model, body_obj, role_promp
         elif MANDATORY_CONCISE_RULE.lower() not in eff_prompt.lower():
             eff_prompt = f"{eff_prompt}\n\n[MANDATORY CONSTRAINT]: {MANDATORY_CONCISE_RULE}"
 
-    # 2. Token Limit Management: User specified > Auto default
+    # 2. Token Limit Management: User specified > Unlimited by default (no artificial capping)
     tok_val = int(max_tokens) if (max_tokens and str(max_tokens).isdigit() and int(max_tokens) > 0) else None
     if tok_val:
         b_copy["max_tokens"] = tok_val
-    elif is_intermediate:
-        # Default safe token cap for intermediate planner/drafter to prevent output bloat
-        orig_max = b_copy.get("max_tokens")
-        b_copy["max_tokens"] = min(orig_max, 1500) if (orig_max and orig_max > 0) else 1500
+    # If not specified, leave unlimited (retain client request tokens or full model limit)
 
     # 3. Smart Input Trimmer Guard: If conversation has many turns, prune older turns for intermediate stages
     messages = b_copy.get("messages", [])
