@@ -57,21 +57,38 @@
   - Custom headers support configurable directly from the Server modal.
 
 ## Architecture Audit & Line Count Summary
-All files are strictly under the 400-500 line limit (Rule 2):
+All files across the entire repository are strictly under the 400-500 line limit (Rule 2):
 | Module File | Line Count | Status | Logic Description |
-| :--- | :--- | :--- | :--- |
-| `proxy_v2.py` | 84 | ✅ Pass | Root server launcher with IPv4 DNS patch |
-| `config.json` | 99 | ✅ Pass | Dynamic configuration and provider storage |
-| `dashboard.styles-1.css` | 153 | ✅ Pass | Mobile-first 2-row layout, safe delete, animated undo toast |
-| `dashboard.html` | 190 | ✅ Pass | Web console semantic HTML markup & modals |
-| `dashboard.drag-1.js` | 217 | ✅ Pass | Touch & mouse drag-drop & priority pipeline |
-| `proxy_v2.http_handlers-1.py` | 226 | ✅ Pass | HTTP GET, DELETE, OPTIONS, HEAD & static assets |
-| `proxy_v2.config-1.py` | 275 | ✅ Pass | Dynamic configuration, API keys, failover tracker & Claude UI auto-sync |
-| `dashboard.servers-1.js` | 294 | ✅ Pass | Client cards, keys, dropdown & sync loop |
-| `proxy_v2.forwarder-1.py` | 345 | ✅ Pass | Universal cascading failover on both dedicated and pipeline paths |
-| `proxy_v2.transform-1.py` | 350 | ✅ Pass | SSE streaming, protocol translations & Groq 7k ITPM auto-trimmer |
-| `proxy_v2.ui_api-1.py` | 389 | ✅ Pass | Web dashboard backend APIs & model ping engine |
-| `dashboard.modals-1.js` | 480 | ✅ Pass | Pure HTML confirm modal & 10s unified animated undo engine |
-| `README.md` | 120 | ✅ Pass | GitHub-ready documentation & quick-start guide |
-| `~/.local/bin/crouter` | 68 | ✅ Pass | CLI management tool with start/stop/status/ui |
+| :--- | :---: | :---: | :--- |
+| `proxy_v2.ui_api-1.py` | 498 | ✅ Pass | Web dashboard backend APIs & provider/key CRUD |
+| `dashboard.modals_models-1.js` | 495 | ✅ Pass | Models selector modal, model testing & ping cache |
+| `proxy_v2.forwarder_loop-1.py` | 473 | ✅ Pass | Provider forwarding loop, key retry & intra-server fallback |
+| `dashboard.servers-1.js` | 445 | ✅ Pass | Server cards rendering, status badges & direct route copier |
+| `dashboard.html` | 440 | ✅ Pass | Web console semantic HTML markup & modal dialogs |
+| `proxy_v2.multi_agent-1.py` | 430 | ✅ Pass | Multi-Agent orchestrator (6 workflow patterns) |
+| `proxy_v2.ui_tester-1.py` | 385 | ✅ Pass | Model discovery, key ping tester & live telemetry actions |
+| `proxy_v2.transform_anthropic-1.py` | 369 | ✅ Pass | Anthropic body sanitizer, cache limiter & thought signer |
+| `proxy_v2.transform_openai-1.py` | 367 | ✅ Pass | Anthropic to OpenAI payload & JSON Schema sanitizer |
+| `proxy_v2.config-1.py` | 350 | ✅ Pass | Config store, active state & Claude UI sync |
+| `dashboard.live-1.js` | 345 | ✅ Pass | Live feed monitor, token & speed meter |
+| `proxy_v2.config_live-1.py` | 336 | ✅ Pass | Live request store, error classifier & key cooldowns |
+| `dashboard.modals_team-1.js` | 308 | ✅ Pass | Multi-Agent team builder modal & member settings |
+| `dashboard.styles-1.css` | 306 | ✅ Pass | Mobile-first cybernetic dark UI styles & glow effects |
+| `proxy_v2.transform_stream-1.py` | 304 | ✅ Pass | OpenAI SSE stream & JSON to Anthropic converter |
+| `proxy_v2.multi_agent_runner-1.py` | 303 | ✅ Pass | Team member turn executor, blueprint guard & isolation |
+| `proxy_v2.http_handlers-1.py` | 282 | ✅ Pass | HTTP GET, DELETE, OPTIONS, HEAD & dynamic asset router |
+| `dashboard.modals_server-1.js` | 275 | ✅ Pass | Server modal, logs viewer modal & backup/restore |
+| `dashboard.undo-1.js` | 273 | ✅ Pass | HTML confirmation modal & 10s animated undo deletion |
+| `proxy_v2.transform_recovery-1.py` | 261 | ✅ Pass | 5-stage context-preserving history recovery engine |
+| `proxy_v2.forwarder-1.py` | 241 | ✅ Pass | Main inference router, direct routes & multi-agent dispatcher |
+| `dashboard.drag-1.js` | 224 | ✅ Pass | Touch & mouse drag-drop & priority pipeline |
+| `dashboard.team_picker-1.js` | 215 | ✅ Pass | Member model dropdown panel & member model status check |
+| `dashboard.teams-1.js` | 177 | ✅ Pass | Multi-Agent teams lane rendering, cards & test buttons |
+| `dashboard.workflow_patterns-1.js` | 165 | ✅ Pass | 6 built-in multi-agent blueprints and workflow templates |
+| `dashboard.chips-1.js` | 123 | ✅ Pass | Model chips fast switch, copy & long-press promoter |
+| `proxy_v2.py` | 122 | ✅ Pass | Root server launcher with log janitor & IPv4 DNS patch |
+| `proxy_v2.transform-1.py` | 29 | ✅ Pass | Master transform submodules orchestrator |
+| `dashboard.modals-1.js` | 8 | ✅ Pass | Master frontend modals submodules documentation stub |
+| `README.md` | 225 | ✅ Pass | Full documentation for features, APIs & workflows |
+| `crouter` | 168 | ✅ Pass | CLI daemon management tool |
 | `GitHub Repository` | - | ✅ Live | https://github.com/myfunuiai-del/claude-router |

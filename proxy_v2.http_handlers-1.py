@@ -37,16 +37,11 @@ def handle_HEAD(handler):
 def handle_GET(handler):
     """Handle GET requests for Web Dashboard, static assets, /status, and provider metadata."""
     # Static dashboard assets
-    static_files = {
-        "/dashboard.styles-1.css": ("dashboard.styles-1.css", "text/css; charset=utf-8"),
-        "/dashboard.drag-1.js": ("dashboard.drag-1.js", "application/javascript; charset=utf-8"),
-        "/dashboard.modals-1.js": ("dashboard.modals-1.js", "application/javascript; charset=utf-8"),
-        "/dashboard.servers-1.js": ("dashboard.servers-1.js", "application/javascript; charset=utf-8"),
-        "/dashboard.live-1.js": ("dashboard.live-1.js", "application/javascript; charset=utf-8")
-    }
-    if handler.path in static_files:
-        filename, mime = static_files[handler.path]
+    clean_p = handler.path.split('?')[0]
+    if clean_p.startswith('/dashboard.') and (clean_p.endswith('.js') or clean_p.endswith('.css')):
+        filename = clean_p.lstrip('/')
         filepath = os.path.join(os.path.dirname(__file__), filename)
+        mime = "application/javascript; charset=utf-8" if filename.endswith('.js') else "text/css; charset=utf-8"
         if os.path.exists(filepath):
             try:
                 with open(filepath, "rb") as f:
