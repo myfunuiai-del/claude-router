@@ -493,6 +493,15 @@ async function addCustomModelManual() {
   input.value = '';
 }
 
+function setServerProto(type) {
+  const hidden = document.getElementById('server-type');
+  if (hidden) hidden.value = type;
+  const btnAnthropic = document.getElementById('btn-proto-anthropic');
+  const btnOpenai = document.getElementById('btn-proto-openai');
+  if (btnAnthropic) btnAnthropic.classList.toggle('is-active', type === 'anthropic');
+  if (btnOpenai) btnOpenai.classList.toggle('is-active', type === 'openai');
+}
+
 function openServerModal(pId=null) {
   const modal = document.getElementById('server-modal');
   const title = document.getElementById('modal-title-text');
@@ -512,7 +521,7 @@ function openServerModal(pId=null) {
     if (idInput) { idInput.value = pId; idInput.disabled = true; }
     if (nameInput) nameInput.value = p.name || '';
     if (baseInput) baseInput.value = p.base_url || '';
-    if (typeInput) typeInput.value = p.type || 'anthropic';
+    setServerProto(p.type || 'anthropic');
     if (modelInput) modelInput.value = p.default_model || '';
     if (keyInput) { keyInput.value = ''; keyInput.placeholder = '(Retain keys)'; }
     if (hdrsInput) hdrsInput.value = p.custom_headers ? JSON.stringify(p.custom_headers) : '';
@@ -522,7 +531,7 @@ function openServerModal(pId=null) {
     if (idInput) { idInput.value = ''; idInput.disabled = false; }
     if (nameInput) nameInput.value = '';
     if (baseInput) baseInput.value = '';
-    if (typeInput) typeInput.value = 'anthropic';
+    setServerProto('anthropic');
     if (modelInput) modelInput.value = '';
     if (keyInput) { keyInput.value = ''; keyInput.placeholder = 'sk-...'; }
     if (hdrsInput) hdrsInput.value = '';

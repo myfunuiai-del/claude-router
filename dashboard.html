@@ -178,10 +178,11 @@
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
           <div>
             <label style="font-size:11px; color:var(--text-muted);">Protocol</label>
-            <select id="server-type">
-              <option value="anthropic">Anthropic Messages</option>
-              <option value="openai">OpenAI Compatible (Chat)</option>
-            </select>
+            <input type="hidden" id="server-type" value="anthropic" />
+            <div class="proto-segmented" id="proto-segmented">
+              <button type="button" class="proto-seg-btn is-active" id="btn-proto-anthropic" onclick="setServerProto('anthropic')">Anthropic</button>
+              <button type="button" class="proto-seg-btn" id="btn-proto-openai" onclick="setServerProto('openai')">OpenAI</button>
+            </div>
           </div>
           <div>
             <label style="font-size:11px; color:var(--text-muted);">Default Model</label>
