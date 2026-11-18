@@ -486,12 +486,28 @@ def dispatch_inference(handler, raw_body):
 
         if target_dedicated_provider:
             attempted_providers.add(target_dedicated_provider)
+            p_name = all_providers.get(target_dedicated_provider, {}).get("name", target_dedicated_provider)
             sys.stderr.write(f"[Proxy Direct Route] Request targeted specifically to '{target_dedicated_provider}' (Path: {handler.path})\n")
             if try_forward_with_history_recovery(handler, target_dedicated_provider, raw_body, body_obj, orig_model):
                 _finish_success()
                 return
-            failed_providers.append(all_providers.get(target_dedicated_provider, {}).get("name", target_dedicated_provider))
-            sys.stderr.write(f"[Proxy Direct Route] Dedicated provider '{target_dedicated_provider}' failed. Cascading to active pipeline...\n")
+
+            # Explicit standalone/standby server route: DO NOT cascade into active routed pipeline!
+            failed_providers.append(p_name)
+            last_err = getattr(handler, "_last_http_error", None) or 502
+            sys.stderr.write(f"[Proxy Direct Route] Standalone dedicated provider '{target_dedicated_provider}' failed. Strictly halting without pipeline cascade.\n")
+            record_live_request(
+                target_dedicated_provider, p_name, orig_model, "-", status="err", code=last_err,
+                latency_ms=int((time.time() - t_start) * 1000), path=handler.path,
+                recovery_stage="", failover_from=failed_providers
+            )
+            handler.send_response(last_err)
+            handler.send_header('Content-Type', 'application/json')
+            msg = json.dumps({"error": {"message": f"Server '{p_name}' ({target_dedicated_provider}) failed and standby isolation is enforced. It did not cascade to routed pipeline."}}).encode()
+            handler.send_header('Content-Length', str(len(msg)))
+            handler.end_headers()
+            handler.wfile.write(msg)
+            return
 
         routed_providers = cfg.get("routed_providers", [])
         if not routed_providers:
