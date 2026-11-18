@@ -151,8 +151,10 @@ input:focus, select:focus { border-color: var(--brand); }
 /* Chips & Keys */
 .section-label { font-size: 10px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }
 .chips-box { display: flex; flex-wrap: wrap; gap: 4px; }
-.chip { font-size: 11px; font-family: var(--mono); background: #0c1219; border: 1px solid var(--border); padding: 2px 6px; border-radius: 3px; display: inline-flex; align-items: center; gap: 4px; color: var(--text); }
-.chip.is-def { border-color: #388bfd66; background: #162438; color: #79c0ff; }
+.chip { font-size: 11px; font-family: var(--mono); background: #0c1219; border: 1px solid var(--border); padding: 2px 6px; border-radius: 3px; display: inline-flex; align-items: center; gap: 4px; color: var(--text); user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; cursor: pointer; transition: transform 0.12s ease, border-color 0.15s ease, background 0.15s ease; }
+.chip:active, .chip.chip-pressing { transform: scale(0.96); border-color: #58a6ff; background: #162438; }
+.chip.is-def { border-color: #388bfd66; background: #162438; color: #79c0ff; font-weight: 600; }
+.chip-label { cursor: pointer; }
 .chip-status { font-size: 9px; line-height: 1; display: inline-flex; align-items: center; margin-right: 1px; }
 .chip-x { cursor: pointer; color: var(--text-muted); font-size: 10px; line-height: 1; }
 .chip-x:hover { color: var(--danger-text); }

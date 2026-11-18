@@ -468,8 +468,9 @@ def handle_ui_post(handler, raw_body):
                     p["default_model"] = models[0] if models else ""
             elif action == "set_default":
                 p["default_model"] = model_name
-                if model_name not in models:
-                    models.append(model_name)
+                if model_name in models:
+                    models.remove(model_name)
+                models.insert(0, model_name)
 
             save_proxy_config(cfg)
             resp = json.dumps({"status": "ok", "message": f"Model '{model_name}' updated", "config": cfg}).encode()
