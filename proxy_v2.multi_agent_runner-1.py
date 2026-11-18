@@ -289,7 +289,7 @@ def _send_team_error(handler, tname, failing_pid, err_msg, t_start):
     handler.end_headers()
     handler.wfile.write(err_body)
 
-def _finish_team_success(handler, team, winner_pname, winner_model, resp_data, t_start, in_t, out_t, steps_log):
+def _finish_team_success(handler, team, winner_pname, winner_model, resp_data, t_start, in_t, out_t, steps_log, steps_detail=None):
     tname = team.get("name", "Team")
     tid = team.get("id") or team.get("slug") or "team"
     elapsed_ms = max(1, int((time.time() - t_start) * 1000))
@@ -302,7 +302,8 @@ def _finish_team_success(handler, team, winner_pname, winner_model, resp_data, t
         "multiagent", f"🤖 Team: {tname}", f"{winner_pname}:{winner_model}", "Team Orchestra",
         status="ok", code=200, latency_ms=elapsed_ms,
         path=handler.path, recovery_stage=f"Multi-Agent Pipeline ({steps_summary})",
-        failover_from=[], input_tokens=in_t, output_tokens=out_t, tok_per_sec=tps
+        failover_from=[], input_tokens=in_t, output_tokens=out_t, tok_per_sec=tps,
+        steps_detail=steps_detail
     )
 
     handler.send_response(200)

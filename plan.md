@@ -60,22 +60,23 @@
 All files across the entire repository are strictly under the 400-500 line limit (Rule 2):
 | Module File | Line Count | Status | Logic Description |
 | :--- | :---: | :---: | :--- |
-| `proxy_v2.ui_api-1.py` | 498 | ✅ Pass | Web dashboard backend APIs & provider/key CRUD |
 | `dashboard.modals_models-1.js` | 495 | ✅ Pass | Models selector modal, model testing & ping cache |
+| `proxy_v2.ui_api-1.py` | 493 | ✅ Pass | Web dashboard backend APIs & provider/key CRUD |
+| `dashboard.html` | 484 | ✅ Pass | Web console semantic HTML markup & modal dialogs |
+| `dashboard.styles-1.css` | 483 | ✅ Pass | Mobile-first cybernetic dark UI styles, trace & playground |
 | `proxy_v2.forwarder_loop-1.py` | 473 | ✅ Pass | Provider forwarding loop, key retry & intra-server fallback |
+| `proxy_v2.multi_agent-1.py` | 447 | ✅ Pass | Multi-Agent orchestrator with step-trace telemetry |
 | `dashboard.servers-1.js` | 445 | ✅ Pass | Server cards rendering, status badges & direct route copier |
-| `dashboard.html` | 440 | ✅ Pass | Web console semantic HTML markup & modal dialogs |
-| `proxy_v2.multi_agent-1.py` | 430 | ✅ Pass | Multi-Agent orchestrator (6 workflow patterns) |
 | `proxy_v2.ui_tester-1.py` | 385 | ✅ Pass | Model discovery, key ping tester & live telemetry actions |
 | `proxy_v2.transform_anthropic-1.py` | 369 | ✅ Pass | Anthropic body sanitizer, cache limiter & thought signer |
 | `proxy_v2.transform_openai-1.py` | 367 | ✅ Pass | Anthropic to OpenAI payload & JSON Schema sanitizer |
-| `proxy_v2.config-1.py` | 350 | ✅ Pass | Config store, active state & Claude UI sync |
-| `dashboard.live-1.js` | 345 | ✅ Pass | Live feed monitor, token & speed meter |
-| `proxy_v2.config_live-1.py` | 336 | ✅ Pass | Live request store, error classifier & key cooldowns |
+| `proxy_v2.config-1.py` | 353 | ✅ Pass | Config store, active state & Claude UI sync |
+| `dashboard.live-1.js` | 351 | ✅ Pass | Live feed monitor, token & speed meter & trace launcher |
+| `proxy_v2.config_live-1.py` | 349 | ✅ Pass | Live request store, error classifier & step-trace feed |
+| `proxy_v2.multi_agent_runner-1.py` | 318 | ✅ Pass | Team member turn executor, adaptive mode guard & isolation |
 | `dashboard.modals_team-1.js` | 308 | ✅ Pass | Multi-Agent team builder modal & member settings |
-| `dashboard.styles-1.css` | 339 | ✅ Pass | Mobile-first cybernetic dark UI styles & glow effects |
 | `proxy_v2.transform_stream-1.py` | 304 | ✅ Pass | OpenAI SSE stream & JSON to Anthropic converter |
-| `proxy_v2.multi_agent_runner-1.py` | 317 | ✅ Pass | Team member turn executor, adaptive mode guard & isolation |
+| `dashboard.teams-1.js` | 291 | ✅ Pass | Multi-Agent teams lane rendering, export/import & run buttons |
 | `proxy_v2.http_handlers-1.py` | 282 | ✅ Pass | HTTP GET, DELETE, OPTIONS, HEAD & dynamic asset router |
 | `dashboard.modals_server-1.js` | 275 | ✅ Pass | Server modal, logs viewer modal & backup/restore |
 | `dashboard.undo-1.js` | 273 | ✅ Pass | HTML confirmation modal & 10s animated undo deletion |
@@ -83,10 +84,12 @@ All files across the entire repository are strictly under the 400-500 line limit
 | `proxy_v2.forwarder-1.py` | 241 | ✅ Pass | Main inference router, direct routes & multi-agent dispatcher |
 | `dashboard.drag-1.js` | 224 | ✅ Pass | Touch & mouse drag-drop & priority pipeline |
 | `dashboard.team_picker-1.js` | 215 | ✅ Pass | Member model dropdown panel & member model status check |
-| `dashboard.teams-1.js` | 216 | ✅ Pass | Multi-Agent teams lane rendering, cards & test buttons |
+| `dashboard.modals_playground-1.js` | 171 | ✅ Pass | In-Dashboard Multi-Agent Dry Run Playground UI modal |
 | `dashboard.workflow_patterns-1.js` | 165 | ✅ Pass | 6 built-in multi-agent blueprints and workflow templates |
+| `proxy_v2.ui_playground-1.py` | 155 | ✅ Pass | Multi-Agent Dry Run test API endpoint (/api/ui/team-dry-run) |
 | `dashboard.chips-1.js` | 123 | ✅ Pass | Model chips fast switch, copy & long-press promoter |
 | `proxy_v2.py` | 122 | ✅ Pass | Root server launcher with log janitor & IPv4 DNS patch |
+| `dashboard.modals_trace-1.js` | 90 | ✅ Pass | Multi-Agent Step-Trace Timeline Modal & visualizer |
 | `proxy_v2.key_balancer-1.py` | 86 | ✅ Pass | Smart Key Load Balancer & Least-Used TPM/RPM Rotator |
 | `proxy_v2.transform-1.py` | 29 | ✅ Pass | Master transform submodules orchestrator |
 | `dashboard.modals-1.js` | 8 | ✅ Pass | Master frontend modals submodules documentation stub |

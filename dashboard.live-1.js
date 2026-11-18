@@ -124,8 +124,11 @@ async function fetchLiveSnapshot(forceRender = false) {
   }
 }
 
+let lastLiveSnapshot = null;
+
 function renderLiveSnapshot(data, forceRender = false) {
   if (activeMainTab !== 'live') return;
+  lastLiveSnapshot = data;
 
   const issues = data.issues || [];
   const inFlight = data.in_flight || [];
@@ -288,11 +291,14 @@ function renderLiveSnapshot(data, forceRender = false) {
         const tokBadge = (f.input_tokens || f.output_tokens || f.tok_per_sec)
           ? `<span class="speed-meter-pill">${f.input_tokens || 0}→${f.output_tokens || 0} tok${f.tok_per_sec ? ` • ⚡ ${f.tok_per_sec} tok/s` : ''}</span>`
           : '';
+        const traceBtn = (f.steps_detail && f.steps_detail.length > 0)
+          ? `<button type="button" class="trace-pill-btn" onclick="openTraceModal(${f.id})" title="View Multi-Agent Step Execution Timeline">🔍 Trace (${f.steps_detail.length} steps)</button>`
+          : '';
         return `
           <div class="${rowCls}">
             <div class="live-row-top">
               <span>${badgeHtml} <span style="color:var(--text-muted); margin-left:4px;">${_escHtml(f.path)}</span></span>
-              <span style="color:var(--text-muted); display:inline-flex; align-items:center; gap:5px; flex-wrap:wrap;">${tokBadge}<span>${f.latency_ms}ms • ${_escHtml(f.time)}</span></span>
+              <span style="color:var(--text-muted); display:inline-flex; align-items:center; gap:5px; flex-wrap:wrap;">${traceBtn}${tokBadge}<span>${f.latency_ms}ms • ${_escHtml(f.time)}</span></span>
             </div>
             <div class="live-winner-line">${isOk ? '✅ Passed by:' : '❌ Failed:'} ${_escHtml(f.passed_by)}</div>
             ${recHtml}

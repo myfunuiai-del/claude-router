@@ -23,10 +23,13 @@ def _load_module_to_globals(filename, target_globals):
 
 _config_mod = _load_module_to_globals("proxy_v2.config-1.py", globals())
 _ui_tester_mod = _load_module_to_globals("proxy_v2.ui_tester-1.py", globals())
+_ui_playground_mod = _load_module_to_globals("proxy_v2.ui_playground-1.py", globals())
 
 def handle_ui_post(handler, raw_body):
     """Handle UI dashboard API POST requests. Returns True if handled, False otherwise."""
     if handle_ui_tester_post(handler, raw_body):
+        return True
+    if handle_ui_playground_post(handler, raw_body):
         return True
 
     if handler.path == "/api/ui/keys":
@@ -86,7 +89,6 @@ def handle_ui_post(handler, raw_body):
             handler.end_headers()
             handler.wfile.write(err)
             return True
-
     # UI API: Add or Edit Provider / Server
     if handler.path == "/api/ui/providers":
         try:
@@ -176,7 +178,6 @@ def handle_ui_post(handler, raw_body):
             handler.end_headers()
             handler.wfile.write(err)
             return True
-
     # UI API: Fetch and Test Models for a provider
     # UI API: Add or Remove specific model from provider
     if handler.path == "/api/ui/provider-models":
@@ -241,7 +242,6 @@ def handle_ui_post(handler, raw_body):
             handler.end_headers()
             handler.wfile.write(err)
             return True
-
     # UI API: Toggle server ON / OFF (enabled / disabled)
     if handler.path == "/api/ui/provider-toggle":
         try:
@@ -289,7 +289,6 @@ def handle_ui_post(handler, raw_body):
             handler.end_headers()
             handler.wfile.write(err)
             return True
-
     # UI API: Toggle or set server engine mode (agentic vs normal)
     # UI API: Move or reorder providers between Routed and Unrouted
     if handler.path == "/api/ui/route-pool":
@@ -327,7 +326,6 @@ def handle_ui_post(handler, raw_body):
             handler.end_headers()
             handler.wfile.write(err)
             return True
-
     # UI API: Update global router settings (e.g. auto_recovery ON/OFF)
     if handler.path == "/api/ui/settings":
         try:
@@ -358,7 +356,6 @@ def handle_ui_post(handler, raw_body):
             handler.end_headers()
             handler.wfile.write(err)
             return True
-
     # UI API: Multi-Agent Teams CRUD (save, toggle, delete)
     if handler.path == "/api/ui/multi-agent-teams":
         try:
@@ -440,7 +437,6 @@ def handle_ui_post(handler, raw_body):
             handler.end_headers()
             handler.wfile.write(err)
             return True
-
     # UI API: Restore / Import config JSON safely (auto-backs up existing config.json.bak first)
     if handler.path == "/api/ui/config-import":
         try:
@@ -494,5 +490,4 @@ def handle_ui_post(handler, raw_body):
             handler.wfile.write(err)
             return True
 
-    # UI API: Live Monitor actions (clear cooldowns / clear telemetry)
-    return False
+        return False

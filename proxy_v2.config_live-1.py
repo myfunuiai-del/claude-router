@@ -199,7 +199,7 @@ def record_live_issue(p_id, p_name, model, key_label, code, detail=""):
         if len(_LIVE_STORE.issues) > 25:
             del _LIVE_STORE.issues[25:]
 
-def record_live_request(p_id, p_name, model, key_label, status, code, latency_ms, path="/v1/messages", recovery_stage=None, failover_from=None, input_tokens=0, output_tokens=0, tok_per_sec=0.0):
+def record_live_request(p_id, p_name, model, key_label, status, code, latency_ms, path="/v1/messages", recovery_stage=None, failover_from=None, input_tokens=0, output_tokens=0, tok_per_sec=0.0, steps_detail=None):
     now = time.time()
     failover_list = list(failover_from) if failover_from else []
     in_tok = int(input_tokens or 0)
@@ -255,7 +255,8 @@ def record_live_request(p_id, p_name, model, key_label, status, code, latency_ms
             "tok_per_sec": tps,
             "recovery_stage": recovery_stage or "",
             "failover_from": failover_list,
-            "passed_by": passed_by
+            "passed_by": passed_by,
+            "steps_detail": list(steps_detail) if steps_detail else []
         })
         if len(_LIVE_STORE.feed) > 25:
             del _LIVE_STORE.feed[25:]

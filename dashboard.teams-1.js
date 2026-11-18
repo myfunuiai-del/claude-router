@@ -48,9 +48,14 @@ function renderTeamsLane() {
               <span class="power-dot"></span>
               <span class="power-label">${isEn ? 'ON' : 'OFF'}</span>
             </button>
-            <button type="button" class="btn btn-xs" id="team-test-btn-${t.id}" style="padding:1px 8px; font-size:10px;" onclick="testTeamMembers('${t.id}')">
-              🧪 Test
-            </button>
+            <div style="display:flex; gap:4px;">
+              <button type="button" class="btn btn-xs" id="team-run-btn-${t.id}" style="padding:1px 8px; font-size:10px; background:#1f1430; border-color:#8957e5; color:#d2a8ff;" onclick="openPlaygroundModal('${t.id}')" title="Test Prompt Playground">
+                ▶️ Run
+              </button>
+              <button type="button" class="btn btn-xs" id="team-test-btn-${t.id}" style="padding:1px 8px; font-size:10px;" onclick="testTeamMembers('${t.id}')" title="Ping All Member Models">
+                🧪 Test
+              </button>
+            </div>
           </div>
         </div>
         <div class="server-card-controls-row" style="margin-top:6px;">
@@ -61,6 +66,7 @@ function renderTeamsLane() {
             ${membersHtml}
           </div>
           <div class="server-card-btn-group">
+            <button class="btn btn-xs" onclick="exportSingleTeam('${t.id}')" title="Export Team to JSON">📤</button>
             <button class="btn btn-xs" onclick="openTeamModal('${t.id}')">✏️ Edit</button>
             <button class="safe-delete-btn" onclick="deleteTeam('${t.id}')">🗑️</button>
           </div>
@@ -174,6 +180,75 @@ async function toggleTeamPower(teamId) {
 
 function deleteTeam(teamId) {
   openConfirmDeleteTeam(teamId);
+}
+
+function exportSingleTeam(teamId) {
+  const team = currentConfig?.multi_agent_teams?.[teamId];
+  if (!team) {
+    showToast('Team not found', true);
+    return;
+  }
+  try {
+    const payload = JSON.stringify({
+      schema: "claude-router-team-v2",
+      exported_at: Math.floor(Date.now() / 1000),
+      team: team
+    }, null, 2);
+    const blob = new Blob([payload], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `team_${teamId}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast(`Team '${team.name || teamId}' exported as JSON`);
+  } catch (err) {
+    showToast(`Failed to export team: ${err.message}`, true);
+  }
+}
+
+function triggerImportTeamFile() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json,application/json';
+  input.onchange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const obj = JSON.parse(text);
+      const team = obj.team || obj;
+      if (!team.id || !team.name || !team.members) {
+        showToast('Invalid team JSON format', true);
+        return;
+      }
+      const res = await fetch('/api/ui/multi-agent-teams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save',
+          id: team.id,
+          name: team.name,
+          workflow: team.workflow || 'role_pipeline',
+          enabled: team.enabled !== false,
+          members: team.members
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        currentConfig = data.config;
+        renderTeamsLane();
+        showToast(`Team '${team.name}' imported successfully!`);
+      } else {
+        showToast(data.message || 'Import failed', true);
+      }
+    } catch (err) {
+      showToast(`Invalid JSON file: ${err.message}`, true);
+    }
+  };
+  input.click();
 }
 
 async function toggleTeamMemberMode(tId, memberIndex) {

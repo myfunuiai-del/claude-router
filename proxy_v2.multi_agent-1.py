@@ -66,6 +66,21 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
     total_in = 0
     total_out = 0
     steps_log = []
+    steps_detail = []
+
+    def _add_step_trace(role, p_name, mdl, m_mode, ms, in_t, out_t, data):
+        txt = _extract_text_content(data) if data else ""
+        steps_detail.append({
+            "step": len(steps_detail) + 1,
+            "role": role,
+            "provider": p_name,
+            "model": mdl,
+            "mode": m_mode or "normal",
+            "latency_ms": ms,
+            "in_tokens": in_t,
+            "out_tokens": out_t,
+            "snippet": txt[:300]
+        })
 
     if len(members) == 1:
         m = members[0]
@@ -83,7 +98,7 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         total_in += in_t
         total_out += out_t
         steps_log.append(f"{p_obj.get('name', pid)}:{mdl} ({ms}ms)")
-        _finish_team_success(handler, team, p_obj.get('name', pid), mdl, resp_data, t_start, total_in, total_out, steps_log)
+        _finish_team_success(handler, team, p_obj.get('name', pid), mdl, resp_data, t_start, total_in, total_out, steps_log, steps_detail=steps_detail)
         return True
 
     # ==========================================
@@ -178,7 +193,7 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         total_out += j_out
         steps_log.append(f"Judge Verdict ({j_pobj.get('name', j_pid)}): {j_ms}ms")
 
-        _finish_team_success(handler, team, j_pobj.get('name', j_pid), j_mdl, j_data, t_start, total_in, total_out, steps_log)
+        _finish_team_success(handler, team, j_pobj.get('name', j_pid), j_mdl, j_data, t_start, total_in, total_out, steps_log, steps_detail=steps_detail)
         return True
 
     # ==========================================
@@ -241,7 +256,7 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         total_out += out_t3
         steps_log.append(f"Auditor ({pobj3.get('name', pid3)}): {ms3}ms")
 
-        _finish_team_success(handler, team, pobj3.get('name', pid3), mdl3, s3_data, t_start, total_in, total_out, steps_log)
+        _finish_team_success(handler, team, pobj3.get('name', pid3), mdl3, s3_data, t_start, total_in, total_out, steps_log, steps_detail=steps_detail)
         return True
 
     # ==========================================
@@ -287,7 +302,7 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         total_out += out_t2
         steps_log.append(f"Deep Finish ({pobj2.get('name', pid2)}): {ms2}ms")
 
-        _finish_team_success(handler, team, pobj2.get('name', pid2), mdl2, s2_data, t_start, total_in, total_out, steps_log)
+        _finish_team_success(handler, team, pobj2.get('name', pid2), mdl2, s2_data, t_start, total_in, total_out, steps_log, steps_detail=steps_detail)
         return True
 
     # ==========================================
@@ -333,7 +348,7 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         total_out += out_t2
         steps_log.append(f"Expert ({pobj2.get('name', pid2)}): {ms2}ms")
 
-        _finish_team_success(handler, team, pobj2.get('name', pid2), mdl2, s2_data, t_start, total_in, total_out, steps_log)
+        _finish_team_success(handler, team, pobj2.get('name', pid2), mdl2, s2_data, t_start, total_in, total_out, steps_log, steps_detail=steps_detail)
         return True
 
     # ==========================================
@@ -379,7 +394,7 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         total_out += out_t2
         steps_log.append(f"Reviewer ({pobj2.get('name', pid2)}): {ms2}ms")
 
-        _finish_team_success(handler, team, pobj2.get('name', pid2), mdl2, s2_data, t_start, total_in, total_out, steps_log)
+        _finish_team_success(handler, team, pobj2.get('name', pid2), mdl2, s2_data, t_start, total_in, total_out, steps_log, steps_detail=steps_detail)
         return True
 
     # ==========================================
@@ -403,6 +418,7 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
     total_in += in_t1
     total_out += out_t1
     steps_log.append(f"Step 1 ({p_obj1.get('name', pid1)}): {ms1}ms")
+    _add_step_trace(m1.get("role", "architect"), p_obj1.get('name', pid1), mdl1, m1.get("mode", "normal"), ms1, in_t1, out_t1, s1_data)
     step1_text = _trim_handoff_text(_extract_text_content(s1_data))
 
     m2 = members[1]
@@ -424,7 +440,8 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
     total_in += in_t2
     total_out += out_t2
     steps_log.append(f"Step 2 ({p_obj2.get('name', pid2)}): {ms2}ms")
+    _add_step_trace(m2.get("role", "coder"), p_obj2.get('name', pid2), mdl2, m2.get("mode", "agentic"), ms2, in_t2, out_t2, s2_data)
 
-    _finish_team_success(handler, team, p_obj2.get('name', pid2), mdl2, s2_data, t_start, total_in, total_out, steps_log)
+    _finish_team_success(handler, team, p_obj2.get('name', pid2), mdl2, s2_data, t_start, total_in, total_out, steps_log, steps_detail=steps_detail)
     return True
 
