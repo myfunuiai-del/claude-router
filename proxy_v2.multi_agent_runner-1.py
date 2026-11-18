@@ -25,6 +25,7 @@ def _load_module_to_globals(filename, target_globals):
 
 _config_mod = _load_module_to_globals("proxy_v2.config-1.py", globals())
 _transform_mod = _load_module_to_globals("proxy_v2.transform-1.py", globals())
+_balancer_mod = _load_module_to_globals("proxy_v2.key_balancer-1.py", globals())
 def get_multi_agent_team(team_id_or_model, cfg=None):
     """Resolve a multi_agent_team from either 'team:<id>', '<id>', or model name."""
     if not team_id_or_model:
@@ -129,93 +130,106 @@ def _execute_member_turn(handler, pid, p_obj, target_model, body_obj, role_promp
         else:
             b_copy["system"] = eff_prompt
 
-    # 5. Resolve Engine Mode (agentic vs normal)
-    eff_mode = (member_mode or p_obj.get("mode") or ("normal" if is_first_member else "agentic")).lower()
+    # 5. Resolve Engine Mode (agentic vs normal) & Adaptive Sequence
+    init_mode = (member_mode or p_obj.get("mode") or ("normal" if is_first_member else "agentic")).lower()
+    modes_sequence = [init_mode]
+    if init_mode == "agentic":
+        modes_sequence.append("normal")  # Adaptive fallback mode
 
     available_keys = [k for k in p_keys if is_key_in_cooldown(pid, k, target_model) == 0] or p_keys
     if not available_keys and pid != "agentrouter":
         return False, f"[{p_name}] No available keys", 0, 0, 0
 
-    key = available_keys[0] if available_keys else "auto"
+    key = select_balanced_key(pid, available_keys, target_model, is_key_in_cooldown) if "select_balanced_key" in globals() else (available_keys[0] if available_keys else "auto")
 
-    if p_type == "anthropic":
-        fwd_url = f"{p_base}/v1/messages" if p_base.endswith("/api") else f"{p_base}/messages"
-        # Apply engine mode to anthropic payload (strips heavy tools if normal, saves ~10k+ tokens)
-        eff_anth_body = apply_engine_mode_to_anthropic_body(b_copy, mode=eff_mode)
-        payload = json.dumps(eff_anth_body).encode('utf-8')
-        hdrs = {
-            'Authorization': f"Bearer {key}",
-            'x-api-key': key,
-            'anthropic-version': '2023-06-01',
-            'Originator': 'codex_cli_rs',
-            'Content-Type': 'application/json',
-            'Accept-Encoding': 'identity'
-        }
-        if p_obj.get("custom_headers") and isinstance(p_obj["custom_headers"], dict):
-            hdrs.update(p_obj["custom_headers"])
+    last_err_msg = ""
+    for mode_idx, cur_mode in enumerate(modes_sequence):
+        if mode_idx > 0:
+            sys.stderr.write(f"[Multi-Agent Adaptive] Member '{pid}' ({target_model}) auto-downgraded from Agentic to Normal mode to bypass 429/400 bottleneck.\n")
 
-        req = urllib.request.Request(fwd_url, data=payload, headers=hdrs, method='POST')
-        try:
-            with urllib.request.urlopen(req, timeout=45) as resp:
-                data = resp.read()
-                clear_key_cooldown(pid, key, target_model)
-                in_t, out_t = extract_anthropic_usage(data)
+        if p_type == "anthropic":
+            fwd_url = f"{p_base}/v1/messages" if p_base.endswith("/api") else f"{p_base}/messages"
+            eff_anth_body = apply_engine_mode_to_anthropic_body(b_copy, mode=cur_mode)
+            payload = json.dumps(eff_anth_body).encode('utf-8')
+            hdrs = {
+                'Authorization': f"Bearer {key}",
+                'x-api-key': key,
+                'anthropic-version': '2023-06-01',
+                'Originator': 'codex_cli_rs',
+                'Content-Type': 'application/json',
+                'Accept-Encoding': 'identity'
+            }
+            if p_obj.get("custom_headers") and isinstance(p_obj["custom_headers"], dict):
+                hdrs.update(p_obj["custom_headers"])
+
+            req = urllib.request.Request(fwd_url, data=payload, headers=hdrs, method='POST')
+            try:
+                with urllib.request.urlopen(req, timeout=45) as resp:
+                    data = resp.read()
+                    clear_key_cooldown(pid, key, target_model)
+                    in_t, out_t = extract_anthropic_usage(data)
+                    ms = int((time.time() - t0) * 1000)
+                    return True, data, in_t, out_t, ms
+            except urllib.error.HTTPError as e:
+                err_body = ""
+                try: err_body = e.read().decode('utf-8', errors='ignore')[:300]
+                except Exception: pass
+                mark_key_cooldown(pid, key, e.code, target_model, err_body)
                 ms = int((time.time() - t0) * 1000)
-                return True, data, in_t, out_t, ms
-        except urllib.error.HTTPError as e:
-            err_body = ""
-            try: err_body = e.read().decode('utf-8', errors='ignore')[:300]
-            except Exception: pass
-            mark_key_cooldown(pid, key, e.code, target_model, err_body)
-            ms = int((time.time() - t0) * 1000)
-            return False, f"HTTP {e.code} from {p_name}: {err_body}", 0, 0, ms
-        except Exception as e:
-            ms = int((time.time() - t0) * 1000)
-            return False, f"Network error from {p_name}: {str(e)}", 0, 0, ms
-
-    elif p_type == "openai":
-        fwd_url = p_base if p_base.endswith("/chat/completions") else f"{p_base}/chat/completions"
-        openai_body = anthropic_to_openai_body(b_copy, target_model, p_id=pid, mode=eff_mode, base_url=p_base)
-        payload = json.dumps(openai_body, ensure_ascii=False).encode('utf-8')
-        hdrs = {
-            'Authorization': f"Bearer {key}",
-            'Content-Type': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (compatible; Claude-Router-MultiAgent/1.0)',
-            'Accept-Encoding': 'identity'
-        }
-        if p_obj.get("custom_headers") and isinstance(p_obj["custom_headers"], dict):
-            hdrs.update(p_obj["custom_headers"])
-
-        req = urllib.request.Request(fwd_url, data=payload, headers=hdrs, method='POST')
-        try:
-            with urllib.request.urlopen(req, timeout=45) as resp:
-                resp_data = resp.read()
-                clear_key_cooldown(pid, key, target_model)
-                text = resp_data.decode('utf-8', errors='ignore')
-                anth_resp = None
-                if b_copy.get("stream", False) or "data:" in text:
-                    anth_resp = convert_openai_stream_to_anthropic(text, p_name, target_model)
-                else:
-                    try:
-                        o_json = json.loads(text)
-                        anth_resp = convert_openai_json_to_anthropic(o_json, p_name, target_model)
-                    except Exception:
-                        anth_resp = resp_data
-                in_t, out_t = extract_anthropic_usage(anth_resp)
+                last_err_msg = f"HTTP {e.code} from {p_name}: {err_body}"
+                if cur_mode == "agentic" and e.code in (400, 413, 429) and "normal" in modes_sequence[mode_idx+1:]:
+                    continue
+                return False, last_err_msg, 0, 0, ms
+            except Exception as e:
                 ms = int((time.time() - t0) * 1000)
-                return True, anth_resp, in_t, out_t, ms
-        except urllib.error.HTTPError as e:
-            err_body = ""
-            try: err_body = e.read().decode('utf-8', errors='ignore')[:300]
-            except Exception: pass
-            mark_key_cooldown(pid, key, e.code, target_model, err_body)
-            ms = int((time.time() - t0) * 1000)
-            return False, f"HTTP {e.code} from {p_name}: {err_body}", 0, 0, ms
-        except Exception as e:
-            ms = int((time.time() - t0) * 1000)
-            return False, f"Network error from {p_name}: {str(e)}", 0, 0, ms
+                return False, f"Network error from {p_name}: {str(e)}", 0, 0, ms
 
-    return False, f"Unsupported provider type '{p_type}' for {p_name}", 0, 0, 0
+        elif p_type == "openai":
+            fwd_url = p_base if p_base.endswith("/chat/completions") else f"{p_base}/chat/completions"
+            openai_body = anthropic_to_openai_body(b_copy, target_model, p_id=pid, mode=cur_mode, base_url=p_base)
+            payload = json.dumps(openai_body, ensure_ascii=False).encode('utf-8')
+            hdrs = {
+                'Authorization': f"Bearer {key}",
+                'Content-Type': 'application/json',
+                'User-Agent': 'Mozilla/5.0 (compatible; Claude-Router-MultiAgent/1.0)',
+                'Accept-Encoding': 'identity'
+            }
+            if p_obj.get("custom_headers") and isinstance(p_obj["custom_headers"], dict):
+                hdrs.update(p_obj["custom_headers"])
+
+            req = urllib.request.Request(fwd_url, data=payload, headers=hdrs, method='POST')
+            try:
+                with urllib.request.urlopen(req, timeout=45) as resp:
+                    resp_data = resp.read()
+                    clear_key_cooldown(pid, key, target_model)
+                    text = resp_data.decode('utf-8', errors='ignore')
+                    anth_resp = None
+                    if b_copy.get("stream", False) or "data:" in text:
+                        anth_resp = convert_openai_stream_to_anthropic(text, p_name, target_model)
+                    else:
+                        try:
+                            o_json = json.loads(text)
+                            anth_resp = convert_openai_json_to_anthropic(o_json, p_name, target_model)
+                        except Exception:
+                            anth_resp = resp_data
+                    in_t, out_t = extract_anthropic_usage(anth_resp)
+                    ms = int((time.time() - t0) * 1000)
+                    return True, anth_resp, in_t, out_t, ms
+            except urllib.error.HTTPError as e:
+                err_body = ""
+                try: err_body = e.read().decode('utf-8', errors='ignore')[:300]
+                except Exception: pass
+                mark_key_cooldown(pid, key, e.code, target_model, err_body)
+                ms = int((time.time() - t0) * 1000)
+                last_err_msg = f"HTTP {e.code} from {p_name}: {err_body}"
+                if cur_mode == "agentic" and e.code in (400, 413, 429) and "normal" in modes_sequence[mode_idx+1:]:
+                    continue
+                return False, last_err_msg, 0, 0, ms
+            except Exception as e:
+                ms = int((time.time() - t0) * 1000)
+                return False, f"Network error from {p_name}: {str(e)}", 0, 0, ms
+
+    return False, last_err_msg or f"Unsupported provider type '{p_type}' for {p_name}", 0, 0, 0
 
 def _extract_text_content(resp_data):
     """Reliably extracts plain text response from Anthropic or OpenAI payloads."""
