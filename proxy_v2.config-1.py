@@ -391,6 +391,38 @@ def sync_to_claude_settings(cfg):
             providers_out.append(p_entry)
 
         agy_data = {"providers": providers_out}
+
+        # Inject Multi-Agent Teams directly into chat dropdown if any enabled teams exist
+        teams = cfg.get("multi_agent_teams", {})
+        enabled_teams = [t for t in teams.values() if t.get("enabled", True) is not False]
+        if enabled_teams:
+            team_models = []
+            for t in enabled_teams:
+                tid = t.get("id") or t.get("slug") or "team"
+                tname = t.get("name", tid)
+                members = t.get("members", [])
+                m_labels = []
+                for m in members:
+                    p_id = m.get("provider", "")
+                    p_obj = all_providers.get(p_id, {})
+                    p_label = p_obj.get("name", p_id)
+                    m_label = m.get("model", "").split("/")[-1]
+                    m_labels.append(f"{p_label}:{m_label}")
+                mix_summary = " + ".join(m_labels) if m_labels else "Mix"
+                team_models.append({
+                    "id": f"team:{tid}",
+                    "name": f"🤖 {tname} [{mix_summary}]"
+                })
+
+            providers_out.insert(0, {
+                "id": "multiagent",
+                "name": "🤖 MULTI-AGENT TEAMS",
+                "base_url": f"http://127.0.0.1:{PORT}/multiagent",
+                "api_key": "auto",
+                "auth_mode": "bearer",
+                "models": team_models
+            })
+
         if os.path.exists(agy_providers_path):
             try:
                 with open(agy_providers_path, "r", encoding="utf-8") as f:

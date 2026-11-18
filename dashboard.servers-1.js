@@ -280,6 +280,105 @@ function renderLanes() {
   setupContainerDragListeners(cRouted);
   setupContainerDragListeners(cUnrouted);
   updatePriorityBadges();
+  renderTeamsLane();
+}
+
+function renderTeamsLane() {
+  const cTeams = document.getElementById('container-multiagent');
+  const countEl = document.getElementById('count-multiagent');
+  if (!cTeams) return;
+  cTeams.innerHTML = '';
+  const teams = currentConfig.multi_agent_teams || {};
+  const teamList = Object.values(teams);
+  if (countEl) countEl.innerText = `${teamList.length} Teams`;
+
+  if (teamList.length === 0) {
+    cTeams.innerHTML = '<div class="lane-empty">No mix teams yet — tap + Add to build your first Multi-Agent orchestra</div>';
+    return;
+  }
+
+  teamList.forEach(t => {
+    const card = document.createElement('div');
+    const isEn = t.enabled !== false;
+    card.className = `server-card${isEn ? '' : ' server-off'}`;
+    card.id = `team-card-${t.id}`;
+
+    const membersHtml = (t.members || []).map((m, idx) => {
+      const pObj = currentConfig.providers?.[m.provider] || {};
+      const pName = pObj.name || m.provider;
+      const mName = (m.model || '').split('/').pop();
+      const role = m.role || `step_${idx+1}`;
+      return `<span class="chip" style="font-size:10px;"><strong style="color:#d2a8ff;">${role}:</strong> ${pName} (${mName})</span>`;
+    }).join(' ');
+
+    card.innerHTML = `
+      <div class="server-card-top" style="cursor:default;">
+        <div class="server-card-header-row">
+          <div class="server-card-title-group">
+            <span class="prio-tag" style="background:rgba(137, 87, 229, 0.25); color:#d2a8ff; border:1px solid rgba(137, 87, 229, 0.6);">TEAM</span>
+            <span class="server-name" style="color:#fff;">${t.name || t.id}</span>
+            <span class="server-proto" style="background:#241b35; color:#d2a8ff; border-color:#8957e555;">${t.workflow || 'pipeline'}</span>
+          </div>
+          <div class="server-header-right">
+            <button type="button" class="power-toggle ${isEn ? 'is-on' : 'is-off'}" onclick="toggleTeamPower('${t.id}')">
+              <span class="power-dot"></span>
+              <span class="power-label">${isEn ? 'ON' : 'OFF'}</span>
+            </button>
+          </div>
+        </div>
+        <div class="server-card-controls-row" style="margin-top:6px;">
+          <div class="server-card-left-tags" style="flex-wrap:wrap; gap:4px;">
+            <span style="font-size:10px; font-family:var(--mono); color:#d2a8ff; background:#1e1430; padding:2px 6px; border-radius:4px; border:1px solid #58338f; cursor:pointer;" onclick="copyDirectRoute('multiagent')" title="Copy route">
+              📋 /multiagent
+            </span>
+            ${membersHtml}
+          </div>
+          <div class="server-card-btn-group">
+            <button class="btn btn-xs" onclick="openTeamModal('${t.id}')">✏️ Edit</button>
+            <button class="safe-delete-btn" onclick="deleteTeam('${t.id}')">🗑️</button>
+          </div>
+        </div>
+      </div>
+    `;
+    cTeams.appendChild(card);
+  });
+}
+
+async function toggleTeamPower(teamId) {
+  try {
+    const res = await fetch('/api/ui/multi-agent-teams', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'toggle', id: teamId })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(data.message);
+      currentConfig = data.config;
+      renderTeamsLane();
+    }
+  } catch (e) {
+    showToast('Failed to toggle team', true);
+  }
+}
+
+async function deleteTeam(teamId) {
+  if (!confirm('Delete this Multi-Agent team preset?')) return;
+  try {
+    const res = await fetch('/api/ui/multi-agent-teams', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete', id: teamId })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showToast('Team deleted');
+      currentConfig = data.config;
+      renderTeamsLane();
+    }
+  } catch (e) {
+    showToast('Failed to delete team', true);
+  }
 }
 
 function createServerCard(id, p, isRouted, index) {

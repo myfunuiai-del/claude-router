@@ -17,6 +17,12 @@ It unifies multiple AI providers and API keys behind one local endpoint (`http:/
 - **💤 STANDBY / FREE POOL (Strict Isolation):** Reserve servers kept out of the automatic failover chain. Dedicated requests sent to a standby route (e.g. `http://127.0.0.1:8999/googlestudio`) stay **strictly isolated** within that server — sequentially trying all of that server's models without ever cascading into the active routed pipeline.
 - **Direct Provider Routes (`/{provider_id}`):** Every server exposes its own direct route (e.g. `http://127.0.0.1:8999/coarena`). Tap the `📋 /provider` pill on any card to copy its direct URL.
 
+### 2. 🤖 Multi-Agent Architecture Mode (Preset Teams & Chat Dropdown Sync)
+- **Custom Mix Teams (Role-Based Orchestra):** Build teams consisting of multiple servers and specific models (e.g., `Architect: Coarena gemini-4-carbon` + `Coder: Groq gpt-oss-120b`).
+- **Live Chat Dropdown Integration:** Every saved team automatically synchronizes directly into your chat box model selector (`~/.claude/agy_providers.json`) under **`🤖 MULTI-AGENT TEAMS`** with its full composition shown (e.g., `🤖 Team: Code-Craft [Coarena:gemini-4-carbon + Groq:gpt-oss-120b]`).
+- **Strict All-or-Nothing Isolation Policy:** Unlike the general failover pipeline, if **any single member** of the selected team is turned OFF, lacks keys, or throws an error/rate limit, the request **strictly halts with HTTP 503** explaining exactly which member failed. It **never leaks or cascades** into general fallback servers or standby pools.
+- **Role Pipeline Execution:** Step 1 executes the lead Architect/Planner with strategic instructions; Step 2 feeds the approved blueprint into the Executor/Coder who applies full tool calling and returns the final answer.
+
 ### 2. 🤖 Modern Engine Modes (`⚡ Agentic` vs `💬 Normal`) for Anthropic & OpenAI
 - Available for **both Anthropic and OpenAI** protocol servers (`⚡ Agentic` is default):
   - **`⚡ Agentic` Mode (Default):** Full bidirectional tool calling (`tool_use` / `tool_result` ↔ `tool_calls` / `role: "tool"`), streaming tool call assembly, `tool_choice`, thinking/reasoning blocks, strict OpenAI `tool_call_id` normalization (for Groq/Mistral/OpenAI), JSON Schema sanitization (for Google AI Studio/Gemini), and bidirectional **Gemini 3.x `thought_signature` round-trip caching**.

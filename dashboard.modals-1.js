@@ -533,6 +533,127 @@ function applyPromptPreset(presetKey) {
   el.value = presets[presetKey] || '';
 }
 
+function openTeamModal(tId=null) {
+  const modal = document.getElementById('team-modal');
+  const title = document.getElementById('team-modal-title');
+  const editId = document.getElementById('team-edit-id');
+  const slugInput = document.getElementById('team-slug');
+  const nameInput = document.getElementById('team-name');
+  const wfInput = document.getElementById('team-workflow');
+  const listEl = document.getElementById('team-members-list');
+
+  if (listEl) listEl.innerHTML = '';
+
+  if (tId && currentConfig?.multi_agent_teams?.[tId]) {
+    const t = currentConfig.multi_agent_teams[tId];
+    if (title) title.innerText = '🤖 EDIT TEAM: ' + (t.name || tId);
+    if (editId) editId.value = tId;
+    if (slugInput) { slugInput.value = tId; slugInput.disabled = true; }
+    if (nameInput) nameInput.value = t.name || '';
+    if (wfInput) wfInput.value = t.workflow || 'role_pipeline';
+    (t.members || []).forEach(m => addTeamMemberRow(m.role, m.provider, m.model, m.prompt));
+  } else {
+    if (title) title.innerText = '🤖 BUILD MULTI-AGENT TEAM';
+    if (editId) editId.value = '';
+    if (slugInput) { slugInput.value = ''; slugInput.disabled = false; }
+    if (nameInput) nameInput.value = '';
+    if (wfInput) wfInput.value = 'role_pipeline';
+    // Defaults: Member 1 Planner + Member 2 Coder
+    addTeamMemberRow('planner', 'coarena', 'gemini-4-carbon', 'Architect / Planner');
+    addTeamMemberRow('coder', 'groq', 'openai/gpt-oss-120b', 'Implementation / Coder');
+  }
+  if (modal) modal.classList.add('active');
+}
+
+function closeTeamModal() {
+  const modal = document.getElementById('team-modal');
+  if (modal) modal.classList.remove('active');
+}
+
+function addTeamMemberRow(role='', provider='', model='', prompt='') {
+  const listEl = document.getElementById('team-members-list');
+  if (!listEl) return;
+  const row = document.createElement('div');
+  row.className = 'team-member-row';
+  row.style.cssText = 'background:#0b1118; border:1px solid #26354a; border-radius:5px; padding:7px; display:flex; flex-direction:column; gap:5px;';
+
+  const providers = currentConfig?.providers || {};
+  const pKeys = Object.keys(providers);
+
+  const curProv = provider || pKeys[0] || '';
+  const provModels = providers[curProv]?.models || [];
+  const curModel = model || provModels[0] || '';
+
+  const provOpts = pKeys.map(k => `<option value="${k}" ${k === curProv ? 'selected' : ''}>${providers[k]?.name || k}</option>`).join('');
+  const modelOpts = provModels.map(m => `<option value="${m}" ${m === curModel ? 'selected' : ''}>${m}</option>`).join('');
+
+  row.innerHTML = `
+    <div style="display:grid; grid-template-columns: 1fr 1.2fr 1.5fr auto; gap:5px; align-items:center;">
+      <input type="text" class="t-member-role" placeholder="Role (e.g. planner)" value="${role || 'worker'}" style="font-size:11px; padding:3px 6px;" required />
+      <select class="t-member-prov" style="font-size:11px; padding:3px 6px;" onchange="updateMemberModels(this)">${provOpts}</select>
+      <select class="t-member-model" style="font-size:11px; padding:3px 6px;">${modelOpts}</select>
+      <button type="button" class="btn btn-xs btn-danger" style="padding:2px 6px;" onclick="this.closest('.team-member-row').remove()">✕</button>
+    </div>
+    <input type="text" class="t-member-prompt" placeholder="Special role prompt instructions (optional)" value="${prompt || ''}" style="font-size:10px; padding:2px 6px; color:#c9d1d9;" />
+  `;
+  listEl.appendChild(row);
+}
+
+function updateMemberModels(selProv) {
+  const row = selProv.closest('.team-member-row');
+  const selModel = row?.querySelector('.t-member-model');
+  if (!selModel) return;
+  const pId = selProv.value;
+  const models = currentConfig?.providers?.[pId]?.models || [];
+  selModel.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('');
+}
+
+async function saveTeam(e) {
+  e.preventDefault();
+  const slug = document.getElementById('team-slug').value.trim().toLowerCase();
+  const name = document.getElementById('team-name').value.trim();
+  const wf = document.getElementById('team-workflow').value;
+  const rows = [...document.querySelectorAll('.team-member-row')];
+
+  const members = rows.map(r => ({
+    role: r.querySelector('.t-member-role')?.value.trim() || 'worker',
+    provider: r.querySelector('.t-member-prov')?.value || '',
+    model: r.querySelector('.t-member-model')?.value || '',
+    prompt: r.querySelector('.t-member-prompt')?.value.trim() || ''
+  })).filter(m => m.provider && m.model);
+
+  if (!members.length) {
+    showToast('Add at least one member', true);
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/ui/multi-agent-teams', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'save',
+        id: slug,
+        name: name,
+        workflow: wf,
+        enabled: true,
+        members: members
+      })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      showToast(`Team '${name}' saved & synced to chat dropdown!`);
+      closeTeamModal();
+      currentConfig = data.config;
+      renderTeamsLane();
+    } else {
+      showToast(data.message || 'Save failed', true);
+    }
+  } catch (err) {
+    showToast('Network error saving team', true);
+  }
+}
+
 function openServerModal(pId=null) {
   const modal = document.getElementById('server-modal');
   const title = document.getElementById('modal-title-text');

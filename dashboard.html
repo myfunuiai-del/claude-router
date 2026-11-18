@@ -16,6 +16,7 @@
         <span class="route-pill">MULTI-POOL ROUTING</span>
       </div>
       <div class="top-header-actions">
+        <button class="btn btn-xs btn-primary" onclick="openTeamModal()" style="background:#8957e5; border-color:#a371f7;">+ New Team</button>
         <button class="btn btn-xs" onclick="openLogsModal()" title="View live proxy logs & cooldowns">Logs</button>
         <button class="btn btn-xs" onclick="openBackupModal()" title="Export or restore config JSON">Backup</button>
         <button class="btn btn-xs btn-primary" onclick="openServerModal()">+ New Server</button>
@@ -97,6 +98,25 @@
         </div>
         <div class="lane-body" id="container-unrouted">
           <!-- Cards -->
+        </div>
+      </div>
+
+      <!-- LANE 3: MULTI-AGENT TEAMS (Mix Presets) -->
+      <div class="pool-lane" id="lane-multiagent" style="border-color:rgba(137, 87, 229, 0.45);">
+        <div class="lane-header">
+          <div>
+            <div class="lane-title" style="color:#d2a8ff;">
+              <span>🤖 MULTI-AGENT TEAMS (PRESETS)</span>
+            </div>
+            <div class="lane-subtitle">Mix teams (syncs to chat model dropdown)</div>
+          </div>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <span id="count-multiagent" style="font-size:10px; font-family:var(--mono); color:#d2a8ff;">0 Teams</span>
+            <button class="btn btn-xs" onclick="openTeamModal()" style="padding:1px 6px; font-size:10px;">+ Add</button>
+          </div>
+        </div>
+        <div class="lane-body" id="container-multiagent">
+          <!-- Team Cards -->
         </div>
       </div>
     </div>
@@ -223,6 +243,47 @@
         <div style="display:flex; justify-content:flex-end; gap:6px; margin-top:8px;">
           <button type="button" class="btn btn-xs" onclick="closeServerModal()">Cancel</button>
           <button type="submit" class="btn btn-xs btn-primary">Save Server</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Multi-Agent Team Builder Modal -->
+  <div id="team-modal" class="modal">
+    <div class="modal-box" style="max-width:540px;">
+      <div class="modal-title">
+        <span id="team-modal-title">🤖 BUILD MULTI-AGENT TEAM</span>
+        <span style="cursor:pointer;" onclick="closeTeamModal()">✕</span>
+      </div>
+      <form onsubmit="saveTeam(event)" style="display:flex; flex-direction:column; gap:10px;">
+        <input type="hidden" id="team-edit-id" value="" />
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+          <div>
+            <label style="font-size:11px; color:var(--text-muted);">Team ID (Slug)</label>
+            <input type="text" id="team-slug" placeholder="team_code_craft" required />
+          </div>
+          <div>
+            <label style="font-size:11px; color:var(--text-muted);">Display Name</label>
+            <input type="text" id="team-name" placeholder="Code-Craft Team" required />
+          </div>
+        </div>
+        <div>
+          <label style="font-size:11px; color:var(--text-muted);">Workflow Pattern</label>
+          <select id="team-workflow" style="margin-top:3px;">
+            <option value="role_pipeline">Role Pipeline (Member 1 Architect ➔ Member 2 Coder)</option>
+            <option value="worker_reviewer">Worker ➔ Reviewer</option>
+          </select>
+        </div>
+        <div>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+            <label style="font-size:11px; color:var(--text-muted); font-weight:600;">TEAM MEMBERS (STRICT ALL-OR-NOTHING)</label>
+            <button type="button" class="btn btn-xs" onclick="addTeamMemberRow()">+ Add Member</button>
+          </div>
+          <div id="team-members-list" style="display:flex; flex-direction:column; gap:6px;"></div>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:6px; margin-top:8px;">
+          <button type="button" class="btn btn-xs" onclick="closeTeamModal()">Cancel</button>
+          <button type="submit" class="btn btn-xs btn-primary">Save Team</button>
         </div>
       </form>
     </div>

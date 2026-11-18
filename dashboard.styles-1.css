@@ -72,8 +72,8 @@ input:focus, select:focus { border-color: var(--brand); }
 .btn-danger:hover { background: #da363322; border-color: #da363344; }
 .btn-xs { padding: 3px 8px; font-size: 10px; }
 
-/* DUAL POOLS COLUMNS */
-.pools-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+/* DUAL / TRIPLE POOLS COLUMNS */
+.pools-layout { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 12px; }
 @media (max-width: 768px) {
   .pools-layout { grid-template-columns: 1fr; }
 }

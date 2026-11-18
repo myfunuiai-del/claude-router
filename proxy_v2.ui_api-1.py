@@ -613,6 +613,88 @@ def handle_ui_post(handler, raw_body):
             handler.wfile.write(err)
             return True
 
+    # UI API: Multi-Agent Teams CRUD (save, toggle, delete)
+    if handler.path == "/api/ui/multi-agent-teams":
+        try:
+            data = json.loads(raw_body.decode('utf-8'))
+            action = data.get("action", "save")
+            cfg = load_proxy_config()
+            teams = cfg.setdefault("multi_agent_teams", {})
+
+            if action == "save":
+                t_id = (data.get("id") or "").strip().lower()
+                t_name = (data.get("name") or "").strip()
+                t_members = data.get("members", [])
+                t_workflow = data.get("workflow", "role_pipeline")
+                t_enabled = data.get("enabled", True)
+
+                if not t_id or not t_name:
+                    handler.send_response(400)
+                    handler.send_header('Content-Type', 'application/json')
+                    err = json.dumps({"status": "error", "message": "Team ID and Name are required"}).encode()
+                    handler.send_header('Content-Length', str(len(err)))
+                    handler.end_headers()
+                    handler.wfile.write(err)
+                    return True
+
+                teams[t_id] = {
+                    "id": t_id,
+                    "slug": t_id,
+                    "name": t_name,
+                    "workflow": t_workflow,
+                    "enabled": bool(t_enabled),
+                    "members": t_members
+                }
+                save_proxy_config(cfg)
+                resp = json.dumps({"status": "ok", "message": f"Team '{t_name}' saved", "config": cfg}).encode()
+
+            elif action == "toggle":
+                t_id = data.get("id")
+                if t_id and t_id in teams:
+                    cur = teams[t_id].get("enabled", True) is not False
+                    teams[t_id]["enabled"] = not cur
+                    save_proxy_config(cfg)
+                    resp = json.dumps({"status": "ok", "message": f"Team '{teams[t_id]['name']}' is now {'ON' if teams[t_id]['enabled'] else 'OFF'}", "config": cfg}).encode()
+                else:
+                    resp = json.dumps({"status": "error", "message": "Team not found"}).encode()
+
+            elif action == "delete":
+                t_id = data.get("id")
+                if t_id and t_id in teams:
+                    del teams[t_id]
+                    save_proxy_config(cfg)
+                    resp = json.dumps({"status": "ok", "message": f"Team deleted", "config": cfg}).encode()
+                else:
+                    resp = json.dumps({"status": "error", "message": "Team not found"}).encode()
+            else:
+                resp = json.dumps({"status": "error", "message": "Invalid action"}).encode()
+
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            handler.send_header('Content-Length', str(len(resp)))
+            handler.end_headers()
+            handler.wfile.write(resp)
+            return True
+        except Exception as e:
+            handler.send_response(500)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            err = json.dumps({"status": "error", "message": str(e)}).encode()
+            handler.send_header('Content-Length', str(len(err)))
+            handler.end_headers()
+            handler.wfile.write(err)
+            return True
+        except Exception as e:
+            handler.send_response(500)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            err = json.dumps({"status": "error", "message": str(e)}).encode()
+            handler.send_header('Content-Length', str(len(err)))
+            handler.end_headers()
+            handler.wfile.write(err)
+            return True
+
     # UI API: Restore / Import config JSON safely (auto-backs up existing config.json.bak first)
     if handler.path == "/api/ui/config-import":
         try:

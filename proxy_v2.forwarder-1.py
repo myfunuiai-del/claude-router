@@ -23,6 +23,7 @@ def _load_module_to_globals(filename, target_globals):
 
 _config_mod = _load_module_to_globals("proxy_v2.config-1.py", globals())
 _transform_mod = _load_module_to_globals("proxy_v2.transform-1.py", globals())
+_multi_agent_mod = _load_module_to_globals("proxy_v2.multi_agent-1.py", globals())
 
 def _inject_custom_prompt(body_obj, custom_prompt):
     """Prepend provider-level custom system instructions cleanly to an Anthropic request body copy."""
@@ -569,6 +570,26 @@ def dispatch_inference(handler, raw_body):
         )
 
     try:
+        # 0. MULTI-AGENT TEAM INTERCEPTION: If requested model is a Multi-Agent Team (team:...) or path is /multiagent
+        is_multiagent_path = handler.path == "/multiagent" or handler.path.startswith("/multiagent/") or handler.path.startswith("/multiagent?")
+        target_team = None
+        if orig_model and (orig_model.startswith("team:") or orig_model.startswith("multiagent/")):
+            target_team = get_multi_agent_team(orig_model, cfg)
+        elif is_multiagent_path:
+            # If routed to /multiagent, use specified team model or first enabled team
+            target_team = get_multi_agent_team(orig_model, cfg)
+            if not target_team:
+                teams = cfg.get("multi_agent_teams", {})
+                for t in teams.values():
+                    if t.get("enabled", True) is not False:
+                        target_team = t
+                        break
+
+        if target_team:
+            sys.stderr.write(f"[Proxy Multi-Agent] Intercepted team request for '{target_team.get('name')}' (Model: {orig_model}, Path: {handler.path})\n")
+            execute_multi_agent_team(handler, target_team, body_obj, raw_body)
+            return
+
         # 1. DEDICATED DIRECT ROUTE: Matches any provider endpoint (/{p_id} or /{p_id}/*)
         target_dedicated_provider = None
         for p_id in all_providers:
