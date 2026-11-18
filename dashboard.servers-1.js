@@ -308,7 +308,10 @@ function renderTeamsLane() {
       const pName = pObj.name || m.provider;
       const mName = (m.model || '').split('/').pop();
       const role = m.role || `step_${idx+1}`;
-      return `<span class="chip" style="font-size:10px;"><strong style="color:#d2a8ff;">${role}:</strong> ${pName} (${mName})</span>`;
+      const mMode = m.mode || (idx === 0 ? 'normal' : 'agentic');
+      const modeIcon = mMode === 'agentic' ? '⚡' : '💡';
+      const modeColor = mMode === 'agentic' ? '#79c0ff' : '#f2cc60';
+      return `<span class="chip" style="font-size:10px;"><strong style="color:#d2a8ff;">${role}:</strong> ${pName} (${mName}) <span style="font-size:9.5px; color:${modeColor};" title="Engine Mode: ${mMode}">${modeIcon}</span></span>`;
     }).join(' ');
 
     card.innerHTML = `

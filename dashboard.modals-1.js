@@ -543,6 +543,8 @@ const WORKFLOW_TEMPLATES = {
         provHint: 'coarena',
         modelHint: 'gemini-4-carbon',
         tokens: '',
+        mode: 'normal',
+        recommended: 'normal',
         prompt: 'You are the Lead Software Architect. Formulate a structured blueprint. Be concise, output a structured blueprint only without filler text.'
       },
       {
@@ -550,6 +552,8 @@ const WORKFLOW_TEMPLATES = {
         provHint: 'groq',
         modelHint: 'openai/gpt-oss-120b',
         tokens: '',
+        mode: 'agentic',
+        recommended: 'agentic',
         prompt: 'You are the Senior Implementation Engineer. Execute the approved architectural plan with clean, complete code and necessary tool calls.'
       }
     ]
@@ -563,6 +567,8 @@ const WORKFLOW_TEMPLATES = {
         provHint: 'coarena',
         modelHint: 'gemini-4-carbon',
         tokens: '',
+        mode: 'normal',
+        recommended: 'normal',
         prompt: 'Expert perspective 1: Deep reasoning & architectural rigor. Be concise, output a structured blueprint only without filler text.'
       },
       {
@@ -570,6 +576,8 @@ const WORKFLOW_TEMPLATES = {
         provHint: 'groq',
         modelHint: 'openai/gpt-oss-120b',
         tokens: '',
+        mode: 'normal',
+        recommended: 'normal',
         prompt: 'Expert perspective 2: Fast pragmatic engineering, algorithm optimization, and edge-case prevention.'
       },
       {
@@ -577,6 +585,8 @@ const WORKFLOW_TEMPLATES = {
         provHint: 'googlestudio',
         modelHint: 'models/gemini-3.5-flash-lite',
         tokens: '',
+        mode: 'agentic',
+        recommended: 'agentic',
         prompt: 'You are Supreme Judge and Synthesizer. Review all candidate solutions above, eliminate discrepancies, combine strengths, and deliver the final authoritative, bug-free solution.'
       }
     ]
@@ -590,6 +600,8 @@ const WORKFLOW_TEMPLATES = {
         provHint: 'coarena',
         modelHint: 'gemini-4-carbon',
         tokens: '',
+        mode: 'normal',
+        recommended: 'normal',
         prompt: 'System Architect: Analyze requirements, outline components and safety invariants. Be concise, output a structured blueprint only without filler text.'
       },
       {
@@ -597,6 +609,8 @@ const WORKFLOW_TEMPLATES = {
         provHint: 'groq',
         modelHint: 'openai/gpt-oss-120b',
         tokens: '',
+        mode: 'agentic',
+        recommended: 'agentic',
         prompt: 'Lead Builder: Implement complete, functional code following the architectural plan.'
       },
       {
@@ -604,6 +618,8 @@ const WORKFLOW_TEMPLATES = {
         provHint: 'googlestudio',
         modelHint: 'models/gemini-3.5-flash-lite',
         tokens: '',
+        mode: 'agentic',
+        recommended: 'agentic',
         prompt: 'Security & Quality Auditor: Rigorously audit the built code for edge cases, security flaws, and performance regressions; output the final verified version.'
       }
     ]
@@ -617,6 +633,8 @@ const WORKFLOW_TEMPLATES = {
         provHint: 'googlestudio',
         modelHint: 'models/gemini-3.5-flash-lite',
         tokens: '',
+        mode: 'normal',
+        recommended: 'normal',
         prompt: 'Rapid Prototyper: Generate an immediate structural scaffold and pseudocode. Be concise, output a structured blueprint only without filler text.'
       },
       {
@@ -624,6 +642,8 @@ const WORKFLOW_TEMPLATES = {
         provHint: 'coarena',
         modelHint: 'gemini-4-carbon',
         tokens: '',
+        mode: 'agentic',
+        recommended: 'agentic',
         prompt: 'Deep Reasoning Finisher: Take the rapid draft, complete all implementations, enforce production hardening, and produce the final polished response.'
       }
     ]
@@ -637,6 +657,8 @@ const WORKFLOW_TEMPLATES = {
         provHint: 'googlestudio',
         modelHint: 'models/gemini-3.5-flash-lite',
         tokens: '',
+        mode: 'normal',
+        recommended: 'normal',
         prompt: 'Complexity Gatekeeper: Classify user query complexity (1-10) and outline requirements. Be concise, output a structured blueprint only without filler text.'
       },
       {
@@ -644,6 +666,8 @@ const WORKFLOW_TEMPLATES = {
         provHint: 'groq',
         modelHint: 'openai/gpt-oss-120b',
         tokens: '',
+        mode: 'agentic',
+        recommended: 'agentic',
         prompt: 'Domain Specialist: Deliver the complete authoritative solution tailored to the evaluated complexity.'
       }
     ]
@@ -657,6 +681,8 @@ const WORKFLOW_TEMPLATES = {
         provHint: 'groq',
         modelHint: 'openai/gpt-oss-120b',
         tokens: '',
+        mode: 'normal',
+        recommended: 'normal',
         prompt: 'Primary Worker: Draft initial complete response. Be concise, output a structured blueprint only without filler text.'
       },
       {
@@ -664,6 +690,8 @@ const WORKFLOW_TEMPLATES = {
         provHint: 'coarena',
         modelHint: 'gemini-4-carbon',
         tokens: '',
+        mode: 'agentic',
+        recommended: 'agentic',
         prompt: 'Senior Reviewer: Polish wording, correct any technical inaccuracies, and present the final refined answer.'
       }
     ]
@@ -697,7 +725,7 @@ function openTeamModal(tId=null) {
     if (slugInput) { slugInput.value = tId; slugInput.disabled = true; }
     if (nameInput) nameInput.value = t.name || '';
     if (wfInput) wfInput.value = t.workflow || 'role_pipeline';
-    (t.members || []).forEach(m => addTeamMemberRow(m.role, m.provider, m.model, m.prompt, m.tokens || m.max_tokens));
+    (t.members || []).forEach(m => addTeamMemberRow(m.role, m.provider, m.model, m.prompt, m.tokens || m.max_tokens, m.mode, m.recommended));
   } else {
     if (title) title.innerText = '🤖 BUILD MULTI-AGENT TEAM';
     if (editId) editId.value = '';
@@ -726,7 +754,7 @@ function onTeamWorkflowChange(val) {
 
   tmpl.members.forEach(mDef => {
     const res = _resolveProviderAndModel(mDef.provHint, mDef.modelHint);
-    addTeamMemberRow(mDef.role, res.provider, res.model, mDef.prompt, mDef.tokens);
+    addTeamMemberRow(mDef.role, res.provider, res.model, mDef.prompt, mDef.tokens, mDef.mode, mDef.recommended);
   });
 
   // If adding new team and user hasn't typed custom name/slug, set suggested defaults
@@ -740,7 +768,49 @@ function onTeamWorkflowChange(val) {
   }
 }
 
-function addTeamMemberRow(role='', provider='', model='', prompt='', tokens='') {
+function setMemberMode(btn, newMode) {
+  const seg = btn.closest('.proto-segmented');
+  const row = btn.closest('.team-member-row');
+  if (!seg || !row) return;
+
+  [...seg.children].forEach(b => b.classList.remove('is-active'));
+  btn.classList.add('is-active');
+
+  const hiddenInput = row.querySelector('.t-member-mode');
+  if (hiddenInput) hiddenInput.value = newMode;
+
+  const recMode = hiddenInput?.getAttribute('data-recommended') || 'agentic';
+  const badge = row.querySelector('.t-mode-warning-badge');
+
+  if (recMode === 'agentic' && newMode === 'normal') {
+    // User disabled tools on a member that is supposed to execute tools/code!
+    row.classList.add('is-mode-hazard');
+    if (badge) {
+      badge.style.display = 'inline-block';
+      badge.style.color = '#ff7b72';
+      badge.style.fontWeight = '700';
+      badge.innerText = '⚠️ Tools Disabled: Cannot write files or execute bash!';
+    }
+  } else if (recMode === 'normal' && newMode === 'agentic') {
+    // User enabled tools on a planner/councilor that only needs text
+    row.classList.remove('is-mode-hazard');
+    if (badge) {
+      badge.style.display = 'inline-block';
+      badge.style.color = '#d29922';
+      badge.style.fontWeight = '600';
+      badge.innerText = 'ℹ️ Agentic active: +10k tool tokens overhead';
+    }
+  } else {
+    // Normal / Recommended state
+    row.classList.remove('is-mode-hazard');
+    if (badge) {
+      badge.style.display = 'none';
+      badge.innerText = '';
+    }
+  }
+}
+
+function addTeamMemberRow(role='', provider='', model='', prompt='', tokens='', mode='', recommended='') {
   const listEl = document.getElementById('team-members-list');
   if (!listEl) return;
   const memberIndex = listEl.children.length + 1;
@@ -753,6 +823,13 @@ function addTeamMemberRow(role='', provider='', model='', prompt='', tokens='') 
   const curProv = provider || pKeys[0] || '';
   const provModels = providers[curProv]?.models || [];
   const curModel = model || provModels[0] || '';
+
+  // Determine mode and recommended mode
+  const recMode = recommended || (memberIndex === 1 ? 'normal' : 'agentic');
+  const curMode = mode || recMode;
+
+  const isHazard = (recMode === 'agentic' && curMode === 'normal');
+  if (isHazard) row.classList.add('is-mode-hazard');
 
   const provOpts = pKeys.map(k => `<option value="${k}" ${k === curProv ? 'selected' : ''}>${providers[k]?.name || k}</option>`).join('');
   const modelOpts = provModels.map(m => `<option value="${m}" ${m === curModel ? 'selected' : ''}>${m}</option>`).join('');
@@ -786,6 +863,21 @@ function addTeamMemberRow(role='', provider='', model='', prompt='', tokens='') 
         <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:2px;" title="Leave empty for unlimited tokens">Max Tokens</label>
         <input type="number" class="t-member-tokens" placeholder="Unlimited" value="${tokens || ''}" min="100" max="128000" style="width:100%; min-width:0; font-size:11px; padding:5px 8px; font-family:var(--mono); box-sizing:border-box;" />
       </div>
+    </div>
+
+    <!-- Engine Mode Segmented Control with Hazard Warning -->
+    <div style="display:flex; flex-direction:column; gap:3px; min-width:0;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <label style="font-size:10px; color:var(--text-muted);">Engine Mode</label>
+        <span class="t-mode-warning-badge" style="font-size:9.5px; ${isHazard ? 'display:inline-block; color:#ff7b72; font-weight:700;' : (recMode === 'normal' && curMode === 'agentic' ? 'display:inline-block; color:#d29922; font-weight:600;' : 'display:none;')}">
+          ${isHazard ? '⚠️ Tools Disabled: Cannot write files or execute bash!' : (recMode === 'normal' && curMode === 'agentic' ? 'ℹ️ Agentic active: +10k tool tokens overhead' : '')}
+        </span>
+      </div>
+      <div class="proto-segmented" style="height:28px;">
+        <button type="button" class="proto-seg-btn ${curMode === 'agentic' ? 'is-active' : ''}" style="font-size:10.5px;" onclick="setMemberMode(this, 'agentic')">⚡ Agentic (Full Tools)</button>
+        <button type="button" class="proto-seg-btn ${curMode === 'normal' ? 'is-active' : ''}" style="font-size:10.5px;" onclick="setMemberMode(this, 'normal')">💡 Normal (Saves ~10k Tok)</button>
+      </div>
+      <input type="hidden" class="t-member-mode" value="${curMode}" data-recommended="${recMode}" />
     </div>
 
     <!-- Role System Instructions -->
@@ -832,6 +924,8 @@ async function saveTeam(e) {
       role: r.querySelector('.t-member-role')?.value.trim() || 'worker',
       provider: r.querySelector('.t-member-prov')?.value || '',
       model: r.querySelector('.t-member-model')?.value || '',
+      mode: r.querySelector('.t-member-mode')?.value || 'agentic',
+      recommended: r.querySelector('.t-member-mode')?.getAttribute('data-recommended') || 'agentic',
       tokens: (tokNum && tokNum > 0) ? tokNum : null,
       prompt: r.querySelector('.t-member-prompt')?.value.trim() || ''
     };

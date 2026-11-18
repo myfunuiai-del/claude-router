@@ -98,7 +98,7 @@ def _trim_handoff_text(text, max_chars=8000):
     half = (max_chars - 200) // 2
     return f"{text[:half]}\n\n[... Truncated for token limit ({len(text)} chars) ...]\n\n{text[-half:]}"
 
-def _execute_member_turn(handler, pid, p_obj, target_model, body_obj, role_prompt=None, max_tokens=None, is_intermediate=False, is_first_member=False):
+def _execute_member_turn(handler, pid, p_obj, target_model, body_obj, role_prompt=None, max_tokens=None, is_intermediate=False, is_first_member=False, member_mode=None):
     """
     Executes a single step with a specific member provider.
     Returns (True, response_bytes, in_tok, out_tok, elapsed_ms) or (False, error_msg, in_tok, out_tok, elapsed_ms).
@@ -142,6 +142,9 @@ def _execute_member_turn(handler, pid, p_obj, target_model, body_obj, role_promp
         else:
             b_copy["system"] = eff_prompt
 
+    # 5. Resolve Engine Mode (agentic vs normal)
+    eff_mode = (member_mode or p_obj.get("mode") or ("normal" if is_first_member else "agentic")).lower()
+
     available_keys = [k for k in p_keys if is_key_in_cooldown(pid, k, target_model) == 0] or p_keys
     if not available_keys and pid != "agentrouter":
         return False, f"[{p_name}] No available keys", 0, 0, 0
@@ -150,7 +153,9 @@ def _execute_member_turn(handler, pid, p_obj, target_model, body_obj, role_promp
 
     if p_type == "anthropic":
         fwd_url = f"{p_base}/v1/messages" if p_base.endswith("/api") else f"{p_base}/messages"
-        payload = json.dumps(b_copy).encode('utf-8')
+        # Apply engine mode to anthropic payload (strips heavy tools if normal, saves ~10k+ tokens)
+        eff_anth_body = apply_engine_mode_to_anthropic_body(b_copy, mode=eff_mode)
+        payload = json.dumps(eff_anth_body).encode('utf-8')
         hdrs = {
             'Authorization': f"Bearer {key}",
             'x-api-key': key,
@@ -183,7 +188,7 @@ def _execute_member_turn(handler, pid, p_obj, target_model, body_obj, role_promp
 
     elif p_type == "openai":
         fwd_url = p_base if p_base.endswith("/chat/completions") else f"{p_base}/chat/completions"
-        openai_body = anthropic_to_openai_body(b_copy, target_model, p_id=pid, mode=p_obj.get("mode", "agentic"), base_url=p_base)
+        openai_body = anthropic_to_openai_body(b_copy, target_model, p_id=pid, mode=eff_mode, base_url=p_base)
         payload = json.dumps(openai_body, ensure_ascii=False).encode('utf-8')
         hdrs = {
             'Authorization': f"Bearer {key}",
@@ -308,7 +313,10 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         p_obj = all_providers[pid]
         mdl = m.get("model")
         p_prompt = m.get("prompt", "")
-        success, resp_data, in_t, out_t, ms = _execute_member_turn(handler, pid, p_obj, mdl, body_obj, p_prompt)
+        success, resp_data, in_t, out_t, ms = _execute_member_turn(
+            handler, pid, p_obj, mdl, body_obj, p_prompt,
+            max_tokens=m.get("tokens"), member_mode=m.get("mode")
+        )
         if not success:
             _send_team_error(handler, tname, pid, resp_data, t_start)
             return True
@@ -341,9 +349,11 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
             c_role = mem.get("role") or f"Councilor #{idx+1}"
             c_prompt = mem.get("prompt") or f"You are {c_role}. Provide your complete, independent solution to the problem."
             c_tok = mem.get("tokens") or mem.get("max_tokens")
+            c_mode = mem.get("mode") or "normal"
             ok, data, in_t, out_t, ms = _execute_member_turn(
                 handler, c_pid, c_pobj, c_mdl, body_obj, c_prompt,
-                max_tokens=c_tok, is_intermediate=True, is_first_member=(idx == 0)
+                max_tokens=c_tok, is_intermediate=True, is_first_member=(idx == 0),
+                member_mode=c_mode
             )
             return idx, c_pid, c_pobj.get("name", c_pid), c_mdl, c_role, ok, data, in_t, out_t, ms
 
@@ -392,11 +402,13 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         j_prompt = judge.get("prompt") or judge_default_prompt
         combined_judge_prompt = f"{j_prompt}\n\n{council_opinions_text}\n--- [END OF COUNCIL OPINIONS] ---"
         j_tok = judge.get("tokens") or judge.get("max_tokens")
+        j_mode = judge.get("mode") or "agentic"
 
         sys.stderr.write(f"[Multi-Agent Parallel Council '{tname}'] Phase 2: Supreme Judge ({j_pobj.get('name', j_pid)} - {j_mdl}) evaluating...\n")
         j_ok, j_data, j_in, j_out, j_ms = _execute_member_turn(
             handler, j_pid, j_pobj, j_mdl, body_obj, combined_judge_prompt,
-            max_tokens=j_tok, is_intermediate=False, is_first_member=False
+            max_tokens=j_tok, is_intermediate=False, is_first_member=False,
+            member_mode=j_mode
         )
         if not j_ok:
             _send_team_error(handler, tname, j_pid, j_data, t_start)
@@ -422,7 +434,8 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         sys.stderr.write(f"[Multi-Agent Tri-Tier '{tname}'] Tier 1: Architect ({pobj1.get('name', pid1)} - {mdl1})...\n")
         s1_ok, s1_data, in_t1, out_t1, ms1 = _execute_member_turn(
             handler, pid1, pobj1, mdl1, body_obj, r1_prompt,
-            max_tokens=m1.get("tokens"), is_intermediate=True, is_first_member=True
+            max_tokens=m1.get("tokens"), is_intermediate=True, is_first_member=True,
+            member_mode=m1.get("mode") or "normal"
         )
         if not s1_ok:
             _send_team_error(handler, tname, pid1, s1_data, t_start)
@@ -437,7 +450,8 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         sys.stderr.write(f"[Multi-Agent Tri-Tier '{tname}'] Tier 2: Builder ({pobj2.get('name', pid2)} - {mdl2})...\n")
         s2_ok, s2_data, in_t2, out_t2, ms2 = _execute_member_turn(
             handler, pid2, pobj2, mdl2, body_obj, builder_combined,
-            max_tokens=m2.get("tokens"), is_intermediate=True, is_first_member=False
+            max_tokens=m2.get("tokens"), is_intermediate=True, is_first_member=False,
+            member_mode=m2.get("mode") or "agentic"
         )
         if not s2_ok:
             _send_team_error(handler, tname, pid2, s2_data, t_start)
@@ -457,7 +471,8 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         sys.stderr.write(f"[Multi-Agent Tri-Tier '{tname}'] Tier 3: Auditor ({pobj3.get('name', pid3)} - {mdl3})...\n")
         s3_ok, s3_data, in_t3, out_t3, ms3 = _execute_member_turn(
             handler, pid3, pobj3, mdl3, body_obj, auditor_combined,
-            max_tokens=m3.get("tokens"), is_intermediate=False, is_first_member=False
+            max_tokens=m3.get("tokens"), is_intermediate=False, is_first_member=False,
+            member_mode=m3.get("mode") or "agentic"
         )
         if not s3_ok:
             _send_team_error(handler, tname, pid3, s3_data, t_start)
@@ -482,7 +497,8 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         sys.stderr.write(f"[Multi-Agent Speculative Draft '{tname}'] Stage 1: Lightning Drafter ({pobj1.get('name', pid1)} - {mdl1})...\n")
         s1_ok, s1_data, in_t1, out_t1, ms1 = _execute_member_turn(
             handler, pid1, pobj1, mdl1, body_obj, r1_prompt,
-            max_tokens=m1.get("tokens"), is_intermediate=True, is_first_member=True
+            max_tokens=m1.get("tokens"), is_intermediate=True, is_first_member=True,
+            member_mode=m1.get("mode") or "normal"
         )
         if not s1_ok:
             _send_team_error(handler, tname, pid1, s1_data, t_start)
@@ -501,7 +517,8 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         sys.stderr.write(f"[Multi-Agent Speculative Draft '{tname}'] Stage 2: Deep Finisher ({pobj2.get('name', pid2)} - {mdl2})...\n")
         s2_ok, s2_data, in_t2, out_t2, ms2 = _execute_member_turn(
             handler, pid2, pobj2, mdl2, body_obj, combined_prompt,
-            max_tokens=m2.get("tokens"), is_intermediate=False, is_first_member=False
+            max_tokens=m2.get("tokens"), is_intermediate=False, is_first_member=False,
+            member_mode=m2.get("mode") or "agentic"
         )
         if not s2_ok:
             _send_team_error(handler, tname, pid2, s2_data, t_start)
@@ -526,7 +543,8 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         sys.stderr.write(f"[Multi-Agent Router Evaluator '{tname}'] Stage 1: Gatekeeper ({pobj1.get('name', pid1)} - {mdl1})...\n")
         s1_ok, s1_data, in_t1, out_t1, ms1 = _execute_member_turn(
             handler, pid1, pobj1, mdl1, body_obj, r1_prompt,
-            max_tokens=m1.get("tokens"), is_intermediate=True, is_first_member=True
+            max_tokens=m1.get("tokens"), is_intermediate=True, is_first_member=True,
+            member_mode=m1.get("mode") or "normal"
         )
         if not s1_ok:
             _send_team_error(handler, tname, pid1, s1_data, t_start)
@@ -545,7 +563,8 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         sys.stderr.write(f"[Multi-Agent Router Evaluator '{tname}'] Stage 2: Expert Specialist ({pobj2.get('name', pid2)} - {mdl2})...\n")
         s2_ok, s2_data, in_t2, out_t2, ms2 = _execute_member_turn(
             handler, pid2, pobj2, mdl2, body_obj, combined_prompt,
-            max_tokens=m2.get("tokens"), is_intermediate=False, is_first_member=False
+            max_tokens=m2.get("tokens"), is_intermediate=False, is_first_member=False,
+            member_mode=m2.get("mode") or "agentic"
         )
         if not s2_ok:
             _send_team_error(handler, tname, pid2, s2_data, t_start)
@@ -570,7 +589,8 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         sys.stderr.write(f"[Multi-Agent Worker-Reviewer '{tname}'] Stage 1: Worker ({pobj1.get('name', pid1)} - {mdl1})...\n")
         s1_ok, s1_data, in_t1, out_t1, ms1 = _execute_member_turn(
             handler, pid1, pobj1, mdl1, body_obj, r1_prompt,
-            max_tokens=m1.get("tokens"), is_intermediate=True, is_first_member=True
+            max_tokens=m1.get("tokens"), is_intermediate=True, is_first_member=True,
+            member_mode=m1.get("mode") or "normal"
         )
         if not s1_ok:
             _send_team_error(handler, tname, pid1, s1_data, t_start)
@@ -589,7 +609,8 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
         sys.stderr.write(f"[Multi-Agent Worker-Reviewer '{tname}'] Stage 2: Reviewer ({pobj2.get('name', pid2)} - {mdl2})...\n")
         s2_ok, s2_data, in_t2, out_t2, ms2 = _execute_member_turn(
             handler, pid2, pobj2, mdl2, body_obj, combined_prompt,
-            max_tokens=m2.get("tokens"), is_intermediate=False, is_first_member=False
+            max_tokens=m2.get("tokens"), is_intermediate=False, is_first_member=False,
+            member_mode=m2.get("mode") or "agentic"
         )
         if not s2_ok:
             _send_team_error(handler, tname, pid2, s2_data, t_start)
@@ -613,7 +634,8 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
     sys.stderr.write(f"[Multi-Agent Team '{tname}'] Step 1/2: Running Architect/Planner ({p_obj1.get('name', pid1)} - {mdl1})...\n")
     s1_ok, s1_data, in_t1, out_t1, ms1 = _execute_member_turn(
         handler, pid1, p_obj1, mdl1, body_obj, r1_prompt,
-        max_tokens=m1.get("tokens"), is_intermediate=True, is_first_member=True
+        max_tokens=m1.get("tokens"), is_intermediate=True, is_first_member=True,
+        member_mode=m1.get("mode") or "normal"
     )
     if not s1_ok:
         _send_team_error(handler, tname, pid1, s1_data, t_start)
@@ -633,7 +655,8 @@ def execute_multi_agent_team(handler, team, body_obj, raw_body):
     sys.stderr.write(f"[Multi-Agent Team '{tname}'] Step 2/2: Running Executor/Coder ({p_obj2.get('name', pid2)} - {mdl2})...\n")
     s2_ok, s2_data, in_t2, out_t2, ms2 = _execute_member_turn(
         handler, pid2, p_obj2, mdl2, body_obj, combined_prompt,
-        max_tokens=m2.get("tokens"), is_intermediate=False, is_first_member=False
+        max_tokens=m2.get("tokens"), is_intermediate=False, is_first_member=False,
+        member_mode=m2.get("mode") or "agentic"
     )
     if not s2_ok:
         _send_team_error(handler, tname, pid2, s2_data, t_start)

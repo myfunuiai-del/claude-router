@@ -287,3 +287,15 @@ input:focus, select:focus { border-color: var(--brand); }
 .undo-progress-bar-wrap { width: 100%; height: 3px; background: rgba(255, 255, 255, 0.1); border-radius: 2px; overflow: hidden; }
 .undo-progress-bar { height: 100%; width: 100%; background: #388bfd; transition: width 0.1s linear, background-color 0.4s ease; }
 .undo-toast.expiring .undo-progress-bar { background: var(--danger); }
+
+/* Multi-Agent Member Hazard Glow */
+.team-member-row.is-mode-hazard {
+  border-color: #f85149 !important;
+  border-left: 4px solid #f85149 !important;
+  box-shadow: 0 0 16px rgba(248, 81, 73, 0.45) !important;
+  animation: hazardPulse 2.2s infinite ease-in-out;
+}
+@keyframes hazardPulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(248, 81, 73, 0.35); border-color: #f85149; }
+  50% { box-shadow: 0 0 22px rgba(248, 81, 73, 0.7); border-color: #ff7b72; }
+}
