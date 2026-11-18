@@ -230,6 +230,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
         elif clean_orig.startswith("@") and "/" in clean_orig:
             clean_orig = clean_orig.split("/", 1)[1]
 
+        # Build prioritized list of model candidates for this server
         matched_model = None
         if clean_orig in p_models:
             matched_model = clean_orig
@@ -240,143 +241,155 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                     matched_model = m
                     break
 
-        target_model = matched_model or p_def_model or clean_orig
+        primary_model = matched_model or p_def_model or clean_orig
+        candidates = [primary_model]
+        if not is_recovery:
+            # During normal routing, sequentially try all models configured for this provider if primary fails
+            if p_def_model and p_def_model not in candidates:
+                candidates.append(p_def_model)
+            for m in p_models:
+                if m not in candidates:
+                    candidates.append(m)
 
-        if p_type == "anthropic":
-            fwd_url = f"{p_base}/v1/messages" if p_base.endswith("/api") else f"{p_base}/messages"
-            if body_obj is not None:
-                b_copy = dict(body_obj)
-                b_copy['model'] = target_model
-                if p_id == "openrouter" and isinstance(b_copy.get('max_tokens'), int) and b_copy['max_tokens'] > 2048:
-                    b_copy['max_tokens'] = 2048
-                fwd_body = json.dumps(b_copy).encode('utf-8')
-            else:
-                fwd_body = raw_body
+        for model_idx, target_model in enumerate(candidates):
+            if model_idx > 0:
+                sys.stderr.write(f"[Proxy] Fallback to next model '{target_model}' (#{model_idx+1}/{len(candidates)}) on '{p_id}'...\n")
 
-            p_candidates = _select_available_keys(p_id, p_keys, target_model, max_count=(2 if is_recovery else None))
-            for attempt, key in p_candidates:
-                req_id = getattr(handler, "_live_req_id", None)
-                stage_lbl = getattr(handler, "_live_stage", "Original")
-                if req_id:
-                    set_in_flight(req_id, p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", stage_lbl, handler.path)
-                fwd_headers = {
-                    'Authorization': f"Bearer {key}",
-                    'x-api-key': key,
-                    'anthropic-version': '2023-06-01',
-                    'Originator': 'codex_cli_rs',
-                    'Content-Type': 'application/json',
-                    'User-Agent': 'Mozilla/5.0 (compatible; AI-Proxy/2.0)',
-                    'Accept-Encoding': 'identity'
-                }
-                custom_hdrs = p_info.get("custom_headers")
-                if custom_hdrs and isinstance(custom_hdrs, dict):
-                    fwd_headers.update(custom_hdrs)
-                req = urllib.request.Request(fwd_url, data=fwd_body, headers=fwd_headers, method='POST')
-                try:
-                    with urllib.request.urlopen(req, timeout=30) as resp:
-                        resp_data = resp.read()
-                        clear_key_cooldown(p_id, key, target_model)
-                        p_name = p_info.get("name", p_id)
-                        handler._winner_info = {"provider": p_id, "provider_name": p_name, "model": target_model, "key_label": f"Key #{attempt+1}"}
-                        save_active_state(p_name, target_model, f"Key #{attempt+1}")
-                        resp_data = append_signature_to_response(resp_data, p_name, target_model)
-                        handler.send_response(resp.status)
-                        for k, val in resp.headers.items():
-                            if k.lower() not in ['transfer-encoding', 'content-encoding', 'content-length', 'connection']:
-                                handler.send_header(k, val)
-                        handler.send_header('Content-Length', str(len(resp_data)))
-                        handler.end_headers()
-                        handler.wfile.write(resp_data)
-                        return True
-                except urllib.error.HTTPError as e:
-                    handler._last_http_error = e.code
-                    err_txt = ""
+            if p_type == "anthropic":
+                fwd_url = f"{p_base}/v1/messages" if p_base.endswith("/api") else f"{p_base}/messages"
+                if body_obj is not None:
+                    b_copy = dict(body_obj)
+                    b_copy['model'] = target_model
+                    if p_id == "openrouter" and isinstance(b_copy.get('max_tokens'), int) and b_copy['max_tokens'] > 2048:
+                        b_copy['max_tokens'] = 2048
+                    fwd_body = json.dumps(b_copy).encode('utf-8')
+                else:
+                    fwd_body = raw_body
+
+                p_candidates = _select_available_keys(p_id, p_keys, target_model, max_count=(2 if is_recovery else None))
+                for attempt, key in p_candidates:
+                    req_id = getattr(handler, "_live_req_id", None)
+                    stage_lbl = getattr(handler, "_live_stage", "Original")
+                    if req_id:
+                        set_in_flight(req_id, p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", stage_lbl, handler.path)
+                    fwd_headers = {
+                        'Authorization': f"Bearer {key}",
+                        'x-api-key': key,
+                        'anthropic-version': '2023-06-01',
+                        'Originator': 'codex_cli_rs',
+                        'Content-Type': 'application/json',
+                        'User-Agent': 'Mozilla/5.0 (compatible; AI-Proxy/2.0)',
+                        'Accept-Encoding': 'identity'
+                    }
+                    custom_hdrs = p_info.get("custom_headers")
+                    if custom_hdrs and isinstance(custom_hdrs, dict):
+                        fwd_headers.update(custom_hdrs)
+                    req = urllib.request.Request(fwd_url, data=fwd_body, headers=fwd_headers, method='POST')
                     try:
-                        err_txt = e.read().decode('utf-8', errors='ignore')[:200]
-                    except Exception:
-                        pass
-                    mark_key_cooldown(p_id, key, e.code, target_model, err_txt)
-                    record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", e.code, err_txt)
-                    sys.stderr.write(f"[Proxy] {p_id} key #{attempt+1} HTTP error {e.code}. Trying next key...\n")
-                    if e.code in (400, 413):
-                        return False
-                    continue
-                except Exception as e:
-                    record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", 0, str(e))
-                    sys.stderr.write(f"[Proxy] {p_id} key #{attempt+1} error: {e}\n")
-                    continue
-            return False
-
-        elif p_type == "openai":
-            is_stream = body_obj.get("stream", False) if body_obj else False
-            openai_body_obj = anthropic_to_openai_body(body_obj, target_model) if body_obj else {}
-            fwd_body = json.dumps(openai_body_obj).encode('utf-8')
-            fwd_url = f"{p_base}/chat/completions"
-
-            p_candidates = _select_available_keys(p_id, p_keys, target_model, max_count=(2 if is_recovery else None))
-            for attempt, key in p_candidates:
-                req_id = getattr(handler, "_live_req_id", None)
-                stage_lbl = getattr(handler, "_live_stage", "Original")
-                if req_id:
-                    set_in_flight(req_id, p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", stage_lbl, handler.path)
-                fwd_headers = {
-                    'Authorization': f"Bearer {key}",
-                    'Content-Type': 'application/json',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-                    'Accept-Encoding': 'identity'
-                }
-                req = urllib.request.Request(fwd_url, data=fwd_body, headers=fwd_headers, method='POST')
-                try:
-                    with urllib.request.urlopen(req, timeout=30) as resp:
-                        resp_data = resp.read()
-                        clear_key_cooldown(p_id, key, target_model)
-                        p_name = p_info.get("name", p_id)
-                        handler._winner_info = {"provider": p_id, "provider_name": p_name, "model": target_model, "key_label": f"Key #{attempt+1}"}
-                        save_active_state(p_name, target_model, f"Key #{attempt+1}")
-                        text = resp_data.decode('utf-8', errors='ignore')
-                        if is_stream or "data:" in text:
-                            anth_resp = convert_openai_stream_to_anthropic(text, p_name, target_model)
-                            handler.send_response(200)
-                            handler.send_header('Content-Type', 'text/event-stream; charset=utf-8')
-                            handler.send_header('Content-Length', str(len(anth_resp)))
+                        with urllib.request.urlopen(req, timeout=30) as resp:
+                            resp_data = resp.read()
+                            clear_key_cooldown(p_id, key, target_model)
+                            p_name = p_info.get("name", p_id)
+                            handler._winner_info = {"provider": p_id, "provider_name": p_name, "model": target_model, "key_label": f"Key #{attempt+1}"}
+                            save_active_state(p_name, target_model, f"Key #{attempt+1}")
+                            resp_data = append_signature_to_response(resp_data, p_name, target_model)
+                            handler.send_response(resp.status)
+                            for k, val in resp.headers.items():
+                                if k.lower() not in ['transfer-encoding', 'content-encoding', 'content-length', 'connection']:
+                                    handler.send_header(k, val)
+                            handler.send_header('Content-Length', str(len(resp_data)))
                             handler.end_headers()
-                            handler.wfile.write(anth_resp)
+                            handler.wfile.write(resp_data)
                             return True
-                        else:
-                            try:
-                                o_json = json.loads(text)
-                                anth_resp = convert_openai_json_to_anthropic(o_json, p_name, target_model)
+                    except urllib.error.HTTPError as e:
+                        handler._last_http_error = e.code
+                        err_txt = ""
+                        try:
+                            err_txt = e.read().decode('utf-8', errors='ignore')[:200]
+                        except Exception:
+                            pass
+                        mark_key_cooldown(p_id, key, e.code, target_model, err_txt)
+                        record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", e.code, err_txt)
+                        sys.stderr.write(f"[Proxy] {p_id} ({target_model}) key #{attempt+1} HTTP error {e.code}. Trying next key...\n")
+                        if e.code in (400, 413):
+                            break
+                        continue
+                    except Exception as e:
+                        record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", 0, str(e))
+                        sys.stderr.write(f"[Proxy] {p_id} ({target_model}) key #{attempt+1} error: {e}\n")
+                        continue
+
+            elif p_type == "openai":
+                is_stream = body_obj.get("stream", False) if body_obj else False
+                openai_body_obj = anthropic_to_openai_body(body_obj, target_model) if body_obj else {}
+                fwd_body = json.dumps(openai_body_obj).encode('utf-8')
+                fwd_url = f"{p_base}/chat/completions"
+
+                p_candidates = _select_available_keys(p_id, p_keys, target_model, max_count=(2 if is_recovery else None))
+                for attempt, key in p_candidates:
+                    req_id = getattr(handler, "_live_req_id", None)
+                    stage_lbl = getattr(handler, "_live_stage", "Original")
+                    if req_id:
+                        set_in_flight(req_id, p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", stage_lbl, handler.path)
+                    fwd_headers = {
+                        'Authorization': f"Bearer {key}",
+                        'Content-Type': 'application/json',
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                        'Accept-Encoding': 'identity'
+                    }
+                    req = urllib.request.Request(fwd_url, data=fwd_body, headers=fwd_headers, method='POST')
+                    try:
+                        with urllib.request.urlopen(req, timeout=30) as resp:
+                            resp_data = resp.read()
+                            clear_key_cooldown(p_id, key, target_model)
+                            p_name = p_info.get("name", p_id)
+                            handler._winner_info = {"provider": p_id, "provider_name": p_name, "model": target_model, "key_label": f"Key #{attempt+1}"}
+                            save_active_state(p_name, target_model, f"Key #{attempt+1}")
+                            text = resp_data.decode('utf-8', errors='ignore')
+                            if is_stream or "data:" in text:
+                                anth_resp = convert_openai_stream_to_anthropic(text, p_name, target_model)
                                 handler.send_response(200)
-                                handler.send_header('Content-Type', 'application/json')
+                                handler.send_header('Content-Type', 'text/event-stream; charset=utf-8')
                                 handler.send_header('Content-Length', str(len(anth_resp)))
                                 handler.end_headers()
                                 handler.wfile.write(anth_resp)
                                 return True
-                            except Exception:
-                                pass
-                        handler.send_response(resp.status)
-                        handler.send_header('Content-Length', str(len(resp_data)))
-                        handler.end_headers()
-                        handler.wfile.write(resp_data)
-                        return True
-                except urllib.error.HTTPError as e:
-                    handler._last_http_error = e.code
-                    err_txt = ""
-                    try:
-                        err_txt = e.read().decode('utf-8', errors='ignore')[:200]
-                    except Exception:
-                        pass
-                    mark_key_cooldown(p_id, key, e.code, target_model, err_txt)
-                    record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", e.code, err_txt)
-                    sys.stderr.write(f"[Proxy] {p_id} key #{attempt+1} HTTP error {e.code}. Trying next key...\n")
-                    if e.code in (400, 413):
-                        return False
-                    continue
-                except Exception as e:
-                    record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", 0, str(e))
-                    sys.stderr.write(f"[Proxy] {p_id} key #{attempt+1} error: {e}\n")
-                    continue
-            return False
+                            else:
+                                try:
+                                    o_json = json.loads(text)
+                                    anth_resp = convert_openai_json_to_anthropic(o_json, p_name, target_model)
+                                    handler.send_response(200)
+                                    handler.send_header('Content-Type', 'application/json')
+                                    handler.send_header('Content-Length', str(len(anth_resp)))
+                                    handler.end_headers()
+                                    handler.wfile.write(anth_resp)
+                                    return True
+                                except Exception:
+                                    pass
+                            handler.send_response(resp.status)
+                            handler.send_header('Content-Length', str(len(resp_data)))
+                            handler.end_headers()
+                            handler.wfile.write(resp_data)
+                            return True
+                    except urllib.error.HTTPError as e:
+                        handler._last_http_error = e.code
+                        err_txt = ""
+                        try:
+                            err_txt = e.read().decode('utf-8', errors='ignore')[:200]
+                        except Exception:
+                            pass
+                        mark_key_cooldown(p_id, key, e.code, target_model, err_txt)
+                        record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", e.code, err_txt)
+                        sys.stderr.write(f"[Proxy] {p_id} ({target_model}) key #{attempt+1} HTTP error {e.code}. Trying next key...\n")
+                        if e.code in (400, 413):
+                            break
+                        continue
+                    except Exception as e:
+                        record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", 0, str(e))
+                        sys.stderr.write(f"[Proxy] {p_id} ({target_model}) key #{attempt+1} error: {e}\n")
+                        continue
+
+        return False
 
     return False
 
