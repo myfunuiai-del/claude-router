@@ -486,16 +486,51 @@ def dispatch_inference(handler, raw_body):
 
         if target_dedicated_provider:
             attempted_providers.add(target_dedicated_provider)
-            p_name = all_providers.get(target_dedicated_provider, {}).get("name", target_dedicated_provider)
-            sys.stderr.write(f"[Proxy Direct Route] Request targeted specifically to '{target_dedicated_provider}' (Path: {handler.path})\n")
-            if try_forward_with_history_recovery(handler, target_dedicated_provider, raw_body, body_obj, orig_model):
-                _finish_success()
+            p_info = all_providers.get(target_dedicated_provider, {})
+            p_name = p_info.get("name", target_dedicated_provider)
+            p_models = p_info.get("models", [])
+            p_def_model = p_info.get("default_model", orig_model)
+
+            # Build sequential candidate list of all models configured for this standby server
+            candidate_models = []
+            if orig_model and orig_model != "unknown":
+                clean_orig = orig_model.split("/")[-1] if "/" in orig_model else orig_model
+                if orig_model in p_models:
+                    candidate_models.append(orig_model)
+                elif any(clean_orig == m.split("/")[-1] for m in p_models):
+                    matched = next(m for m in p_models if clean_orig == m.split("/")[-1])
+                    candidate_models.append(matched)
+                else:
+                    candidate_models.append(orig_model)
+
+            if p_def_model and p_def_model not in candidate_models:
+                candidate_models.append(p_def_model)
+
+            for m in p_models:
+                if m not in candidate_models:
+                    candidate_models.append(m)
+
+            if not candidate_models:
+                candidate_models = [orig_model]
+
+            sys.stderr.write(f"[Proxy Direct Route] Request targeted specifically to '{target_dedicated_provider}' (Path: {handler.path}) with model candidates: {candidate_models}\n")
+
+            standby_success = False
+            for mdl_idx, model_attempt in enumerate(candidate_models):
+                if mdl_idx > 0:
+                    sys.stderr.write(f"[Proxy Standby Fallback] Trying next model '{model_attempt}' (#{mdl_idx+1}/{len(candidate_models)}) on '{target_dedicated_provider}'...\n")
+                if try_forward_with_history_recovery(handler, target_dedicated_provider, raw_body, body_obj, model_attempt):
+                    _finish_success()
+                    standby_success = True
+                    break
+
+            if standby_success:
                 return
 
             # Explicit standalone/standby server route: DO NOT cascade into active routed pipeline!
             failed_providers.append(p_name)
             last_err = getattr(handler, "_last_http_error", None) or 502
-            sys.stderr.write(f"[Proxy Direct Route] Standalone dedicated provider '{target_dedicated_provider}' failed. Strictly halting without pipeline cascade.\n")
+            sys.stderr.write(f"[Proxy Direct Route] Standalone dedicated provider '{target_dedicated_provider}' failed on all configured models. Strictly halting without pipeline cascade.\n")
             record_live_request(
                 target_dedicated_provider, p_name, orig_model, "-", status="err", code=last_err,
                 latency_ms=int((time.time() - t_start) * 1000), path=handler.path,
@@ -503,7 +538,7 @@ def dispatch_inference(handler, raw_body):
             )
             handler.send_response(last_err)
             handler.send_header('Content-Type', 'application/json')
-            msg = json.dumps({"error": {"message": f"Server '{p_name}' ({target_dedicated_provider}) failed and standby isolation is enforced. It did not cascade to routed pipeline."}}).encode()
+            msg = json.dumps({"error": {"message": f"Server '{p_name}' ({target_dedicated_provider}) failed across all its configured models ({', '.join(candidate_models)}) and standby isolation is enforced. It did not cascade to routed pipeline."}}).encode()
             handler.send_header('Content-Length', str(len(msg)))
             handler.end_headers()
             handler.wfile.write(msg)
