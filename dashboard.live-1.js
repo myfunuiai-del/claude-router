@@ -3,8 +3,6 @@ let livePaused = false;
 let livePollTimer = null;
 let liveFetchInProgress = false;
 let liveAbortCtrl = null;
-let isUserInteracting = false;
-let touchReleaseTimer = null;
 let lastRenderedSeq = -1;
 let lastInFlightSig = '';
 let lastCooldownSig = '';
@@ -112,7 +110,7 @@ async function fetchLiveSnapshot(forceRender = false) {
     const res = await fetch('/api/ui/live', { signal: liveAbortCtrl.signal });
     if (!res.ok) return;
     const data = await res.json();
-    if (activeMainTab === 'live' && (!isUserInteracting || forceRender)) {
+    if (activeMainTab === 'live') {
       renderLiveSnapshot(data, forceRender);
     }
   } catch (err) {
@@ -327,19 +325,6 @@ async function clearLiveData(mode) {
     showToast('Failed to clear live data', true);
   }
 }
-
-// Touch/scroll guard so live DOM updates NEVER cancel a tap mid-gesture on mobile
-document.addEventListener('touchstart', () => {
-  isUserInteracting = true;
-  if (touchReleaseTimer) clearTimeout(touchReleaseTimer);
-}, { passive: true });
-
-const _releaseTouch = () => {
-  if (touchReleaseTimer) clearTimeout(touchReleaseTimer);
-  touchReleaseTimer = setTimeout(() => { isUserInteracting = false; }, 350);
-};
-document.addEventListener('touchend', _releaseTouch, { passive: true });
-document.addEventListener('touchcancel', _releaseTouch, { passive: true });
 
 // Strictly stop Live polling whenever page is hidden, closed, or switched away
 document.addEventListener('visibilitychange', () => {
