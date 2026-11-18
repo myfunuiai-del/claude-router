@@ -495,6 +495,19 @@ def anthropic_to_openai_body(body_obj, default_model="openai/gpt-oss-120b", p_id
     raw_msgs = body_obj.get("messages", [])
     conv_msgs = []
     valid_call_ids = set()
+    id_map = {}
+
+    def _normalize_tool_call_id(raw_id):
+        if not raw_id:
+            return f"call_{uuid.uuid4().hex[:16]}"
+        if raw_id in id_map:
+            return id_map[raw_id]
+        # Strict alphanumeric with call_ prefix for strict OpenAI providers
+        cleaned = re.sub(r'[^a-zA-Z0-9_]', '', raw_id)
+        if not cleaned.startswith("call_"):
+            cleaned = f"call_{cleaned}"
+        id_map[raw_id] = cleaned
+        return cleaned
 
     for m in raw_msgs:
         if not isinstance(m, dict):
@@ -517,7 +530,8 @@ def anthropic_to_openai_body(body_obj, default_model="openai/gpt-oss-120b", p_id
                         text_parts.append(p["text"])
                     elif ptype == "tool_use":
                         tname = p.get("name", "tool")
-                        tid = p.get("id") or f"call_{uuid.uuid4().hex[:12]}"
+                        raw_tid = p.get("id") or f"call_{uuid.uuid4().hex[:12]}"
+                        tid = _normalize_tool_call_id(raw_tid)
                         tinp_obj = p.get("input", {})
                         try:
                             tinp_json = json.dumps(tinp_obj, ensure_ascii=False)
@@ -533,9 +547,10 @@ def anthropic_to_openai_body(body_obj, default_model="openai/gpt-oss-120b", p_id
                                 }
                             }
                             if is_gemini_oai:
-                                sig = _THOUGHT_SIG_CACHE.get(tid) or "skip_thought_signature_validator"
+                                sig = _THOUGHT_SIG_CACHE.get(raw_tid) or _THOUGHT_SIG_CACHE.get(tid) or "skip_thought_signature_validator"
                                 tc_obj["extra_content"] = {"google": {"thought_signature": sig}}
                             assistant_tool_calls.append(tc_obj)
+                            valid_call_ids.add(raw_tid)
                             valid_call_ids.add(tid)
                         else:
                             text_parts.append(f"[Tool Call: {tname}({tinp_json[:400]})]")
@@ -565,14 +580,15 @@ def anthropic_to_openai_body(body_obj, default_model="openai/gpt-oss-120b", p_id
                         continue
                     ptype = p.get("type")
                     if ptype == "tool_result":
-                        tid = p.get("tool_use_id") or ""
+                        raw_tid = p.get("tool_use_id") or ""
+                        norm_tid = _normalize_tool_call_id(raw_tid)
                         res_txt = _extract_tool_result_text(p.get("content", ""), p.get("is_error", False))
                         if is_groq and len(res_txt) > 3000:
                             res_txt = res_txt[:3000] + "\n...[trimmed for Groq]"
-                        if tid and tid in valid_call_ids:
+                        if raw_tid and (raw_tid in valid_call_ids or norm_tid in valid_call_ids):
                             tool_result_msgs.append({
                                 "role": "tool",
-                                "tool_call_id": tid,
+                                "tool_call_id": norm_tid,
                                 "content": res_txt
                             })
                         else:

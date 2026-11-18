@@ -7,11 +7,12 @@ function setupCardTouchDrag(handle, card) {
     isDragging = true;
     card.classList.add('is-dragging');
     e.stopPropagation();
+    if (e.cancelable) e.preventDefault();
   }, { passive: false });
 
   handle.addEventListener('touchmove', (e) => {
     if (!isDragging || e.touches.length !== 1) return;
-    e.preventDefault(); // Stop screen scroll while dragging
+    if (e.cancelable) e.preventDefault(); // Stop screen scroll while dragging
     const touch = e.touches[0];
     const elemBelow = document.elementFromPoint(touch.clientX, touch.clientY);
     if (!elemBelow) return;
