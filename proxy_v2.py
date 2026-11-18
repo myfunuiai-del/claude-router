@@ -5,6 +5,8 @@ import socket
 import sys
 import os
 import importlib.util
+import threading
+import time
 
 # Force IPv4 resolution to prevent Termux IPv6 broken route resets (e.g. OpenRouter/Cloudflare)
 _orig_getaddrinfo = socket.getaddrinfo
@@ -38,8 +40,42 @@ _http_mod = _load_module_to_globals("proxy_v2.http_handlers-1.py", globals())
 # Step 5: Web UI dashboard APIs & model testing
 _ui_mod = _load_module_to_globals("proxy_v2.ui_api-1.py", globals())
 
+_NOISY_LOG_PREFIXES = ("GET /status ", "GET /api/ui/live", "GET /api/ui/logs", "GET /favicon.ico")
+_MAX_LOG_BYTES = 512 * 1024  # 500 KB cap
+_KEEP_LOG_LINES = 200
+
+def trim_log_if_needed(max_bytes=_MAX_LOG_BYTES, keep_lines=_KEEP_LOG_LINES):
+    """In-place truncate proxy_v2.log when it exceeds max_bytes, keeping newest lines without breaking stderr FD."""
+    try:
+        if not os.path.exists(LOG_FILE) or os.path.getsize(LOG_FILE) <= max_bytes:
+            return False
+        with open(LOG_FILE, "r+", encoding="utf-8", errors="ignore") as f:
+            tail = f.read().splitlines()[-keep_lines:]
+            f.seek(0)
+            f.write("\n".join(tail) + ("\n" if tail else ""))
+            f.truncate()
+        try:
+            sys.stderr.flush()
+            st_fd = os.fstat(2)
+            st_file = os.stat(LOG_FILE)
+            if st_fd.st_ino == st_file.st_ino and st_fd.st_dev == st_file.st_dev:
+                os.lseek(2, 0, os.SEEK_END)
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+def _log_janitor_loop():
+    while True:
+        time.sleep(300)  # Check every 5 minutes
+        trim_log_if_needed()
+
 class UniversalProxyHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
+        req_line = str(args[0]) if args else ""
+        if any(req_line.startswith(p) for p in _NOISY_LOG_PREFIXES):
+            return
         sys.stderr.write(f"[Proxy] {args[0]} {args[1]}\n")
 
     def do_OPTIONS(self):
@@ -76,6 +112,8 @@ class ReusableTCPServer(socketserver.ThreadingTCPServer):
     daemon_threads = True
 
 if __name__ == '__main__':
+    trim_log_if_needed()
+    threading.Thread(target=_log_janitor_loop, daemon=True).start()
     with ReusableTCPServer(('127.0.0.1', PORT), UniversalProxyHandler) as httpd:
         sys.stderr.write(f"[Proxy] Universal Bulletproof Proxy running on http://127.0.0.1:{PORT}\n")
         try:
