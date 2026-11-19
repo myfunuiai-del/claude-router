@@ -15,7 +15,8 @@
       ],
       "keys": [
         "your_api_key_here"
-      ]
+      ],
+      "mode": "agentic"
     },
     "agentrouter": {
       "name": "AgentRouter ($216 Credit)",
@@ -59,7 +60,8 @@
       ],
       "keys": [
         "your_api_key_here"
-      ]
+      ],
+      "mode": "normal"
     },
     "gonkabroker": {
       "name": "GonkaBroker Claude Proxy",
@@ -84,5 +86,7 @@
   ],
   "unrouted_providers": [
     "gonkabroker"
-  ]
+  ],
+  "show_model_signature": true,
+  "auto_recovery": true
 }
