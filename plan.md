@@ -105,29 +105,6 @@ All files across the entire repository are strictly under the 400-500 line limit
 | `dashboard.modals_trace-1.js` | 95 | ✅ Pass | Multi-Agent Step-Trace Timeline Modal & visualizer |
 | `proxy_v2.transform-1.py` | 29 | ✅ Pass | Master transform submodules orchestrator |
 | `dashboard.modals-1.js` | 8 | ✅ Pass | Master frontend modals submodules documentation stub |
-| `proxy_v2.config-1.py` | 353 | ✅ Pass | Config store, active state & Claude UI sync |
-| `dashboard.live-1.js` | 351 | ✅ Pass | Live feed monitor, token & speed meter & trace launcher |
-| `proxy_v2.config_live-1.py` | 349 | ✅ Pass | Live request store, error classifier & step-trace feed |
-| `proxy_v2.multi_agent_runner-1.py` | 322 | ✅ Pass | Team member turn executor, adaptive mode guard & key usage recorder |
-| `dashboard.modals_team-1.js` | 308 | ✅ Pass | Multi-Agent team builder modal & member settings |
-| `proxy_v2.transform_stream-1.py` | 304 | ✅ Pass | OpenAI SSE stream & JSON to Anthropic converter |
-| `dashboard.teams-1.js` | 291 | ✅ Pass | Multi-Agent teams lane rendering, export/import & run buttons |
-| `proxy_v2.http_handlers-1.py` | 282 | ✅ Pass | HTTP GET, DELETE, OPTIONS, HEAD & dynamic asset router |
-| `dashboard.modals_server-1.js` | 275 | ✅ Pass | Server modal, logs viewer modal & backup/restore |
-| `dashboard.undo-1.js` | 273 | ✅ Pass | HTML confirmation modal & 10s animated undo deletion |
-| `proxy_v2.transform_recovery-1.py` | 261 | ✅ Pass | 5-stage context-preserving history recovery engine |
-| `proxy_v2.forwarder-1.py` | 241 | ✅ Pass | Main inference router, direct routes & multi-agent dispatcher |
-| `dashboard.drag-1.js` | 224 | ✅ Pass | Touch & mouse drag-drop & priority pipeline |
-| `dashboard.team_picker-1.js` | 215 | ✅ Pass | Member model dropdown panel & member model status check |
-| `dashboard.modals_playground-1.js` | 171 | ✅ Pass | In-Dashboard Multi-Agent Dry Run Playground UI modal |
-| `dashboard.workflow_patterns-1.js` | 165 | ✅ Pass | 6 built-in multi-agent blueprints and workflow templates |
-| `proxy_v2.ui_playground-1.py` | 155 | ✅ Pass | Multi-Agent Dry Run test API endpoint (/api/ui/team-dry-run) |
-| `dashboard.chips-1.js` | 134 | ✅ Pass | Model chips fast switch, HTML escaper & long-press promoter |
-| `proxy_v2.py` | 122 | ✅ Pass | Root server launcher with log janitor & IPv4 DNS patch |
-| `dashboard.modals_trace-1.js` | 95 | ✅ Pass | Multi-Agent Step-Trace Timeline Modal & visualizer |
-| `proxy_v2.key_balancer-1.py` | 151 | ✅ Pass | Smart Key Load Balancer & Sliding 60s TPM/RPM Rotator |
-| `proxy_v2.transform-1.py` | 29 | ✅ Pass | Master transform submodules orchestrator |
-| `dashboard.modals-1.js` | 8 | ✅ Pass | Master frontend modals submodules documentation stub |
 | `README.md` | 225 | ✅ Pass | Full documentation for features, APIs & workflows |
 | `crouter` | 168 | ✅ Pass | CLI daemon management tool |
 | `GitHub Repository` | - | ✅ Live | https://github.com/myfunuiai-del/claude-router |
