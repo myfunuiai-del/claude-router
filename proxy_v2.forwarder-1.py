@@ -48,17 +48,12 @@ def _friendly_stage_label(stage_name):
         return "Stage 5: 1 Msg Bare (Fallback)"
     return stage_name
 
-def try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_model):
-    """Try forwarding original request to p_id. On 400/403/413 with trimmable history,
-    escalate safely on the same provider without mutating original body_obj:
-      1) Full history + untouched last message, shrinking only older large tool outputs
-      2) Keep only recent ~6-8 messages
-      3) Keep only the last message
-      4) Full history + last message with all large tool outputs & text blocks shrunk
-    Stage 5: If all fail, return False so caller routes untouched original request to next server.
+def try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_model, allow_model_fallback=True):
+    """Try forwarding original request to p_id with optional model fallback control.
+    On 400/403/413 with trimmable history, escalate safely on the same provider.
     """
     handler._live_stage = "Original"
-    if try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recovery=False):
+    if try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recovery=False, allow_model_fallback=allow_model_fallback):
         return True
 
     cfg = load_proxy_config()
@@ -74,7 +69,7 @@ def try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_mo
             handler._live_stage = pretty
             sys.stderr.write(f"[Proxy Recovery {idx}/{total}] '{p_id}' hit HTTP {last_err}. Retrying with '{stage_name}'...\n")
             v_raw = json.dumps(v_body_obj, ensure_ascii=False).encode('utf-8')
-            if try_forward_provider(handler, p_id, v_raw, v_body_obj, orig_model, is_recovery=True):
+            if try_forward_provider(handler, p_id, v_raw, v_body_obj, orig_model, is_recovery=True, allow_model_fallback=allow_model_fallback):
                 handler._recovery_stage = pretty
                 sys.stderr.write(f"[Proxy Recovery {idx}/{total}] '{p_id}' SUCCEEDED via '{stage_name}'!\n")
                 return True
@@ -200,57 +195,67 @@ def dispatch_inference(handler, raw_body):
         if not routed_providers:
             routed_providers = ["coarena"]
 
-        # 1.5 SMART MODEL-TO-PROVIDER ROUTE: Only route if provider is active (in routed_providers) and enabled (ON)
-        if orig_model and orig_model != "unknown":
-            clean_model = orig_model.split("/")[-1] if "/" in orig_model else orig_model
-            for p_id in routed_providers:
-                if p_id in attempted_providers:
-                    continue
-                p_info = all_providers.get(p_id, {})
-                if p_info.get("enabled", True) is False:
-                    continue
-                p_models = p_info.get("models", [])
-                if orig_model in p_models or any(clean_model == m.split("/")[-1] for m in p_models):
-                    if "is_provider_rate_limited" in globals():
-                        is_throttled, refill_s, reason = is_provider_rate_limited(p_id, p_info.get("rate_limit"))
-                        if is_throttled:
-                            p_name = p_info.get("name", p_id)
-                            sys.stderr.write(f"[Proxy Model Route] Matched '{p_name}' quota exhausted ({reason}). Refills in {refill_s}s. Auto-failing over to pipeline...\n")
-                            failed_providers.append(f"{p_name} (Quota full, refill in {refill_s}s)")
-                            continue
-                    attempted_providers.add(p_id)
-                    sys.stderr.write(f"[Proxy Model Route] Model '{orig_model}' matched active provider '{p_id}'. Routing directly...\n")
-                    if try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_model):
-                        _finish_success()
-                        return
-                    failed_providers.append(p_info.get("name", p_id))
-                    sys.stderr.write(f"[Proxy Model Route] Provider '{p_id}' failed for model '{orig_model}'. Falling back to pipeline...\n")
-                    break
+        # Helper: test if provider supports model parity
+        def _prov_supports_model(p_id, p_info, model):
+            if not model or model == "unknown":
+                return False
+            if p_id == "coarena":
+                coa_sup = ("gemini-4-carbon", "gemini-3-8-flash", "deepseek-v4-1-flash-1017")
+                c_tail = model.split("/")[-1]
+                return model in coa_sup or c_tail in coa_sup
+            p_models = p_info.get("models", [])
+            c_tail = model.split("/")[-1].split(":")[0].lower()
+            if model in p_models or any(c_tail == m.split("/")[-1].split(":")[0].lower() for m in p_models):
+                return True
+            p_def = p_info.get("default_model", "")
+            return bool(p_def and (model == p_def or c_tail == p_def.split("/")[-1].split(":")[0].lower()))
 
-        # 2. Dynamic Priority Pipeline (routed_providers) — skips disabled (OFF) or already-tried providers
+        # PASS 1: MODEL PARITY FIRST (Exact/equivalent model search across all active routed servers)
+        # Providers with direct model parity match are attempted first without quality degradation
+        parity_order = [p for p in routed_providers if p in all_providers and _prov_supports_model(p, all_providers[p], orig_model)]
+        for p in routed_providers:
+            if p not in parity_order:
+                parity_order.append(p)
+
         success = False
-        for prio_idx, p_id in enumerate(routed_providers):
-            if p_id in attempted_providers:
-                continue
+        for prio_idx, p_id in enumerate(parity_order):
             p_info = all_providers.get(p_id, {})
             if p_info.get("enabled", True) is False:
-                sys.stderr.write(f"[Proxy Pipeline] [Priority #{prio_idx+1}] '{p_id}' is OFF. Skipping...\n")
                 continue
             if "is_provider_rate_limited" in globals():
                 is_throttled, refill_s, reason = is_provider_rate_limited(p_id, p_info.get("rate_limit"))
                 if is_throttled:
                     p_name = p_info.get("name", p_id)
-                    sys.stderr.write(f"[Proxy Pipeline RateLimit] Priority #{prio_idx+1} '{p_name}' quota exhausted ({reason}). Refills in {refill_s}s. Auto-failing over...\n")
+                    sys.stderr.write(f"[Proxy Pass 1 RateLimit] '{p_name}' quota exhausted ({reason}). Refills in {refill_s}s. Auto-skipping...\n")
                     failed_providers.append(f"{p_name} (Quota full, refill in {refill_s}s)")
                     continue
-            attempted_providers.add(p_id)
-            sys.stderr.write(f"[Proxy Pipeline] [Priority #{prio_idx+1}] Routing to '{p_id}'...\n")
-            if try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_model):
+
+            sys.stderr.write(f"[Proxy Pass 1: Parity] Trying '{p_id}' for model '{orig_model}'...\n")
+            if try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_model, allow_model_fallback=False):
                 success = True
                 _finish_success()
-                break
+                return
             failed_providers.append(p_info.get("name", p_id))
-            sys.stderr.write(f"[Proxy Pipeline] [Priority #{prio_idx+1}] '{p_id}' failed. Cascading to next...\n")
+
+        # PASS 2: QUALITY DEGRADATION / ALTERNATIVE MODEL FALLBACK
+        # Only executed if Pass 1 failed across ALL active routed servers for the requested model
+        if not success:
+            sys.stderr.write(f"[Proxy Pass 2: Fallback] Model '{orig_model}' parity failed across all servers. Trying fallback models in pipeline order...\n")
+            for prio_idx, p_id in enumerate(routed_providers):
+                p_info = all_providers.get(p_id, {})
+                if p_info.get("enabled", True) is False:
+                    continue
+                if "is_provider_rate_limited" in globals():
+                    is_throttled, refill_s, reason = is_provider_rate_limited(p_id, p_info.get("rate_limit"))
+                    if is_throttled:
+                        continue
+
+                sys.stderr.write(f"[Proxy Pass 2] Trying secondary/fallback models on '{p_id}'...\n")
+                if try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_model, allow_model_fallback=True):
+                    success = True
+                    _finish_success()
+                    return
+                failed_providers.append(f"{p_info.get('name', p_id)} (Fallback)")
 
         if not success:
             record_live_issue("pipeline", "Pipeline", orig_model, "-", 502, "All enabled servers failed or are turned OFF")

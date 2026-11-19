@@ -92,7 +92,7 @@ def _select_available_keys(p_id, keys, model=None, start_idx=None, max_count=Non
         chosen = chosen[:max_count]
     return chosen
 
-def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recovery=False):
+def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recovery=False, allow_model_fallback=True):
     """Attempts to forward the request to provider p_id.
     Returns True if successful and response was written to client, False if failed/exhausted.
     """
@@ -113,14 +113,22 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
         body_obj = _inject_custom_prompt(body_obj, custom_prompt)
 
     if p_id == "coarena":
-        candidates = [orig_model]
-        if orig_model in MODEL_FALLBACKS:
-            candidates.extend(MODEL_FALLBACKS[orig_model])
         coa_def = p_info.get("default_model", "gemini-4-carbon")
-        if coa_def not in candidates:
-            candidates.append(coa_def)
-        if is_recovery:
-            candidates = candidates[:1]
+        coa_sup = ("gemini-4-carbon", "gemini-3-8-flash", "deepseek-v4-1-flash-1017")
+        c_tail = orig_model.split("/")[-1] if "/" in orig_model else orig_model
+        coa_match = orig_model if orig_model in coa_sup else (c_tail if c_tail in coa_sup else None)
+        if not allow_model_fallback:
+            if not coa_match:
+                return False
+            candidates = [coa_match]
+        elif is_recovery:
+            candidates = [coa_match or coa_def]
+        else:
+            candidates = [orig_model]
+            if orig_model in MODEL_FALLBACKS:
+                candidates.extend(MODEL_FALLBACKS[orig_model])
+            if coa_def not in candidates:
+                candidates.append(coa_def)
 
         target_path = handler.path
         for known_pid in all_providers:
@@ -260,11 +268,10 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                     return True
             except urllib.error.HTTPError as e:
                 handler._last_http_error = e.code
-                err_txt = ""
                 try:
                     err_txt = e.read().decode('utf-8', errors='ignore')[:200]
                 except Exception:
-                    pass
+                    err_txt = ""
                 mark_key_cooldown("agentrouter", key, e.code, ar_model, err_txt)
                 record_live_issue("agentrouter", p_info.get("name", "AgentRouter"), ar_model, f"Key #{attempt+1}", e.code, err_txt)
                 sys.stderr.write(f"[Proxy] AgentRouter attempt #{attempt+1} HTTP error {e.code}\n")
@@ -294,24 +301,34 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
 
         # Build prioritized list of model candidates for this server
         matched_model = None
+        c_tail = clean_orig.split("/")[-1].split(":")[0].lower()
         if clean_orig in p_models:
             matched_model = clean_orig
         else:
-            c_tail = clean_orig.split("/")[-1]
             for m in p_models:
-                if c_tail == m.split("/")[-1]:
+                if c_tail == m.split("/")[-1].split(":")[0].lower():
                     matched_model = m
                     break
+        if not matched_model and p_def_model:
+            if c_tail == p_def_model.split("/")[-1].split(":")[0].lower():
+                matched_model = p_def_model
 
-        primary_model = matched_model or p_def_model or clean_orig
-        candidates = [primary_model]
-        if not is_recovery:
-            # During normal routing, sequentially try all models configured for this provider if primary fails
-            if p_def_model and p_def_model not in candidates:
-                candidates.append(p_def_model)
-            for m in p_models:
-                if m not in candidates:
-                    candidates.append(m)
+        if not allow_model_fallback:
+            if matched_model:
+                candidates = [matched_model]
+            elif not p_models:
+                candidates = [clean_orig]
+            else:
+                return False
+        else:
+            primary_model = matched_model or p_def_model or clean_orig
+            candidates = [primary_model]
+            if not is_recovery:
+                if p_def_model and p_def_model not in candidates:
+                    candidates.append(p_def_model)
+                for m in p_models:
+                    if m not in candidates:
+                        candidates.append(m)
 
         p_mode = p_info.get("mode", "agentic")
         for model_idx, target_model in enumerate(candidates):
@@ -367,11 +384,10 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                             return True
                     except urllib.error.HTTPError as e:
                         handler._last_http_error = e.code
-                        err_txt = ""
                         try:
                             err_txt = e.read().decode('utf-8', errors='ignore')[:200]
                         except Exception:
-                            pass
+                            err_txt = ""
                         if e.code in (401, 402, 429):
                             _advance_key_idx(p_id, attempt, len(p_keys), on_error=True)
                         mark_key_cooldown(p_id, key, e.code, target_model, err_txt)
@@ -450,11 +466,10 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                             return True
                     except urllib.error.HTTPError as e:
                         handler._last_http_error = e.code
-                        err_txt = ""
                         try:
                             err_txt = e.read().decode('utf-8', errors='ignore')[:200]
                         except Exception:
-                            pass
+                            err_txt = ""
                         if e.code in (401, 402, 429):
                             _advance_key_idx(p_id, attempt, len(p_keys), on_error=True)
                         mark_key_cooldown(p_id, key, e.code, target_model, err_txt)
