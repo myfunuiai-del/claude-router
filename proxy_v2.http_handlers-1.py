@@ -18,6 +18,7 @@ def _load_module_to_globals(filename, target_globals):
     return mod
 
 _config_mod = _load_module_to_globals("proxy_v2.config-1.py", globals())
+_usage_mod = _load_module_to_globals("proxy_v2.ui_usage-1.py", globals())
 
 def handle_OPTIONS(handler):
     """Handle CORS pre-flight requests."""
@@ -103,6 +104,10 @@ def handle_GET(handler):
         handler.end_headers()
         handler.wfile.write(payload)
         return
+
+    if req_clean_path == "/api/ui/usage":
+        if "handle_ui_usage_get" in globals() and handle_ui_usage_get(handler):
+            return
 
     if req_clean_path == "/api/ui/logs":
         import urllib.parse

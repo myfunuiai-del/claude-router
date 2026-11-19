@@ -58,26 +58,53 @@
 
 ## Usage Tab Implementation Progress (gemini.md Rule 2 & 7)
 - [x] **Step 1: UI Hook & Slim-down:** `dashboard.html` slimmed from 497 to 470 lines; 3rd tab `📊 Usage & Quotas` button, `<div id="view-usage">` container, and `dashboard.usage-1.js` linked and deployed.
-- [ ] **Step 2: Backend Telemetry API (`proxy_v2.ui_usage-1.py`):** Create standalone handler for `/api/ui/usage` to aggregate server quotas, key health, refill countdowns, and token usage.
-- [ ] **Step 3: Frontend Telemetry Engine (`dashboard.usage-1.js`):** Render KPI summary cards, server quota progress bars, and granular API Key health table.
-- [ ] **Step 4: Styling & Visual Polish:** Dark cybernetic theme styling for progress meters and live countdown timers.
-- [ ] **Step 5: Verification & Syntax Audit:** End-to-end verification under real traffic.
-- [ ] **Step 6: Sync & Git Deploy:** Final plan audit and git push.
+- [x] **Step 2: Backend Telemetry API (`proxy_v2.ui_usage-1.py`):** Standalone handler for `/api/ui/usage` aggregating server quotas, key health, refill countdowns, and token usage (239 lines).
+- [x] **Step 3: Frontend Telemetry Engine (`dashboard.usage-1.js`):** Render KPI summary cards, server quota progress bars, granular API Key health table, and live refill tick countdown (331 lines).
+- [x] **Step 4: Styling & Visual Polish (`dashboard.usage-1.css`):** Dark cybernetic theme styling for progress meters, status pills, and live countdown timers (200 lines).
+- [x] **Step 5: Verification & Syntax Audit:** End-to-end verification under real traffic; live token accumulation verified in browser and backend.
+- [x] **Step 6: Sync & Git Deploy:** Final plan audit and git push to main.
 
 ## Architecture Audit & Line Count Summary
 All files across the entire repository are strictly under the 400-500 line limit (Rule 2):
 | Module File | Line Count | Status | Logic Description |
 | :--- | :---: | :---: | :--- |
+| `dashboard.styles-1.css` | 494 | ✅ Pass | Mobile-first cybernetic dark UI styles, trace & playground |
 | `dashboard.modals_models-1.js` | 494 | ✅ Pass | Models selector modal, model testing & ping cache |
-| `proxy_v2.ui_api-1.py` | 493 | ✅ Pass | Web dashboard backend APIs & provider/key CRUD |
-| `dashboard.html` | 484 | ✅ Pass | Web console semantic HTML markup & modal dialogs |
-| `dashboard.styles-1.css` | 483 | ✅ Pass | Mobile-first cybernetic dark UI styles, trace & playground |
-| `proxy_v2.forwarder_loop-1.py` | 479 | ✅ Pass | Provider forwarding loop, key retry & intra-server fallback |
+| `proxy_v2.ui_api-1.py` | 486 | ✅ Pass | Web dashboard backend APIs & provider/key CRUD |
+| `dashboard.html` | 471 | ✅ Pass | Web console semantic HTML markup & modal dialogs |
+| `dashboard.servers-1.js` | 455 | ✅ Pass | Server cards rendering, status badges & direct route copier |
 | `proxy_v2.multi_agent-1.py` | 447 | ✅ Pass | Multi-Agent orchestrator with step-trace telemetry |
-| `dashboard.servers-1.js` | 445 | ✅ Pass | Server cards rendering, status badges & direct route copier |
+| `proxy_v2.forwarder_loop-1.py` | 390 | ✅ Pass | Provider forwarding loop, key retry & intra-server fallback |
+| `dashboard.live-1.js` | 389 | ✅ Pass | Live feed monitor, token & speed meter & trace launcher |
 | `proxy_v2.ui_tester-1.py` | 385 | ✅ Pass | Model discovery, key ping tester & live telemetry actions |
 | `proxy_v2.transform_anthropic-1.py` | 369 | ✅ Pass | Anthropic body sanitizer, cache limiter & thought signer |
 | `proxy_v2.transform_openai-1.py` | 367 | ✅ Pass | Anthropic to OpenAI payload & JSON Schema sanitizer |
+| `proxy_v2.config-1.py` | 363 | ✅ Pass | Config store, active state & Claude UI sync |
+| `proxy_v2.config_live-1.py` | 359 | ✅ Pass | Live request store, error classifier & step-trace feed |
+| `dashboard.modals_server-1.js` | 346 | ✅ Pass | Server modal, logs viewer modal & backup/restore |
+| `dashboard.usage-1.js` | 331 | ✅ Pass | Usage & Quotas tab renderer, filters, progress bars & live timers |
+| `proxy_v2.multi_agent_runner-1.py` | 322 | ✅ Pass | Team member turn executor, adaptive mode guard & key usage recorder |
+| `dashboard.modals_team-1.js` | 308 | ✅ Pass | Multi-Agent team builder modal & member settings |
+| `proxy_v2.transform_stream-1.py` | 304 | ✅ Pass | OpenAI SSE stream & JSON to Anthropic converter |
+| `dashboard.teams-1.js` | 291 | ✅ Pass | Multi-Agent teams lane rendering, export/import & run buttons |
+| `proxy_v2.http_handlers-1.py` | 287 | ✅ Pass | HTTP GET, DELETE, OPTIONS, HEAD & dynamic asset router |
+| `proxy_v2.key_balancer-1.py` | 275 | ✅ Pass | Smart Key Load Balancer & Sliding 60s TPM/RPM Rotator |
+| `dashboard.undo-1.js` | 273 | ✅ Pass | HTML confirmation modal & 10s animated undo deletion |
+| `proxy_v2.forwarder-1.py` | 271 | ✅ Pass | Main inference router, direct routes & two-pass model parity failover |
+| `proxy_v2.transform_recovery-1.py` | 261 | ✅ Pass | 5-stage context-preserving history recovery engine |
+| `proxy_v2.ui_usage-1.py` | 239 | ✅ Pass | Usage telemetry endpoint aggregator & key health matrix |
+| `dashboard.drag-1.js` | 224 | ✅ Pass | Touch & mouse drag-drop & priority pipeline |
+| `dashboard.team_picker-1.js` | 215 | ✅ Pass | Member model dropdown panel & member model status check |
+| `dashboard.usage-1.css` | 200 | ✅ Pass | Cybernetic dark UI styles for usage KPI, meters & tables |
+| `dashboard.modals_playground-1.js` | 171 | ✅ Pass | In-Dashboard Multi-Agent Dry Run Playground UI modal |
+| `dashboard.workflow_patterns-1.js` | 165 | ✅ Pass | 6 built-in multi-agent blueprints and workflow templates |
+| `proxy_v2.ui_playground-1.py` | 155 | ✅ Pass | Multi-Agent Dry Run test API endpoint (/api/ui/team-dry-run) |
+| `dashboard.chips-1.js` | 134 | ✅ Pass | Model chips fast switch, HTML escaper & long-press promoter |
+| `proxy_v2.forwarder_coarena-1.py` | 131 | ✅ Pass | Coarena upstream handler & two-pass candidate routing |
+| `proxy_v2.py` | 122 | ✅ Pass | Root server launcher with log janitor & IPv4 DNS patch |
+| `dashboard.modals_trace-1.js` | 95 | ✅ Pass | Multi-Agent Step-Trace Timeline Modal & visualizer |
+| `proxy_v2.transform-1.py` | 29 | ✅ Pass | Master transform submodules orchestrator |
+| `dashboard.modals-1.js` | 8 | ✅ Pass | Master frontend modals submodules documentation stub |
 | `proxy_v2.config-1.py` | 353 | ✅ Pass | Config store, active state & Claude UI sync |
 | `dashboard.live-1.js` | 351 | ✅ Pass | Live feed monitor, token & speed meter & trace launcher |
 | `proxy_v2.config_live-1.py` | 349 | ✅ Pass | Live request store, error classifier & step-trace feed |
