@@ -211,11 +211,8 @@ def dispatch_inference(handler, raw_body):
             return bool(p_def and (model == p_def or c_tail == p_def.split("/")[-1].split(":")[0].lower()))
 
         # PASS 1: MODEL PARITY FIRST (Exact/equivalent model search across all active routed servers)
-        # Providers with direct model parity match are attempted first without quality degradation
+        # Only providers with direct model parity match are attempted; quality degradation is prevented
         parity_order = [p for p in routed_providers if p in all_providers and _prov_supports_model(p, all_providers[p], orig_model)]
-        for p in routed_providers:
-            if p not in parity_order:
-                parity_order.append(p)
 
         success = False
         for prio_idx, p_id in enumerate(parity_order):
