@@ -131,8 +131,20 @@ def sanitize_anthropic_body(body_obj):
     _enforce_cache_control_limit(body_obj, max_breakpoints=4)
     return body_obj
 
+def is_signature_enabled():
+    try:
+        cfg_path = os.path.join(os.path.dirname(__file__), "config.json")
+        if os.path.exists(cfg_path):
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                return json.load(f).get("show_model_signature", True) is not False
+    except Exception:
+        pass
+    return True
+
 def append_signature_to_response(resp_data, server, model):
     """Append [Server - Model] signature to standard JSON or SSE stream response."""
+    if not is_signature_enabled():
+        return resp_data
     sig = f"\n\n[{server} - {model}]"
     try:
         text = resp_data.decode('utf-8', errors='ignore')
@@ -268,12 +280,47 @@ def append_signature_to_response(resp_data, server, model):
         pass
     return resp_data
 
-_INTERACTIVE_Q_TOKENS = ("ask_question", "askuserquestion", "ask_user", "user_question", "prompt_user")
+_NORMAL_MODE_ALLOWED_TOKENS = (
+    "ask_question", "askuserquestion", "ask_user", "user_question", "prompt_user",
+    "write_file", "edit_file", "read_file", "image"
+)
+
+def _is_normal_mode_allowed_tool(name):
+    """Return True if tool is allowed in Normal mode (file ops, question, image). Excludes heavy/dangerous tools."""
+    n = (name or "").lower().replace("-", "_")
+    if any(bad in n for bad in ("bash", "run_command", "terminal", "browser", "delete", "rm", "unlink", "workflow", "schedule", "manage_task", "send_message")):
+        return False
+    return any(tok in n for tok in _NORMAL_MODE_ALLOWED_TOKENS)
 
 def _is_interactive_question_tool(name):
-    """Return True if tool name is an interactive user-question tool (kept even in Normal mode)."""
-    n = (name or "").lower().replace("-", "_")
-    return any(tok in n for tok in _INTERACTIVE_Q_TOKENS)
+    return _is_normal_mode_allowed_tool(name)
+
+def slim_system_prompt_for_normal_mode(sys_p):
+    """Strip heavy agent bloat while preserving Identity, User Rules (Safe Move), and adding Image capability."""
+    if isinstance(sys_p, list):
+        out = []
+        for blk in sys_p:
+            if isinstance(blk, dict) and blk.get("type") == "text" and isinstance(blk.get("text"), str):
+                nb = dict(blk)
+                nb["text"] = slim_system_prompt_for_normal_mode(blk["text"])
+                out.append(nb)
+            else:
+                out.append(blk)
+        return out
+    elif isinstance(sys_p, str):
+        cleaned = sys_p
+        tags_to_strip = (
+            "mcp_servers", "skills", "subagents", "conversation_transcript",
+            "slash_commands", "messaging", "artifacts", "guidelines", "communication_style"
+        )
+        for tag in tags_to_strip:
+            cleaned = re.sub(rf"<{tag}>.*?</{tag}>", "", cleaned, flags=re.DOTALL)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+        img_directive = "\n\n[Image Generation Directive: If asked to generate, create, or show an image, you can generate and render it directly in chat using Markdown image syntax: `![Image Description](https://image.pollinations.ai/prompt/<url_encoded_prompt>?nologo=true)`. Replace <url_encoded_prompt> with an English descriptive prompt.]"
+        if "[Image Generation Directive" not in cleaned:
+            cleaned += img_directive
+        return cleaned
+    return sys_p
 
 def _extract_tool_result_text(content, is_error=False):
     """Flatten Anthropic tool_result content (string or block list) into clean text."""
@@ -298,6 +345,35 @@ def _extract_tool_result_text(content, is_error=False):
     if is_error and txt:
         return f"[Error]: {txt}"
     return txt or "(empty)"
+
+
+def clean_normal_user_block(raw_text):
+    """Preserve Zero-Deletion Safe Move & User Auto-Memory while stripping heavy coding rules in Normal mode."""
+    if not isinstance(raw_text, str):
+        return raw_text
+    
+    def _strip_block(m):
+        c = m.group(1)
+        safe_move = ""
+        m_sm = re.search(r"(## Zero Deletion & Safe Move Policy.*?(?=\n##|\nContents of|\Z))", c, re.DOTALL)
+        if m_sm:
+            safe_move = m_sm.group(1).strip()
+            
+        memory = ""
+        m_mem = re.search(r"Contents of [^\n]*MEMORY\.md[^\n]*:\s*\n(.*?)(?:\Z|\nContents of|\n#)", c, re.DOTALL)
+        if m_mem:
+            memory = m_mem.group(1).strip()
+            
+        res = []
+        if safe_move:
+            res.append(f"[Global Rule]\n{safe_move}")
+        if memory:
+            res.append(f"[User Memory]\n{memory}")
+        return "\n\n".join(res)
+
+    cleaned = re.sub(r"<system-reminder>(.*?)</system-reminder>", _strip_block, raw_text, flags=re.DOTALL)
+    cleaned = re.sub(r"<antigem-expansion[^>]*>.*?</antigem-expansion>", "", cleaned, flags=re.DOTALL)
+    return cleaned.strip()
 
 def apply_engine_mode_to_anthropic_body(body_obj, mode="agentic"):
     """Apply server engine mode ('agentic' vs 'normal') to an Anthropic Messages payload.
@@ -362,8 +438,18 @@ def apply_engine_mode_to_anthropic_body(body_obj, mode="agentic"):
                         res_txt = _extract_tool_result_text(blk.get("content", ""), blk.get("is_error", False))[:1200]
                         new_content.append({"type": "text", "text": f"[Earlier Tool Result]: {res_txt}"})
                 else:
-                    new_content.append(blk)
+                    if blk.get("type") == "text" and isinstance(blk.get("text"), str):
+                        cl_text = clean_normal_user_block(blk["text"])
+                        if cl_text:
+                            nblk = dict(blk)
+                            nblk["text"] = cl_text
+                            new_content.append(nblk)
+                    else:
+                        new_content.append(blk)
             m["content"] = new_content
+
+    if b.get("system"):
+        b["system"] = slim_system_prompt_for_normal_mode(b["system"])
 
     return b
 

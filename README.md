@@ -26,7 +26,11 @@ It unifies multiple AI providers and API keys behind one local endpoint (`http:/
 ### 2. 🤖 Modern Engine Modes (`⚡ Agentic` vs `💬 Normal`) for Anthropic & OpenAI
 - Available for **both Anthropic and OpenAI** protocol servers (`⚡ Agentic` is default):
   - **`⚡ Agentic` Mode (Default):** Full bidirectional tool calling (`tool_use` / `tool_result` ↔ `tool_calls` / `role: "tool"`), streaming tool call assembly, `tool_choice`, thinking/reasoning blocks, strict OpenAI `tool_call_id` normalization (for Groq/Mistral/OpenAI), JSON Schema sanitization (for Google AI Studio/Gemini), and bidirectional **Gemini 3.x `thought_signature` round-trip caching**.
-  - **`💬 Normal` Mode:** Strips heavy agent/coding tool definitions to save ~10k+ tokens per request while **preserving interactive clarification question tools** (`ask_question`, etc.) so the model can still present multiple-choice questions mid-task.
+  - **`💬 Normal` Mode:** Lightweight chat experience. Automatically strips heavy coding/system prompts, skill bloat, and execution tools (saving ~10k+ tokens/turn) while **strictly preserving User Auto-Memory (`MEMORY.md`)**, **Zero Deletion & Safe Move Policy**, and **Markdown Image rendering**. Also preserves interactive clarification question tools (`ask_question` / `AskUserQuestion`) without forcing unprompted clarification loops.
+
+### 3. 🏷️ Response Tag Signature Switch (`Tag with response: ON / OFF`)
+- **Real-Time Signature Tagging:** Appends a clean metadata footer `[Server Name - Model Name]` to the end of assistant responses.
+- **1-Tap Global Header Toggle:** Enable or disable signature tagging across all providers via the **`● Tag with response: ON / OFF`** button in the Console Status Bar or through the REST API (`POST /api/ui/model-signature`).
 
 ### 3. 🟢 Per-Server `ON / OFF` Switch, Fast Model Switcher & Long-Press Default
 - **Per-Server `ON / OFF`:** Every server card has a compact **`● ON` / `● OFF`** toggle button in its header. Turning a server `OFF` blocks it in the proxy backend and immediately removes its models from `~/.claude/agy_providers.json`; turning it `ON` restores routing and chat dropdown sync automatically.
@@ -88,6 +92,7 @@ Zero-downtime rotation across multi-key pools without hammering dead or rate-lim
 | **`Backup`** | Top Header | Opens Backup & Restore modal (Export JSON / Import JSON with auto `.bak` safety) |
 | **`+ New Server`** | Top Header | Adds a new Anthropic or OpenAI-compatible provider server |
 | **`● Recovery: ON/OFF`** | Live Status Bar | Enables or disables the 5-stage Auto History-Recovery system |
+| **`● Tag with response: ON/OFF`** | Live Status Bar | Toggles appending the `[Server Name - Model Name]` signature footer on responses |
 | **`in→out tok • ⚡ tok/s`** | Live Status Bar & Live Feed | Real-time token count, generation speed (`tok/s`), and latency meter |
 | **`Sync`** | Live Status Bar | Refreshes the active route, model, token meter, and account status immediately |
 | **`+ Add Key`** | Quick Key Panel | Adds a new API key to the selected provider's key pool |
@@ -188,9 +193,10 @@ export ANTHROPIC_API_KEY="auto"
 ├── proxy_v2.ui_api-1.py        # UI POST APIs: providers, keys, toggle, test-models, test-key, settings, config-import
 ├── dashboard.html              # Mobile-first Web Console markup & modals (Server, Models, Logs, Backup, Confirm)
 ├── dashboard.styles-1.css      # Responsive dark theme, clear list borders, power pills & log viewer styles
-├── dashboard.servers-1.js      # Server cards, ON/OFF toggle, Recovery toggle, key provisioning
+├── dashboard.servers-1.js      # Server cards, ON/OFF toggle, Recovery & Tag signature toggles, key provisioning
 ├── dashboard.drag-1.js         # Touch & mouse drag-and-drop priority reordering
 ├── dashboard.modals-1.js       # Model discovery/tester, key tester, Logs modal, Backup/Restore, 10s Undo engine
+├── dashboard.modals_server-1.js# Advanced settings collapsible panel, Wire API segmented switch, modal controllers
 ├── dashboard.live-1.js         # Console | Live tab switcher & real-time telemetry/issues/recovery feed UI
 ├── config.example.json         # Safe template config (tracked in Git)
 └── config.json                 # Local live config with your real API keys (ignored by Git)
@@ -203,7 +209,7 @@ export ANTHROPIC_API_KEY="auto"
 - `GET /api/ui/logs?lines=80&hide_status=1` — Tail of `proxy_v2.log` + active key cooldowns
 - `GET /api/ui/live` — Live Monitor snapshot (in-flight requests, per-server stats + tokens/tps, issues with root cause, request feed with recovery stage, tokens/tps & winner, active cooldowns)
 - `POST /api/ui/live-action` — Clear active cooldowns or live telemetry (`clear_cooldowns`, `clear_issues`, `clear_all`)
-- `POST /api/ui/providers` / `DELETE /api/ui/providers` — Create, edit (protocol, `mode`, `custom_headers`, `custom_prompt`), or delete a provider
+- `POST /api/ui/providers` / `DELETE /api/ui/providers` — Create, edit (protocol, `mode`, `wire_api`, `custom_headers`, `custom_prompt`), or delete a provider
 - `POST /api/ui/provider-toggle` — Toggle a provider `ON` / `OFF` (`enabled: true | false`)
 - `POST /api/ui/route-pool` — Update Active Pipeline order & Standby pool
 - `POST /api/ui/keys` / `DELETE /api/ui/keys` — Add or revoke API keys
@@ -211,6 +217,7 @@ export ANTHROPIC_API_KEY="auto"
 - `POST /api/ui/test-models` — Discover provider models and/or test model compatibility (60s timeout)
 - `POST /api/ui/provider-models` — Add, remove, or promote/set default model to 1st position (`set_default`) on a provider
 - `POST /api/ui/settings` — Update global settings (`auto_recovery: true | false`)
+- `POST /api/ui/model-signature` — Toggle appending `[Server - Model]` footer tag (`show_model_signature: true | false`)
 - `POST /api/ui/config-import` — Safely restore config JSON (saves `config.json.bak` first)
 
 ---

@@ -28,6 +28,51 @@ function setServerMode(mode) {
   }
 }
 
+function setServerWireApi(wire) {
+  const eff = (wire === 'responses') ? 'responses' : 'default';
+  const hidden = document.getElementById('server-wire-api');
+  if (hidden) hidden.value = eff;
+  const btnDefault = document.getElementById('btn-wire-default');
+  const btnResponses = document.getElementById('btn-wire-responses');
+  if (btnDefault) btnDefault.classList.toggle('is-active', eff === 'default');
+  if (btnResponses) btnResponses.classList.toggle('is-active', eff === 'responses');
+  const hint = document.getElementById('wire-api-hint');
+  if (hint) {
+    hint.innerText = eff === 'responses' ? '📡 Responses API (/v1/responses)' : '⚡ Auto (/chat/completions)';
+    hint.style.color = eff === 'responses' ? '#58a6ff' : '#79c0ff';
+  }
+}
+
+function toggleServerAdvanced() {
+  const panel = document.getElementById('server-advanced-panel');
+  const arrow = document.getElementById('adv-arrow');
+  if (!panel) return;
+  const isHidden = (panel.style.display === 'none' || !panel.style.display);
+  panel.style.display = isHidden ? 'flex' : 'none';
+  if (arrow) arrow.innerText = isHidden ? '▴' : '▾';
+}
+
+function applyCodexPreset() {
+  setServerProto('openai');
+  setServerWireApi('responses');
+  const baseEl = document.getElementById('server-base');
+  if (baseEl && (!baseEl.value.trim() || baseEl.value.includes('xingchiapi'))) {
+    baseEl.value = 'https://api.xingchiapi.com/v1';
+  }
+  const modelEl = document.getElementById('server-default-model');
+  if (modelEl && (!modelEl.value.trim() || modelEl.value === 'Gj')) {
+    modelEl.value = 'gpt-6.1-sol';
+  }
+  const hdrsEl = document.getElementById('server-custom-headers');
+  if (hdrsEl) {
+    hdrsEl.value = '{"x-openai-actor-authorization": "local-image-extension", "User-Agent": "codex_cli_rs/0.101.0"}';
+  }
+  const panel = document.getElementById('server-advanced-panel');
+  const arrow = document.getElementById('adv-arrow');
+  if (panel) panel.style.display = 'flex';
+  if (arrow) arrow.innerText = '▴';
+}
+
 function applyPromptPreset(presetKey) {
   const el = document.getElementById('server-custom-prompt');
   if (!el) return;
@@ -60,6 +105,11 @@ function openServerModal(pId=null) {
   const rpmLabel = document.getElementById('label-rpm-status');
   const winLabel = document.getElementById('label-window-status');
 
+  const advPanel = document.getElementById('server-advanced-panel');
+  const advArrow = document.getElementById('adv-arrow');
+  if (advPanel) advPanel.style.display = 'none';
+  if (advArrow) advArrow.innerText = '▾';
+
   if (pId && currentConfig?.providers[pId]) {
     const p = currentConfig.providers[pId];
     if (title) title.innerText = 'Edit ' + (p.name || pId);
@@ -69,10 +119,17 @@ function openServerModal(pId=null) {
     if (baseInput) baseInput.value = p.base_url || '';
     setServerProto(p.type || 'anthropic');
     setServerMode(p.mode || 'agentic');
+    const wireApi = p.wire_api || (p.base_url && p.base_url.includes('/responses') ? 'responses' : 'default');
+    setServerWireApi(wireApi);
     if (modelInput) modelInput.value = p.default_model || '';
     if (keyInput) { keyInput.value = ''; keyInput.placeholder = '(Retain keys)'; }
     if (hdrsInput) hdrsInput.value = p.custom_headers ? JSON.stringify(p.custom_headers) : '';
     if (promptInput) promptInput.value = p.custom_prompt || '';
+
+    if (wireApi === 'responses' || p.custom_headers || p.custom_prompt) {
+      if (advPanel) advPanel.style.display = 'flex';
+      if (advArrow) advArrow.innerText = '▴';
+    }
 
     const rl = p.rate_limit || {};
     if (rpmInput) {
@@ -100,6 +157,7 @@ function openServerModal(pId=null) {
     if (baseInput) baseInput.value = '';
     setServerProto('anthropic');
     setServerMode('agentic');
+    setServerWireApi('default');
     if (modelInput) modelInput.value = '';
     if (keyInput) { keyInput.value = ''; keyInput.placeholder = 'sk-...'; }
     if (hdrsInput) hdrsInput.value = '';
@@ -125,6 +183,7 @@ async function saveServer(e) {
   const sBase = document.getElementById('server-base').value.trim();
   const sType = document.getElementById('server-type').value;
   const sMode = document.getElementById('server-mode')?.value || 'agentic';
+  const sWireApi = document.getElementById('server-wire-api')?.value || 'default';
   const sModel = document.getElementById('server-default-model').value.trim();
   const sKey = document.getElementById('server-key').value.trim();
   const sHdrs = document.getElementById('server-custom-headers')?.value.trim();
@@ -139,8 +198,9 @@ async function saveServer(e) {
     base_url: sBase,
     type: sType,
     mode: sMode,
+    wire_api: sWireApi,
     default_model: sModel,
-    models: [sModel],
+    models: sModel ? [sModel] : [],
     custom_prompt: sPrompt,
     rate_limit: {
       rpm: (!isNaN(sRpm) && sRpm > 0) ? sRpm : null,
@@ -296,6 +356,7 @@ async function importConfigBackup() {
     renderLanes();
     renderDropdown();
     renderRecoveryToggle();
+    if (typeof renderSignatureToggle === 'function') renderSignatureToggle();
     closeBackupModal();
     showToast(data.message || 'Config restored');
   } catch (err) {

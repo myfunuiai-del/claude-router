@@ -22,6 +22,7 @@ def _load_module_to_globals(filename, target_globals):
             target_globals[k] = getattr(mod, k)
     return mod
 _anthropic_mod = _load_module_to_globals("proxy_v2.transform_anthropic-1.py", globals())
+_openai_mod = _load_module_to_globals("proxy_v2.transform_openai-1.py", globals())
 def convert_openai_stream_to_anthropic(openai_stream_text, server, model):
     """Convert OpenAI SSE stream into full Anthropic SSE stream with thinking, text, and tool_use blocks."""
     msg_id = f"msg_{uuid.uuid4().hex[:24]}"
@@ -33,6 +34,7 @@ def convert_openai_stream_to_anthropic(openai_stream_text, server, model):
     tool_calls_map = {}  # index -> {"id": str, "name": str, "arguments": str}
     finish_reason = None
     input_tokens = 10
+    cached_input_tokens = 0
     output_tokens = 0
 
     for line in lines:
@@ -51,8 +53,86 @@ def convert_openai_stream_to_anthropic(openai_stream_text, server, model):
         if isinstance(usage, dict):
             if usage.get("prompt_tokens"):
                 input_tokens = usage["prompt_tokens"]
+            elif usage.get("input_tokens"):
+                input_tokens = usage["input_tokens"]
             if usage.get("completion_tokens"):
                 output_tokens = usage["completion_tokens"]
+            elif usage.get("output_tokens"):
+                output_tokens = usage["output_tokens"]
+
+        # Support Responses API streaming SSE
+        ctype = chunk.get("type")
+        if ctype == "response.output_text.delta":
+            d = chunk.get("delta")
+            if isinstance(d, str):
+                text_content += d
+            continue
+        elif ctype == "response.reasoning_text.delta":
+            d = chunk.get("delta")
+            if isinstance(d, str):
+                reasoning_content += d
+            continue
+        elif ctype == "response.output_item.added":
+            item = chunk.get("item") or {}
+            if item.get("type") == "function_call":
+                out_idx = chunk.get("output_index", 0)
+                fc_id = item.get("call_id") or item.get("id") or f"call_{uuid.uuid4().hex[:16]}"
+                tool_calls_map[out_idx] = {
+                    "id": fc_id,
+                    "name": item.get("name") or "",
+                    "arguments": item.get("arguments") or ""
+                }
+            continue
+        elif ctype == "response.function_call_arguments.delta":
+            out_idx = chunk.get("output_index", 0)
+            delta_arg = chunk.get("delta")
+            if isinstance(delta_arg, str) and delta_arg:
+                if out_idx not in tool_calls_map:
+                    tool_calls_map[out_idx] = {
+                        "id": chunk.get("call_id") or chunk.get("item_id") or f"call_{uuid.uuid4().hex[:16]}",
+                        "name": "",
+                        "arguments": ""
+                    }
+                tool_calls_map[out_idx]["arguments"] += delta_arg
+            continue
+        elif ctype == "response.function_call_arguments.done":
+            out_idx = chunk.get("output_index", 0)
+            full_args = chunk.get("arguments")
+            if isinstance(full_args, str) and full_args:
+                if out_idx in tool_calls_map:
+                    tool_calls_map[out_idx]["arguments"] = full_args
+                else:
+                    tool_calls_map[out_idx] = {
+                        "id": chunk.get("call_id") or chunk.get("item_id") or f"call_{uuid.uuid4().hex[:16]}",
+                        "name": "",
+                        "arguments": full_args
+                    }
+            continue
+        elif ctype == "response.output_item.done":
+            item = chunk.get("item") or {}
+            if item.get("type") == "function_call":
+                out_idx = chunk.get("output_index", 0)
+                fc_id = item.get("call_id") or item.get("id") or f"call_{uuid.uuid4().hex[:16]}"
+                if out_idx not in tool_calls_map:
+                    tool_calls_map[out_idx] = {"id": fc_id, "name": item.get("name") or "", "arguments": ""}
+                if item.get("name"):
+                    tool_calls_map[out_idx]["name"] = item["name"]
+                if item.get("arguments"):
+                    tool_calls_map[out_idx]["arguments"] = item["arguments"]
+            continue
+        elif ctype in ("response.done", "response.completed"):
+            resp_info = chunk.get("response") or {}
+            usg = resp_info.get("usage")
+            if isinstance(usg, dict):
+                raw_in = usg.get("input_tokens") or usg.get("prompt_tokens") or input_tokens
+                raw_cached = (usg.get("input_tokens_details") or {}).get("cached_tokens") or (usg.get("prompt_tokens_details") or {}).get("cached_tokens") or 0
+                if raw_cached > 0:
+                    cached_input_tokens = raw_cached
+                    input_tokens = max(raw_in - raw_cached, 1)
+                else:
+                    input_tokens = raw_in
+                output_tokens = usg.get("output_tokens") or usg.get("completion_tokens") or output_tokens
+            continue
 
         choices = chunk.get("choices", [])
         if not choices:
@@ -109,7 +189,12 @@ def convert_openai_stream_to_anthropic(openai_stream_text, server, model):
             "content": [],
             "stop_reason": None,
             "stop_sequence": None,
-            "usage": {"input_tokens": input_tokens, "output_tokens": 0}
+            "usage": {
+                "input_tokens": input_tokens,
+                "output_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": cached_input_tokens
+            }
         }
     }
     anthropic_events.append(f"event: message_start\ndata: {json.dumps(msg_start, ensure_ascii=False)}")
@@ -129,7 +214,9 @@ def convert_openai_stream_to_anthropic(openai_stream_text, server, model):
         final_text = text_content if has_text else (reasoning_content.strip() if reasoning_content.strip() else "...")
         # Append [Server - Model] signature on final text turns (avoid cluttering pure tool-call turns)
         if not assembled_tools:
-            final_text += f"\n\n[{server} - {model}]"
+            sig_on = is_signature_enabled() if "is_signature_enabled" in globals() else True
+            if sig_on:
+                final_text += f"\n\n[{server} - {model}]"
         anthropic_events.append(f"event: content_block_start\ndata: {json.dumps({'type': 'content_block_start', 'index': blk_idx, 'content_block': {'type': 'text', 'text': ''}}, ensure_ascii=False)}")
         anthropic_events.append(f"event: content_block_delta\ndata: {json.dumps({'type': 'content_block_delta', 'index': blk_idx, 'delta': {'type': 'text_delta', 'text': final_text}}, ensure_ascii=False)}")
         anthropic_events.append(f"event: content_block_stop\ndata: {json.dumps({'type': 'content_block_stop', 'index': blk_idx}, ensure_ascii=False)}")
@@ -177,7 +264,11 @@ def convert_openai_stream_to_anthropic(openai_stream_text, server, model):
     msg_delta = {
         "type": "message_delta",
         "delta": {"stop_reason": stop_reason, "stop_sequence": None},
-        "usage": {"output_tokens": output_tokens}
+        "usage": {
+            "output_tokens": output_tokens,
+            "input_tokens": input_tokens,
+            "cache_read_input_tokens": cached_input_tokens
+        }
     }
     anthropic_events.append(f"event: message_delta\ndata: {json.dumps(msg_delta, ensure_ascii=False)}")
 
@@ -203,6 +294,27 @@ def convert_openai_json_to_anthropic(openai_obj, server, model):
         content_text = msg.get("content") or ""
         reasoning_text = msg.get("reasoning_content") or msg.get("reasoning") or ""
         tool_calls = msg.get("tool_calls") or []
+    elif "output" in openai_obj:
+        for item in openai_obj.get("output", []):
+            if isinstance(item, dict):
+                itype = item.get("type")
+                if itype == "message":
+                    for cblk in item.get("content", []):
+                        if isinstance(cblk, dict) and cblk.get("type") in ("output_text", "text"):
+                            content_text += cblk.get("text", "")
+                elif itype == "reasoning":
+                    for s in item.get("summary", []):
+                        if isinstance(s, dict) and s.get("text"):
+                            reasoning_text += s.get("text") + "\n"
+                elif itype == "function_call":
+                    tool_calls.append({
+                        "id": item.get("call_id") or item.get("id"),
+                        "type": "function",
+                        "function": {
+                            "name": item.get("name"),
+                            "arguments": item.get("arguments") or ""
+                        }
+                    })
 
     if reasoning_text.strip():
         content_blocks.append({"type": "thinking", "thinking": reasoning_text})
@@ -230,7 +342,9 @@ def convert_openai_json_to_anthropic(openai_obj, server, model):
     if content_text.strip() or not valid_tools:
         final_text = content_text if content_text.strip() else (reasoning_text.strip() if reasoning_text.strip() else "...")
         if not valid_tools:
-            final_text += f"\n\n[{server} - {model}]"
+            sig_on = is_signature_enabled() if "is_signature_enabled" in globals() else True
+            if sig_on:
+                final_text += f"\n\n[{server} - {model}]"
         content_blocks.append({"type": "text", "text": final_text})
 
     content_blocks.extend(valid_tools)
@@ -243,6 +357,9 @@ def convert_openai_json_to_anthropic(openai_obj, server, model):
         stop_reason = "end_turn"
 
     usage = openai_obj.get("usage", {}) or {}
+    raw_in = usage.get("prompt_tokens") or usage.get("input_tokens") or 10
+    raw_cached = (usage.get("input_tokens_details") or {}).get("cached_tokens") or (usage.get("prompt_tokens_details") or {}).get("cached_tokens") or 0
+    actual_in = max(raw_in - raw_cached, 1) if raw_cached > 0 else raw_in
     return json.dumps({
         "id": msg_id,
         "type": "message",
@@ -252,8 +369,10 @@ def convert_openai_json_to_anthropic(openai_obj, server, model):
         "stop_reason": stop_reason,
         "stop_sequence": None,
         "usage": {
-            "input_tokens": usage.get("prompt_tokens", 10),
-            "output_tokens": usage.get("completion_tokens", max(1, len(content_text) // 4))
+            "input_tokens": actual_in,
+            "cache_read_input_tokens": raw_cached,
+            "cache_creation_input_tokens": 0,
+            "output_tokens": usage.get("completion_tokens") or usage.get("output_tokens") or max(1, len(content_text) // 4)
         }
     }, ensure_ascii=False).encode('utf-8')
 

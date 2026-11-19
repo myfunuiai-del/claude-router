@@ -46,6 +46,7 @@
       </div>
       <div class="live-route-actions">
         <button type="button" class="power-toggle is-on" id="recovery-toggle-btn" title="5-stage Auto History Recovery on 400/403/413" onclick="toggleAutoRecovery()"><span class="power-dot"></span><span class="power-label">Recovery: ON</span></button>
+        <button type="button" class="power-toggle is-on" id="signature-toggle-btn" title="Append server & model name footer [Server - Model] to response (ON/OFF)" onclick="toggleModelSignature()"><span class="power-dot"></span><span class="power-label">Tag with response: ON</span></button>
         <div class="live-sync-group"><span style="font-size:10px; color:var(--text-muted); font-family:var(--mono);" id="active-updated">&bull;</span><button class="btn btn-xs" onclick="fetchStatus()">Sync</button></div>
       </div>
     </div>
@@ -173,8 +174,11 @@
             </div>
           </div>
           <div>
-            <label style="font-size:11px; color:var(--text-muted);">Default Model</label>
-            <input type="text" id="server-default-model" placeholder="deepseek-chat" required />
+            <label style="font-size:11px; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
+              <span>Default Model</span>
+              <span style="font-size:9.5px; color:#56d364;">(Auto-set if blank)</span>
+            </label>
+            <input type="text" id="server-default-model" placeholder="Auto-detect or e.g. gpt-4o, deepseek-chat" />
           </div>
         </div>
         <div>
@@ -222,20 +226,48 @@
           <label style="font-size:11px; color:var(--text-muted);">Initial API Key (optional)</label>
           <input type="text" id="server-key" placeholder="sk-..." />
         </div>
-        <div>
-          <label style="font-size:11px; color:var(--text-muted);">Custom Headers (optional JSON, e.g. {"Originator":"codex_cli_rs"})</label>
-          <input type="text" id="server-custom-headers" placeholder='{"Header-Name": "Value"}' />
-        </div>
-        <div>
-          <label style="font-size:11px; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
-            <span>Custom System Prompt / Preset (optional)</span>
-            <span style="display:inline-flex; gap:4px;">
-              <button type="button" class="btn btn-xs" style="padding:1px 5px; font-size:9.5px;" onclick="applyPromptPreset('concise')">⚡ Concise</button>
-              <button type="button" class="btn btn-xs" style="padding:1px 5px; font-size:9.5px;" onclick="applyPromptPreset('bengali')">🇧🇩 Bengali</button>
-              <button type="button" class="btn btn-xs" style="padding:1px 5px; font-size:9.5px;" onclick="applyPromptPreset('clear')">Clear</button>
-            </span>
-          </label>
-          <textarea id="server-custom-prompt" class="backup-textarea" style="min-height:54px; max-height:110px; margin-top:3px;" placeholder="Optional rules prepended to system prompt (e.g. Be extremely concise, minimal code diffs only)"></textarea>
+        <!-- Advanced Settings Toggle Button -->
+        <button type="button" class="btn btn-xs" id="btn-toggle-advanced" onclick="toggleServerAdvanced()" style="width:100%; margin-top:4px; padding:5px 8px; display:flex; justify-content:space-between; align-items:center; background:#0d141f; border:1px solid #1f2837; border-radius:4px; color:#c9d1d9;">
+          <span style="display:inline-flex; align-items:center; gap:5px; font-weight:600; font-size:11px;">⚙️ Advanced Settings</span>
+          <span id="adv-arrow" style="font-size:11px; color:var(--text-muted); transition:transform 0.15s ease;">▾</span>
+        </button>
+
+        <!-- Advanced Settings Collapsible Panel -->
+        <div id="server-advanced-panel" style="display:none; flex-direction:column; gap:8px; margin-top:4px; padding:9px; background:#080c12; border:1px solid #1b2434; border-radius:6px;">
+          <!-- Wire API (Endpoint Type) -->
+          <div>
+            <label style="font-size:11px; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
+              <span>Wire API (Endpoint Type)</span>
+              <span id="wire-api-hint" style="font-size:10px; color:#58a6ff; font-family:var(--mono);">Auto (/chat/completions)</span>
+            </label>
+            <input type="hidden" id="server-wire-api" value="default" />
+            <div class="proto-segmented" id="wire-segmented" style="margin-top:3px;">
+              <button type="button" class="proto-seg-btn is-active" id="btn-wire-default" onclick="setServerWireApi('default')">⚡ Auto / Chat</button>
+              <button type="button" class="proto-seg-btn" id="btn-wire-responses" onclick="setServerWireApi('responses')">📡 Responses API (/v1/responses)</button>
+            </div>
+          </div>
+
+          <!-- Custom Headers with Preset -->
+          <div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">
+              <label style="font-size:11px; color:var(--text-muted);">Custom HTTP Headers (JSON)</label>
+              <button type="button" class="btn btn-xs" style="padding:1px 6px; font-size:9.5px; background:rgba(56,139,253,0.15); border:1px solid rgba(56,139,253,0.4); color:#79c0ff;" onclick="applyCodexPreset()" title="Auto-fill Xingchi/Codex headers and Responses API">⚡ Codex / Xingchi Preset</button>
+            </div>
+            <input type="text" id="server-custom-headers" placeholder='{"x-openai-actor-authorization": "local-image-extension"}' style="font-family:var(--mono); font-size:11px;" />
+          </div>
+
+          <!-- Custom System Prompt -->
+          <div>
+            <label style="font-size:11px; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
+              <span>Custom System Prompt (optional)</span>
+              <span style="display:inline-flex; gap:4px;">
+                <button type="button" class="btn btn-xs" style="padding:1px 5px; font-size:9.5px;" onclick="applyPromptPreset('concise')">⚡ Concise</button>
+                <button type="button" class="btn btn-xs" style="padding:1px 5px; font-size:9.5px;" onclick="applyPromptPreset('bengali')">🇧🇩 Bengali</button>
+                <button type="button" class="btn btn-xs" style="padding:1px 5px; font-size:9.5px;" onclick="applyPromptPreset('clear')">Clear</button>
+              </span>
+            </label>
+            <textarea id="server-custom-prompt" class="backup-textarea" style="min-height:50px; max-height:100px; margin-top:3px;" placeholder="Optional custom rules prepended to prompt"></textarea>
+          </div>
         </div>
         <div style="display:flex; justify-content:flex-end; gap:6px; margin-top:8px;">
           <button type="button" class="btn btn-xs" onclick="closeServerModal()">Cancel</button>
