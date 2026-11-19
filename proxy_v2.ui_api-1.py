@@ -158,8 +158,12 @@ def handle_ui_post(handler, raw_body):
             custom_prompt = str(custom_prompt).strip()
             if custom_prompt:
                 p_entry["custom_prompt"] = custom_prompt
+            rl = data.get("rate_limit")
+            if isinstance(rl, dict):
+                p_entry["rate_limit"] = rl
+            elif "rate_limit" in existing_prov:
+                p_entry["rate_limit"] = existing_prov["rate_limit"]
             providers[p_id] = p_entry
-
             save_proxy_config(cfg)
             resp = json.dumps({"status": "ok", "message": f"Provider '{name}' saved successfully", "config": cfg}).encode()
             handler.send_response(200)
@@ -363,14 +367,12 @@ def handle_ui_post(handler, raw_body):
             action = data.get("action", "save")
             cfg = load_proxy_config()
             teams = cfg.setdefault("multi_agent_teams", {})
-
             if action == "save":
                 t_id = (data.get("id") or "").strip().lower()
                 t_name = (data.get("name") or "").strip()
                 t_members = data.get("members", [])
                 t_workflow = data.get("workflow", "role_pipeline")
                 t_enabled = data.get("enabled", True)
-
                 if not t_id or not t_name:
                     handler.send_response(400)
                     handler.send_header('Content-Type', 'application/json')
@@ -418,15 +420,6 @@ def handle_ui_post(handler, raw_body):
             handler.send_header('Content-Length', str(len(resp)))
             handler.end_headers()
             handler.wfile.write(resp)
-            return True
-        except Exception as e:
-            handler.send_response(500)
-            handler.send_header('Content-Type', 'application/json')
-            handler.send_header('Access-Control-Allow-Origin', '*')
-            err = json.dumps({"status": "error", "message": str(e)}).encode()
-            handler.send_header('Content-Length', str(len(err)))
-            handler.end_headers()
-            handler.wfile.write(err)
             return True
         except Exception as e:
             handler.send_response(500)

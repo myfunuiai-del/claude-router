@@ -110,6 +110,7 @@ async function fetchLiveSnapshot(forceRender = false) {
     const res = await fetch('/api/ui/live', { signal: liveAbortCtrl.signal });
     if (!res.ok) return;
     const data = await res.json();
+    updateCardQuotaBadges(data.servers || []);
     if (activeMainTab === 'live') {
       renderLiveSnapshot(data, forceRender);
     }
@@ -120,6 +121,33 @@ async function fetchLiveSnapshot(forceRender = false) {
     liveAbortCtrl = null;
     if (_shouldPollLive()) {
       scheduleNextLivePoll();
+    }
+  }
+}
+
+function updateCardQuotaBadges(servers) {
+  if (!Array.isArray(servers)) return;
+  for (const s of servers) {
+    const qBadge = document.getElementById(`quota-badge-${s.id}`);
+    if (!qBadge) continue;
+    const rls = s.rate_limit_stats;
+    const rl = s.rate_limit;
+    if (!rls || (!rl?.rpm && !rl?.max_requests)) continue;
+    if (rls.is_throttled) {
+      qBadge.style.color = '#f85149';
+      qBadge.style.borderColor = '#da3633';
+      qBadge.style.background = 'rgba(218, 54, 51, 0.22)';
+      qBadge.innerText = `⏸️ EXHAUSTED • ⏳ ${rls.refill_text}`;
+      qBadge.title = `Quota Exceeded (${rls.throttle_reason}). Refills in ${rls.refill_seconds}s`;
+    } else {
+      const parts = [];
+      if (rl.rpm) parts.push(`${rls.rpm}/${rl.rpm} RPM`);
+      if (rl.max_requests) parts.push(`${rls.window_reqs}/${rl.max_requests} in ${rl.window_hours || 1}h`);
+      qBadge.style.color = '#d2a8ff';
+      qBadge.style.borderColor = '#58338f';
+      qBadge.style.background = '#1b152b';
+      qBadge.innerText = `⚡ ${parts.join(' | ')}`;
+      qBadge.title = `Current Usage: ${parts.join(' • ')}`;
     }
   }
 }

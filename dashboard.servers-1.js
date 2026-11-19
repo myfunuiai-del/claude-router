@@ -45,6 +45,7 @@ async function fetchStatus() {
           elMeterWrap.style.display = 'none';
         }
       }
+      if (typeof fetchLiveSnapshot === 'function') fetchLiveSnapshot(true);
     }
   } catch(e) {}
 }
@@ -212,6 +213,14 @@ function createServerCard(id, p, isRouted, index) {
   const promptBadgeHtml = hasCustomPrompt
     ? `<span class="server-prompt-badge" title="Custom System Prompt Active">📝 prompt</span>`
     : '';
+  const rl = p.rate_limit || {};
+  let rateBadgeHtml = '';
+  if (rl.rpm || rl.max_requests) {
+    const parts = [];
+    if (rl.rpm) parts.push(`${rl.rpm} RPM`);
+    if (rl.max_requests) parts.push(`${rl.max_requests}/${rl.window_hours || 1}h`);
+    rateBadgeHtml = `<span class="quota-badge" id="quota-badge-${id}" style="font-size:9.5px; font-family:var(--mono); color:#d2a8ff; background:#1b152b; padding:1px 5px; border-radius:3px; border:1px solid #58338f;" title="Configured Quota: ${parts.join(' • ')}">⚡ ${parts.join(' | ')}</span>`;
+  }
   const allModels = p.models || [];
   const defModel = p.default_model || allModels[0] || '';
   const fastSwitchHtml = allModels.length > 0
@@ -228,6 +237,7 @@ function createServerCard(id, p, isRouted, index) {
         <span class="server-proto">${p.type || 'anthropic'}</span>
         ${modeBadgeHtml}
         ${promptBadgeHtml}
+        ${rateBadgeHtml}
       </div>
       <div class="server-header-right" onclick="event.stopPropagation()">
         <button type="button" class="power-toggle ${isEnabled ? 'is-on' : 'is-off'}" id="power-btn-${id}" title="${isEnabled ? 'Server ON — tap to turn OFF' : 'Server OFF — tap to turn ON'}" onclick="toggleServerPower('${id}')">

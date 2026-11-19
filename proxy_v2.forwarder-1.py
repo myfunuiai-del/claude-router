@@ -26,6 +26,7 @@ _config_mod = _load_module_to_globals("proxy_v2.config-1.py", globals())
 _transform_mod = _load_module_to_globals("proxy_v2.transform-1.py", globals())
 _multi_agent_mod = _load_module_to_globals("proxy_v2.multi_agent-1.py", globals())
 _forwarder_loop_mod = _load_module_to_globals("proxy_v2.forwarder_loop-1.py", globals())
+_balancer_mod = _load_module_to_globals("proxy_v2.key_balancer-1.py", globals())
 
 def route_to_agentrouter(handler, raw_body, body_obj):
     """Helper to seamlessly route to AgentRouter gpt-5.6-sol"""
@@ -158,6 +159,19 @@ def dispatch_inference(handler, raw_body):
             attempted_providers.add(target_dedicated_provider)
             p_info = all_providers.get(target_dedicated_provider, {})
             p_name = p_info.get("name", target_dedicated_provider)
+            rl_cfg = p_info.get("rate_limit")
+            if "is_provider_rate_limited" in globals():
+                is_throttled, refill_s, reason = is_provider_rate_limited(target_dedicated_provider, rl_cfg)
+                if is_throttled:
+                    sys.stderr.write(f"[Proxy Direct Route] Dedicated server '{p_name}' quota exhausted ({reason}). Refills in {refill_s}s.\n")
+                    handler.send_response(429)
+                    handler.send_header('Content-Type', 'application/json')
+                    handler.send_header('Retry-After', str(refill_s))
+                    msg = json.dumps({"error": {"type": "rate_limit_exceeded", "message": f"Server '{p_name}' ({target_dedicated_provider}) has exhausted its configured quota ({reason}). Refills in {refill_s}s."}}).encode()
+                    handler.send_header('Content-Length', str(len(msg)))
+                    handler.end_headers()
+                    handler.wfile.write(msg)
+                    return
             sys.stderr.write(f"[Proxy Direct Route] Request targeted specifically to '{target_dedicated_provider}' (Path: {handler.path})\n")
 
             # try_forward_with_history_recovery already iterates sequentially through all configured models of this server
@@ -197,6 +211,13 @@ def dispatch_inference(handler, raw_body):
                     continue
                 p_models = p_info.get("models", [])
                 if orig_model in p_models or any(clean_model == m.split("/")[-1] for m in p_models):
+                    if "is_provider_rate_limited" in globals():
+                        is_throttled, refill_s, reason = is_provider_rate_limited(p_id, p_info.get("rate_limit"))
+                        if is_throttled:
+                            p_name = p_info.get("name", p_id)
+                            sys.stderr.write(f"[Proxy Model Route] Matched '{p_name}' quota exhausted ({reason}). Refills in {refill_s}s. Auto-failing over to pipeline...\n")
+                            failed_providers.append(f"{p_name} (Quota full, refill in {refill_s}s)")
+                            continue
                     attempted_providers.add(p_id)
                     sys.stderr.write(f"[Proxy Model Route] Model '{orig_model}' matched active provider '{p_id}'. Routing directly...\n")
                     if try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_model):
@@ -215,6 +236,13 @@ def dispatch_inference(handler, raw_body):
             if p_info.get("enabled", True) is False:
                 sys.stderr.write(f"[Proxy Pipeline] [Priority #{prio_idx+1}] '{p_id}' is OFF. Skipping...\n")
                 continue
+            if "is_provider_rate_limited" in globals():
+                is_throttled, refill_s, reason = is_provider_rate_limited(p_id, p_info.get("rate_limit"))
+                if is_throttled:
+                    p_name = p_info.get("name", p_id)
+                    sys.stderr.write(f"[Proxy Pipeline RateLimit] Priority #{prio_idx+1} '{p_name}' quota exhausted ({reason}). Refills in {refill_s}s. Auto-failing over...\n")
+                    failed_providers.append(f"{p_name} (Quota full, refill in {refill_s}s)")
+                    continue
             attempted_providers.add(p_id)
             sys.stderr.write(f"[Proxy Pipeline] [Priority #{prio_idx+1}] Routing to '{p_id}'...\n")
             if try_forward_with_history_recovery(handler, p_id, raw_body, body_obj, orig_model):

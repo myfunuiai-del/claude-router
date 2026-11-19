@@ -54,6 +54,11 @@ function openServerModal(pId=null) {
   const keyInput = document.getElementById('server-key');
   const hdrsInput = document.getElementById('server-custom-headers');
   const promptInput = document.getElementById('server-custom-prompt');
+  const rpmInput = document.getElementById('server-rpm');
+  const maxReqInput = document.getElementById('server-max-requests');
+  const winHoursInput = document.getElementById('server-window-hours');
+  const rpmLabel = document.getElementById('label-rpm-status');
+  const winLabel = document.getElementById('label-window-status');
 
   if (pId && currentConfig?.providers[pId]) {
     const p = currentConfig.providers[pId];
@@ -68,6 +73,25 @@ function openServerModal(pId=null) {
     if (keyInput) { keyInput.value = ''; keyInput.placeholder = '(Retain keys)'; }
     if (hdrsInput) hdrsInput.value = p.custom_headers ? JSON.stringify(p.custom_headers) : '';
     if (promptInput) promptInput.value = p.custom_prompt || '';
+
+    const rl = p.rate_limit || {};
+    if (rpmInput) {
+      rpmInput.value = (rl.rpm && rl.rpm > 0) ? rl.rpm : '';
+      if (rpmLabel) {
+        rpmLabel.innerText = rpmInput.value ? `${rpmInput.value} RPM` : 'Unlimited';
+        rpmLabel.style.color = rpmInput.value ? '#79c0ff' : '#56d364';
+      }
+    }
+    if (maxReqInput) {
+      maxReqInput.value = (rl.max_requests && rl.max_requests > 0) ? rl.max_requests : '';
+      if (winLabel) {
+        winLabel.innerText = maxReqInput.value ? `${maxReqInput.value} reqs` : 'Unlimited';
+        winLabel.style.color = maxReqInput.value ? '#79c0ff' : '#56d364';
+      }
+    }
+    if (winHoursInput) {
+      winHoursInput.value = (rl.window_hours && rl.window_hours > 0) ? rl.window_hours : 1;
+    }
   } else {
     if (title) title.innerText = 'Add Server';
     if (editId) editId.value = '';
@@ -80,6 +104,11 @@ function openServerModal(pId=null) {
     if (keyInput) { keyInput.value = ''; keyInput.placeholder = 'sk-...'; }
     if (hdrsInput) hdrsInput.value = '';
     if (promptInput) promptInput.value = '';
+    if (rpmInput) rpmInput.value = '';
+    if (maxReqInput) maxReqInput.value = '';
+    if (winHoursInput) winHoursInput.value = 1;
+    if (rpmLabel) { rpmLabel.innerText = 'Unlimited'; rpmLabel.style.color = '#56d364'; }
+    if (winLabel) { winLabel.innerText = 'Unlimited'; winLabel.style.color = '#56d364'; }
   }
   if (modal) modal.classList.add('active');
 }
@@ -100,6 +129,9 @@ async function saveServer(e) {
   const sKey = document.getElementById('server-key').value.trim();
   const sHdrs = document.getElementById('server-custom-headers')?.value.trim();
   const sPrompt = document.getElementById('server-custom-prompt')?.value.trim() || '';
+  const sRpm = parseInt(document.getElementById('server-rpm')?.value.trim() || '', 10);
+  const sMaxReq = parseInt(document.getElementById('server-max-requests')?.value.trim() || '', 10);
+  const sWinHours = parseFloat(document.getElementById('server-window-hours')?.value.trim() || '1') || 1;
 
   const payload = {
     id: sId,
@@ -109,7 +141,12 @@ async function saveServer(e) {
     mode: sMode,
     default_model: sModel,
     models: [sModel],
-    custom_prompt: sPrompt
+    custom_prompt: sPrompt,
+    rate_limit: {
+      rpm: (!isNaN(sRpm) && sRpm > 0) ? sRpm : null,
+      max_requests: (!isNaN(sMaxReq) && sMaxReq > 0) ? sMaxReq : null,
+      window_hours: sWinHours
+    }
   };
   if (sKey) payload.keys = [sKey];
   if (sHdrs) payload.custom_headers = sHdrs;
@@ -263,6 +300,40 @@ async function importConfigBackup() {
     showToast(data.message || 'Config restored');
   } catch (err) {
     showToast('Error restoring config', true);
+  }
+}
+
+function onRpmInput(el) {
+  const lbl = document.getElementById('label-rpm-status');
+  const val = parseInt(el.value, 10);
+  if (lbl) {
+    lbl.innerText = (!isNaN(val) && val > 0) ? `${val} RPM` : 'Unlimited';
+    lbl.style.color = (!isNaN(val) && val > 0) ? '#79c0ff' : '#56d364';
+  }
+}
+
+function onWindowReqInput(el) {
+  const lbl = document.getElementById('label-window-status');
+  const val = parseInt(el.value, 10);
+  if (lbl) {
+    lbl.innerText = (!isNaN(val) && val > 0) ? `${val} reqs` : 'Unlimited';
+    lbl.style.color = (!isNaN(val) && val > 0) ? '#79c0ff' : '#56d364';
+  }
+}
+
+function toggleUnlimitedRpm() {
+  const input = document.getElementById('server-rpm');
+  if (input) {
+    input.value = '';
+    onRpmInput(input);
+  }
+}
+
+function toggleUnlimitedWindow() {
+  const input = document.getElementById('server-max-requests');
+  if (input) {
+    input.value = '';
+    onWindowReqInput(input);
   }
 }
 

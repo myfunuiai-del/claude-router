@@ -271,6 +271,12 @@ def clear_live_telemetry(kind="all"):
         if kind == "all":
             _LIVE_STORE.server_stats.clear()
 
+def _calc_rl_stats(pid, p_info, now):
+    fn = globals().get("get_provider_rate_limit_stats")
+    if callable(fn):
+        return fn(pid, p_info.get("rate_limit"), now)
+    return None
+
 def get_live_snapshot():
     now = time.time()
     _cfg_fn = globals().get("load_proxy_config")
@@ -306,12 +312,16 @@ def get_live_snapshot():
             avg_ms = int(st.get("_ms_sum", 0) / ms_cnt) if ms_cnt else 0
             success_rate = int((ok / total) * 100) if total else None
             last_ts = st.get("last_used_at", 0)
+            rl_cfg = p_info.get("rate_limit")
+            rl_stats = _calc_rl_stats(pid, p_info, now)
             servers_out.append({
                 "id": pid,
                 "name": p_info.get("name", pid),
                 "enabled": p_info.get("enabled", True) is not False,
                 "in_pipeline": pid in routed,
                 "keys_count": len(p_info.get("keys", [])),
+                "rate_limit": rl_cfg,
+                "rate_limit_stats": rl_stats,
                 "total": total,
                 "ok": ok,
                 "err": err,
