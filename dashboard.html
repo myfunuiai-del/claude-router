@@ -36,7 +36,6 @@
         <span class="tab-issue-badge" id="tab-issue-badge" style="display:none;">0</span>
       </button>
     </div>
-
     <!-- VIEW 1: CONSOLE -->
     <div id="view-console">
     <!-- Stat Bar -->
@@ -217,28 +216,32 @@
           </div>
         </div>
         <!-- Rate Limits & Quota -->
-        <div style="background:#090e15; border:1px solid #1f2837; border-radius:6px; padding:6px 9px;">
-          <div style="font-size:10px; font-weight:700; color:#58a6ff; text-transform:uppercase; margin-bottom:4px; display:flex; justify-content:space-between;">
+        <div style="background:#090e15; border:1px solid #1f2837; border-radius:6px; padding:7px 9px; display:flex; flex-direction:column; gap:6px;">
+          <div style="font-size:10px; font-weight:700; color:#58a6ff; text-transform:uppercase; display:flex; justify-content:space-between; align-items:center;">
             <span>⚡ Rate Limits &amp; Quota (Optional)</span>
-            <span style="font-size:9px; color:var(--text-muted); font-weight:400;">Empty or 0 = Unlimited</span>
+            <span style="font-size:9px; color:var(--text-muted); font-weight:400;">0 or empty = Unlimited</span>
           </div>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-            <div>
-              <label style="font-size:10px; color:var(--text-muted); display:flex; justify-content:space-between;"><span>Max RPM</span><span id="label-rpm-status" style="font-size:9.5px; color:#56d364;">Unlimited</span></label>
-              <div style="display:flex; gap:4px; margin-top:2px;">
-                <input type="number" id="server-rpm" placeholder="∞" min="1" style="flex:1; padding:4px 6px; font-size:11.5px;" oninput="onRpmInput(this)" />
-                <button type="button" class="btn btn-xs" id="btn-unlimited-rpm" onclick="toggleUnlimitedRpm()" title="Set to Unlimited" style="padding:2px 7px;">∞</button>
-              </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; background:#0d141f; padding:5px 8px; border-radius:4px; border:1px solid #1a2536;">
+            <div style="display:flex; align-items:center; gap:6px; min-width:85px;">
+              <span style="font-size:11px; font-weight:500;">Max RPM</span>
+              <span id="label-rpm-status" style="font-size:9.5px; color:#56d364;">Unlimited</span>
             </div>
-            <div>
-              <label style="font-size:10px; color:var(--text-muted); display:flex; justify-content:space-between;"><span>Max Reqs / Window</span><span id="label-window-status" style="font-size:9.5px; color:#56d364;">Unlimited</span></label>
-              <div style="display:flex; gap:3px; margin-top:2px; align-items:center;">
-                <input type="number" id="server-max-requests" placeholder="∞" min="1" style="flex:1; padding:4px 6px; font-size:11.5px;" oninput="onWindowReqInput(this)" title="Max Requests" />
-                <span style="font-size:10px; color:var(--text-muted);">/</span>
-                <input type="number" id="server-window-hours" value="1" min="0.1" step="0.5" style="width:40px; padding:4px 2px; font-size:11px; text-align:center;" title="Window (Hours)" />
-                <span style="font-size:10px; color:var(--text-muted);">h</span>
-                <button type="button" class="btn btn-xs" id="btn-unlimited-window" onclick="toggleUnlimitedWindow()" title="Set to Unlimited" style="padding:2px 7px;">∞</button>
-              </div>
+            <div style="display:flex; align-items:center; gap:4px;">
+              <input type="number" id="server-rpm" placeholder="∞" min="1" style="width:72px; padding:3px 6px; font-size:12px; text-align:center;" oninput="onRpmInput(this)" />
+              <button type="button" class="btn btn-xs" id="btn-unlimited-rpm" onclick="toggleUnlimitedRpm()" title="Set to Unlimited" style="padding:2px 7px;">∞</button>
+            </div>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; background:#0d141f; padding:5px 8px; border-radius:4px; border:1px solid #1a2536;">
+            <div style="display:flex; align-items:center; gap:6px; min-width:85px;">
+              <span style="font-size:11px; font-weight:500;">Window</span>
+              <span id="label-window-status" style="font-size:9.5px; color:#56d364;">Unlimited</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:4px;">
+              <input type="number" id="server-max-requests" placeholder="∞" min="1" style="width:62px; padding:3px 6px; font-size:12px; text-align:center;" oninput="onWindowReqInput(this)" title="Max Requests" />
+              <span style="font-size:11px; color:var(--text-muted);">/</span>
+              <input type="number" id="server-window-hours" value="1" min="0.1" step="0.5" style="width:40px; padding:3px 2px; font-size:11px; text-align:center;" title="Window in Hours" />
+              <span style="font-size:10.5px; color:var(--text-muted);">h</span>
+              <button type="button" class="btn btn-xs" id="btn-unlimited-window" onclick="toggleUnlimitedWindow()" title="Set to Unlimited" style="padding:2px 7px;">∞</button>
             </div>
           </div>
         </div>
@@ -268,7 +271,6 @@
       </form>
     </div>
   </div>
-
   <!-- Multi-Agent Team Builder Modal -->
   <div id="team-modal" class="modal">
     <div class="modal-box" style="max-width:540px;">
@@ -373,7 +375,6 @@
       </div>
     </div>
   </div>
-
   <!-- Backup / Restore Modal -->
   <div id="backup-modal" class="modal">
     <div class="modal-box" style="max-width:520px;">
