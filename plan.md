@@ -56,6 +56,14 @@
   - Compact inline chip status badges (`🟢` / `🔴` / `⏳`) replacing cluttered vertical text dumps.
   - Custom headers support configurable directly from the Server modal.
 
+## Usage Tab Implementation Progress (gemini.md Rule 2 & 7)
+- [x] **Step 1: UI Hook & Slim-down:** `dashboard.html` slimmed from 497 to 470 lines; 3rd tab `📊 Usage & Quotas` button, `<div id="view-usage">` container, and `dashboard.usage-1.js` linked and deployed.
+- [ ] **Step 2: Backend Telemetry API (`proxy_v2.ui_usage-1.py`):** Create standalone handler for `/api/ui/usage` to aggregate server quotas, key health, refill countdowns, and token usage.
+- [ ] **Step 3: Frontend Telemetry Engine (`dashboard.usage-1.js`):** Render KPI summary cards, server quota progress bars, and granular API Key health table.
+- [ ] **Step 4: Styling & Visual Polish:** Dark cybernetic theme styling for progress meters and live countdown timers.
+- [ ] **Step 5: Verification & Syntax Audit:** End-to-end verification under real traffic.
+- [ ] **Step 6: Sync & Git Deploy:** Final plan audit and git push.
+
 ## Architecture Audit & Line Count Summary
 All files across the entire repository are strictly under the 400-500 line limit (Rule 2):
 | Module File | Line Count | Status | Logic Description |
