@@ -63,16 +63,20 @@ function startLivePolling() {
 }
 
 function switchMainTab(tab) {
-  activeMainTab = tab === 'live' ? 'live' : 'console';
+  activeMainTab = (tab === 'live' || tab === 'usage') ? tab : 'console';
   const vConsole = document.getElementById('view-console');
   const vLive = document.getElementById('view-live');
+  const vUsage = document.getElementById('view-usage');
   const bConsole = document.getElementById('tab-btn-console');
   const bLive = document.getElementById('tab-btn-live');
+  const bUsage = document.getElementById('tab-btn-usage');
 
   if (vConsole) vConsole.style.display = activeMainTab === 'console' ? '' : 'none';
   if (vLive) vLive.style.display = activeMainTab === 'live' ? '' : 'none';
+  if (vUsage) vUsage.style.display = activeMainTab === 'usage' ? '' : 'none';
   if (bConsole) bConsole.classList.toggle('active', activeMainTab === 'console');
   if (bLive) bLive.classList.toggle('active', activeMainTab === 'live');
+  if (bUsage) bUsage.classList.toggle('active', activeMainTab === 'usage');
 
   if (activeMainTab === 'live') {
     lastRenderedSeq = -1;
@@ -81,6 +85,12 @@ function switchMainTab(tab) {
     startLivePolling();
   } else {
     stopLivePolling();
+  }
+
+  if (activeMainTab === 'usage') {
+    if (typeof startUsagePolling === 'function') startUsagePolling();
+  } else {
+    if (typeof stopUsagePolling === 'function') stopUsagePolling();
   }
 }
 
