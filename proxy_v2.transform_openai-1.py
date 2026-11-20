@@ -142,8 +142,10 @@ def anthropic_to_openai_body(body_obj, default_model="openai/gpt-oss-120b", p_id
             tname = t.get("name")
             if not tname:
                 continue
-            if eff_mode == "normal" and not _is_interactive_question_tool(tname):
-                continue
+            if eff_mode == "normal":
+                check_fn = globals().get("_is_normal_mode_allowed_tool") or globals().get("_is_interactive_question_tool")
+                if check_fn and not check_fn(tname):
+                    continue
             params = _sanitize_openai_schema(t.get("input_schema") or {"type": "object", "properties": {}})
             desc = t.get("description") or f"Tool {tname}"
             if is_groq and len(desc) > 400:
@@ -164,10 +166,19 @@ def anthropic_to_openai_body(body_obj, default_model="openai/gpt-oss-120b", p_id
     if sys_prompt:
         if isinstance(sys_prompt, list):
             sys_prompt = "\n".join([p.get("text", "") for p in sys_prompt if isinstance(p, dict) and p.get("type") == "text"])
-        if isinstance(sys_prompt, str) and sys_prompt.strip():
-            if is_groq and eff_mode == "normal" and len(sys_prompt) > 2500:
-                sys_prompt = sys_prompt[:2500] + "\n[System instructions trimmed for Groq context budget]"
-            messages.append({"role": "system", "content": sys_prompt})
+    else:
+        sys_prompt = ""
+
+    if eff_mode == "normal":
+        if "slim_system_prompt_for_normal_mode" in globals():
+            sys_prompt = slim_system_prompt_for_normal_mode(sys_prompt)
+        elif hasattr(_anthropic_mod, "slim_system_prompt_for_normal_mode"):
+            sys_prompt = _anthropic_mod.slim_system_prompt_for_normal_mode(sys_prompt)
+        if is_groq and len(sys_prompt) > 2500:
+            sys_prompt = sys_prompt[:2500] + "\n[System instructions trimmed for Groq context budget]"
+
+    if isinstance(sys_prompt, str) and sys_prompt.strip():
+        messages.append({"role": "system", "content": sys_prompt})
 
     # 3. Convert multi-turn messages with strict tool_call_id pairing
     raw_msgs = body_obj.get("messages", [])

@@ -421,6 +421,8 @@ def apply_engine_mode_to_anthropic_body(body_obj, mode="agentic"):
 
     if b.get("system"):
         b["system"] = slim_system_prompt_for_normal_mode(b["system"])
+    else:
+        b["system"] = slim_system_prompt_for_normal_mode("")
 
     return b
 
