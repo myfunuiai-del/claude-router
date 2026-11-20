@@ -148,6 +148,12 @@ def anthropic_to_openai_body(body_obj, default_model="openai/gpt-oss-120b", p_id
                     continue
             params = _sanitize_openai_schema(t.get("input_schema") or {"type": "object", "properties": {}})
             desc = t.get("description") or f"Tool {tname}"
+            if eff_mode == "normal" and "bash" in tname.lower():
+                desc = (
+                    "Execute shell commands ONLY for image creation or conversion tasks "
+                    "(e.g., using `magick input.svg output.png` to render raster images, or running a 1-line python image script). "
+                    "Do NOT use for general software engineering, file deletion, git, or code execution."
+                )
             if is_groq and len(desc) > 400:
                 desc = desc[:400] + "..."
             openai_tools.append({

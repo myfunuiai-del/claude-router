@@ -282,21 +282,36 @@ def append_signature_to_response(resp_data, server, model):
 
 _NORMAL_MODE_ALLOWED_TOKENS = (
     "ask_question", "askuserquestion", "ask_user", "user_question", "prompt_user",
-    "write_file", "edit_file", "read_file", "image"
+    "write_file", "edit_file", "read_file", "image", "bash"
 )
 
 def _is_normal_mode_allowed_tool(name):
-    """Return True if tool is allowed in Normal mode (file ops, question, image). Excludes heavy/dangerous tools."""
+    """Return True if tool is allowed in Normal mode. Excludes heavy code/orchestration tools while permitting file/bash for image converting."""
     n = (name or "").lower().replace("-", "_")
-    if any(bad in n for bad in ("bash", "run_command", "terminal", "browser", "delete", "rm", "unlink", "workflow", "schedule", "manage_task", "send_message")):
+    if any(bad in n for bad in ("browser", "workflow", "schedule", "manage_task", "send_message", "terminal_mcp", "terminal_create")):
         return False
     return any(tok in n for tok in _NORMAL_MODE_ALLOWED_TOKENS)
 
 def _is_interactive_question_tool(name):
     return _is_normal_mode_allowed_tool(name)
 
+def _sanitize_tool_for_normal_mode(tool_dict):
+    """Restrict Bash tool in normal mode to ONLY image generation/conversion tasks."""
+    if not isinstance(tool_dict, dict):
+        return tool_dict
+    name = (tool_dict.get("name") or "").lower()
+    if "bash" in name:
+        td = copy.deepcopy(tool_dict)
+        td["description"] = (
+            "Execute shell commands ONLY for image creation or conversion tasks "
+            "(e.g., using `magick input.svg output.png` to render raster images, or running a 1-line python image script). "
+            "Do NOT use for general software engineering, file deletion, git, or code execution."
+        )
+        return td
+    return tool_dict
+
 def slim_system_prompt_for_normal_mode(sys_p):
-    """Strip heavy agent bloat while preserving Identity, User Rules, and adding Vector/Image capability."""
+    """Strip heavy agent bloat while preserving Identity, User Rules, and adding Magick Image conversion capability."""
     if isinstance(sys_p, list):
         out = []
         for blk in sys_p:
@@ -317,14 +332,16 @@ def slim_system_prompt_for_normal_mode(sys_p):
             cleaned = re.sub(rf"<{tag}>.*?</{tag}>", "", cleaned, flags=re.DOTALL)
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
         img_directive = (
-            "\n\n[Visual & Image Generation Directive:\n"
-            "When the user asks to draw, generate, or create an image, diagram, logo, illustration, or visual artwork:\n"
-            "1. Write clean, complete, high-quality SVG vector code and save it to an SVG file (e.g., using write_file to `/sdcard/artwork.svg` or a project path).\n"
-            "2. Never output external web URLs, mock links, or image hosting domains.\n"
-            "3. Render the image directly inside the chat using Markdown image preview syntax on its own line: `![Artwork Description](/sdcard/artwork.svg)`.\n"
-            "4. Also provide a direct clickable file link on its own line: `[View Artwork](/sdcard/artwork.svg)`.]"
+            "\n\n[Image & Graphic Generation Protocol (ImageMagick Enabled):\n"
+            "When the user asks to draw, generate, or create an image, photo, or visual artwork in PNG or SVG:\n"
+            "1. Generate clean SVG vector code or a graphic asset and save it to `/sdcard/Download/artwork.svg` (or a chosen filename).\n"
+            "2. If PNG is requested or preferred, immediately execute the Bash tool with ImageMagick: "
+            "`magick -background none /sdcard/Download/artwork.svg /sdcard/Download/artwork.png`.\n"
+            "3. Render the resulting image directly inside the chat using Markdown image preview syntax on its own line: `![Artwork Description](/sdcard/Download/artwork.png)` (or `.svg`).\n"
+            "4. Also provide a direct clickable file link on its own line: `[View Artwork](/sdcard/Download/artwork.png)`.\n"
+            "5. The Bash tool is strictly dedicated to image rendering (`magick` conversion). Do not use it for general coding.]"
         )
-        if "[Visual & Image Generation Directive" not in cleaned:
+        if "[Image & Graphic Generation Protocol" not in cleaned:
             cleaned += img_directive
         return cleaned
     return sys_p
@@ -370,7 +387,7 @@ def apply_engine_mode_to_anthropic_body(body_obj, mode="agentic"):
     if isinstance(raw_tools, list):
         for t in raw_tools:
             if isinstance(t, dict) and _is_interactive_question_tool(t.get("name")):
-                kept_tools.append(t)
+                kept_tools.append(_sanitize_tool_for_normal_mode(t))
                 kept_names.add(t.get("name"))
 
     if kept_tools:
