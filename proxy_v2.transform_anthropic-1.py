@@ -131,8 +131,20 @@ def sanitize_anthropic_body(body_obj):
     _enforce_cache_control_limit(body_obj, max_breakpoints=4)
     return body_obj
 
+def is_signature_enabled():
+    try:
+        cfg_path = os.path.join(os.path.dirname(__file__), "config.json")
+        if os.path.exists(cfg_path):
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                return json.load(f).get("show_model_signature", True) is not False
+    except Exception:
+        pass
+    return True
+
 def append_signature_to_response(resp_data, server, model):
     """Append [Server - Model] signature to standard JSON or SSE stream response."""
+    if not is_signature_enabled():
+        return resp_data
     sig = f"\n\n[{server} - {model}]"
     try:
         text = resp_data.decode('utf-8', errors='ignore')
@@ -268,12 +280,52 @@ def append_signature_to_response(resp_data, server, model):
         pass
     return resp_data
 
-_INTERACTIVE_Q_TOKENS = ("ask_question", "askuserquestion", "ask_user", "user_question", "prompt_user")
+_NORMAL_MODE_ALLOWED_TOKENS = (
+    "ask_question", "askuserquestion", "ask_user", "user_question", "prompt_user",
+    "write_file", "edit_file", "read_file", "image", "invoke_subagent"
+)
+
+def _is_normal_mode_allowed_tool(name):
+    """Return True if tool is allowed in Normal mode (file ops, question, image, subagent). Excludes heavy/dangerous tools."""
+    n = (name or "").lower().replace("-", "_")
+    if any(bad in n for bad in ("bash", "run_command", "terminal", "browser", "delete", "rm", "unlink", "workflow", "schedule", "manage_task", "send_message")):
+        return False
+    return any(tok in n for tok in _NORMAL_MODE_ALLOWED_TOKENS)
 
 def _is_interactive_question_tool(name):
-    """Return True if tool name is an interactive user-question tool (kept even in Normal mode)."""
-    n = (name or "").lower().replace("-", "_")
-    return any(tok in n for tok in _INTERACTIVE_Q_TOKENS)
+    return _is_normal_mode_allowed_tool(name)
+
+def slim_system_prompt_for_normal_mode(sys_p):
+    """Strip heavy agent bloat while preserving Identity, User Rules, Subagents (image-generator), and adding Image capability."""
+    if isinstance(sys_p, list):
+        out = []
+        for blk in sys_p:
+            if isinstance(blk, dict) and blk.get("type") == "text" and isinstance(blk.get("text"), str):
+                nb = dict(blk)
+                nb["text"] = slim_system_prompt_for_normal_mode(blk["text"])
+                out.append(nb)
+            else:
+                out.append(blk)
+        return out
+    elif isinstance(sys_p, str):
+        cleaned = sys_p
+        # Keep subagents intact so the model knows about image-generator without external URL calls
+        tags_to_strip = (
+            "mcp_servers", "skills", "conversation_transcript",
+            "slash_commands", "messaging", "artifacts", "guidelines", "communication_style"
+        )
+        for tag in tags_to_strip:
+            cleaned = re.sub(rf"<{tag}>.*?</{tag}>", "", cleaned, flags=re.DOTALL)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+        img_directive = (
+            "\n\n[Image Generation Directive: When asked to generate, create, or draw an image, "
+            "call the invoke_subagent tool with TypeName='image-generator', Role='Image Generator', "
+            "and a descriptive prompt. Do NOT use external URLs or web links. Render the returned local file path in chat.]"
+        )
+        if "[Image Generation Directive" not in cleaned:
+            cleaned += img_directive
+        return cleaned
+    return sys_p
 
 def _extract_tool_result_text(content, is_error=False):
     """Flatten Anthropic tool_result content (string or block list) into clean text."""
@@ -364,6 +416,9 @@ def apply_engine_mode_to_anthropic_body(body_obj, mode="agentic"):
                 else:
                     new_content.append(blk)
             m["content"] = new_content
+
+    if b.get("system"):
+        b["system"] = slim_system_prompt_for_normal_mode(b["system"])
 
     return b
 
