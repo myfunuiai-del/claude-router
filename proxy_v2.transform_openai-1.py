@@ -148,12 +148,6 @@ def anthropic_to_openai_body(body_obj, default_model="openai/gpt-oss-120b", p_id
                     continue
             params = _sanitize_openai_schema(t.get("input_schema") or {"type": "object", "properties": {}})
             desc = t.get("description") or f"Tool {tname}"
-            if eff_mode == "normal" and "bash" in tname.lower():
-                desc = (
-                    "Execute shell commands ONLY for image creation or conversion tasks "
-                    "(e.g., using `magick input.svg output.png` to render raster images, or running a 1-line python image script). "
-                    "Do NOT use for general software engineering, file deletion, git, or code execution."
-                )
             if is_groq and len(desc) > 400:
                 desc = desc[:400] + "..."
             openai_tools.append({
@@ -172,19 +166,15 @@ def anthropic_to_openai_body(body_obj, default_model="openai/gpt-oss-120b", p_id
     if sys_prompt:
         if isinstance(sys_prompt, list):
             sys_prompt = "\n".join([p.get("text", "") for p in sys_prompt if isinstance(p, dict) and p.get("type") == "text"])
-    else:
-        sys_prompt = ""
-
-    if eff_mode == "normal":
-        if "slim_system_prompt_for_normal_mode" in globals():
-            sys_prompt = slim_system_prompt_for_normal_mode(sys_prompt)
-        elif hasattr(_anthropic_mod, "slim_system_prompt_for_normal_mode"):
-            sys_prompt = _anthropic_mod.slim_system_prompt_for_normal_mode(sys_prompt)
-        if is_groq and len(sys_prompt) > 2500:
-            sys_prompt = sys_prompt[:2500] + "\n[System instructions trimmed for Groq context budget]"
-
-    if isinstance(sys_prompt, str) and sys_prompt.strip():
-        messages.append({"role": "system", "content": sys_prompt})
+        if isinstance(sys_prompt, str) and sys_prompt.strip():
+            if eff_mode == "normal":
+                if "slim_system_prompt_for_normal_mode" in globals():
+                    sys_prompt = slim_system_prompt_for_normal_mode(sys_prompt)
+                elif hasattr(_anthropic_mod, "slim_system_prompt_for_normal_mode"):
+                    sys_prompt = _anthropic_mod.slim_system_prompt_for_normal_mode(sys_prompt)
+                if is_groq and len(sys_prompt) > 2500:
+                    sys_prompt = sys_prompt[:2500] + "\n[System instructions trimmed for Groq context budget]"
+            messages.append({"role": "system", "content": sys_prompt})
 
     # 3. Convert multi-turn messages with strict tool_call_id pairing
     raw_msgs = body_obj.get("messages", [])
@@ -289,8 +279,14 @@ def anthropic_to_openai_body(body_obj, default_model="openai/gpt-oss-120b", p_id
                         else:
                             user_text_parts.append(f"[Tool Result]: {res_txt[:2000]}")
                     elif ptype == "text" and isinstance(p.get("text"), str) and p["text"].strip():
-                        user_text_parts.append(p["text"])
-                        user_content_blocks.append({"type": "text", "text": p["text"]})
+                        txt_val = p["text"]
+                        if eff_mode == "normal":
+                            cl_fn = globals().get("clean_normal_user_block") or getattr(_anthropic_mod, "clean_normal_user_block", None)
+                            if cl_fn:
+                                txt_val = cl_fn(txt_val)
+                        if txt_val.strip():
+                            user_text_parts.append(txt_val)
+                            user_content_blocks.append({"type": "text", "text": txt_val})
                     elif ptype == "image" and isinstance(p.get("source"), dict):
                         src = p["source"]
                         if src.get("type") == "base64" and src.get("data"):

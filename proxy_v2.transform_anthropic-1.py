@@ -282,36 +282,21 @@ def append_signature_to_response(resp_data, server, model):
 
 _NORMAL_MODE_ALLOWED_TOKENS = (
     "ask_question", "askuserquestion", "ask_user", "user_question", "prompt_user",
-    "write", "read", "write_file", "read_file", "image", "bash"
+    "write_file", "edit_file", "read_file", "image"
 )
 
 def _is_normal_mode_allowed_tool(name):
-    """Return True if tool is allowed in Normal mode (write, read, file ops, question, restricted bash)."""
-    n = (name or "").strip().lower().replace("-", "_")
-    if any(bad in n for bad in ("browser", "workflow", "schedule", "manage_task", "send_message", "terminal_mcp", "terminal_create", "edit")):
+    """Return True if tool is allowed in Normal mode (file ops, question, image). Excludes heavy/dangerous tools."""
+    n = (name or "").lower().replace("-", "_")
+    if any(bad in n for bad in ("bash", "run_command", "terminal", "browser", "delete", "rm", "unlink", "workflow", "schedule", "manage_task", "send_message")):
         return False
     return any(tok in n for tok in _NORMAL_MODE_ALLOWED_TOKENS)
 
 def _is_interactive_question_tool(name):
     return _is_normal_mode_allowed_tool(name)
 
-def _sanitize_tool_for_normal_mode(tool_dict):
-    """Restrict Bash tool in normal mode to ONLY image generation/conversion tasks."""
-    if not isinstance(tool_dict, dict):
-        return tool_dict
-    name = (tool_dict.get("name") or "").lower()
-    if "bash" in name:
-        td = copy.deepcopy(tool_dict)
-        td["description"] = (
-            "Execute shell commands ONLY for image creation or conversion tasks "
-            "(e.g., using `magick input.svg output.png` to render raster images, or running a 1-line python image script). "
-            "Do NOT use for general software engineering, file deletion, git, or code execution."
-        )
-        return td
-    return tool_dict
-
 def slim_system_prompt_for_normal_mode(sys_p):
-    """Strip heavy agent bloat while preserving Identity, User Rules, and adding Magick Image conversion capability."""
+    """Strip heavy agent bloat while preserving Identity, User Rules (Safe Move), and adding Image capability."""
     if isinstance(sys_p, list):
         out = []
         for blk in sys_p:
@@ -331,17 +316,8 @@ def slim_system_prompt_for_normal_mode(sys_p):
         for tag in tags_to_strip:
             cleaned = re.sub(rf"<{tag}>.*?</{tag}>", "", cleaned, flags=re.DOTALL)
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
-        img_directive = (
-            "\n\n[Image & Graphic Generation Protocol (ImageMagick Enabled):\n"
-            "When the user asks to draw, generate, or create an image, photo, or visual artwork in PNG or SVG:\n"
-            "1. Generate clean SVG vector code or a graphic asset and save it to `/sdcard/Download/artwork.svg` (or a chosen filename).\n"
-            "2. If PNG is requested or preferred, immediately execute the Bash tool with ImageMagick: "
-            "`magick -background none /sdcard/Download/artwork.svg /sdcard/Download/artwork.png`.\n"
-            "3. Render the resulting image directly inside the chat using Markdown image preview syntax on its own line: `![Artwork Description](/sdcard/Download/artwork.png)` (or `.svg`).\n"
-            "4. Also provide a direct clickable file link on its own line: `[View Artwork](/sdcard/Download/artwork.png)`.\n"
-            "5. The Bash tool is strictly dedicated to image rendering (`magick` conversion). Do not use it for general coding.]"
-        )
-        if "[Image & Graphic Generation Protocol" not in cleaned:
+        img_directive = "\n\n[Image Generation Directive: If asked to generate, create, or show an image, you can generate and render it directly in chat using Markdown image syntax: `![Image Description](https://image.pollinations.ai/prompt/<url_encoded_prompt>?nologo=true)`. Replace <url_encoded_prompt> with an English descriptive prompt.]"
+        if "[Image Generation Directive" not in cleaned:
             cleaned += img_directive
         return cleaned
     return sys_p
@@ -370,6 +346,35 @@ def _extract_tool_result_text(content, is_error=False):
         return f"[Error]: {txt}"
     return txt or "(empty)"
 
+
+def clean_normal_user_block(raw_text):
+    """Preserve Zero-Deletion Safe Move & User Auto-Memory while stripping heavy coding rules in Normal mode."""
+    if not isinstance(raw_text, str):
+        return raw_text
+    
+    def _strip_block(m):
+        c = m.group(1)
+        safe_move = ""
+        m_sm = re.search(r"(## Zero Deletion & Safe Move Policy.*?(?=\n##|\nContents of|\Z))", c, re.DOTALL)
+        if m_sm:
+            safe_move = m_sm.group(1).strip()
+            
+        memory = ""
+        m_mem = re.search(r"Contents of [^\n]*MEMORY\.md[^\n]*:\s*\n(.*?)(?:\Z|\nContents of|\n#)", c, re.DOTALL)
+        if m_mem:
+            memory = m_mem.group(1).strip()
+            
+        res = []
+        if safe_move:
+            res.append(f"[Global Rule]\n{safe_move}")
+        if memory:
+            res.append(f"[User Memory]\n{memory}")
+        return "\n\n".join(res)
+
+    cleaned = re.sub(r"<system-reminder>(.*?)</system-reminder>", _strip_block, raw_text, flags=re.DOTALL)
+    cleaned = re.sub(r"<antigem-expansion[^>]*>.*?</antigem-expansion>", "", cleaned, flags=re.DOTALL)
+    return cleaned.strip()
+
 def apply_engine_mode_to_anthropic_body(body_obj, mode="agentic"):
     """Apply server engine mode ('agentic' vs 'normal') to an Anthropic Messages payload.
     - agentic: full tools, tool_choice, thinking, and multi-turn tool calls untouched.
@@ -387,7 +392,7 @@ def apply_engine_mode_to_anthropic_body(body_obj, mode="agentic"):
     if isinstance(raw_tools, list):
         for t in raw_tools:
             if isinstance(t, dict) and _is_interactive_question_tool(t.get("name")):
-                kept_tools.append(_sanitize_tool_for_normal_mode(t))
+                kept_tools.append(t)
                 kept_names.add(t.get("name"))
 
     if kept_tools:
@@ -433,13 +438,18 @@ def apply_engine_mode_to_anthropic_body(body_obj, mode="agentic"):
                         res_txt = _extract_tool_result_text(blk.get("content", ""), blk.get("is_error", False))[:1200]
                         new_content.append({"type": "text", "text": f"[Earlier Tool Result]: {res_txt}"})
                 else:
-                    new_content.append(blk)
+                    if blk.get("type") == "text" and isinstance(blk.get("text"), str):
+                        cl_text = clean_normal_user_block(blk["text"])
+                        if cl_text:
+                            nblk = dict(blk)
+                            nblk["text"] = cl_text
+                            new_content.append(nblk)
+                    else:
+                        new_content.append(blk)
             m["content"] = new_content
 
     if b.get("system"):
         b["system"] = slim_system_prompt_for_normal_mode(b["system"])
-    else:
-        b["system"] = slim_system_prompt_for_normal_mode("")
 
     return b
 

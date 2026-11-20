@@ -263,10 +263,9 @@ async function fetchLogs() {
     const res = await fetch(`/api/ui/logs?lines=80&hide_status=${hideStatus}`);
     const data = await res.json();
     if (res.ok && pre) {
-      const isAtBottom = (pre.scrollHeight - pre.clientHeight) <= (pre.scrollTop + 45);
       const lines = data.lines || [];
       pre.textContent = lines.length ? lines.join('\n') : '(No log entries yet)';
-      if (isAtBottom) pre.scrollTop = pre.scrollHeight;
+      pre.scrollTop = pre.scrollHeight;
     }
     if (cdPill) {
       const cds = data.cooldowns || [];
