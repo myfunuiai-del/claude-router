@@ -282,11 +282,11 @@ def append_signature_to_response(resp_data, server, model):
 
 _NORMAL_MODE_ALLOWED_TOKENS = (
     "ask_question", "askuserquestion", "ask_user", "user_question", "prompt_user",
-    "write_file", "edit_file", "read_file", "image", "invoke_subagent"
+    "write_file", "edit_file", "read_file", "image"
 )
 
 def _is_normal_mode_allowed_tool(name):
-    """Return True if tool is allowed in Normal mode (file ops, question, image, subagent). Excludes heavy/dangerous tools."""
+    """Return True if tool is allowed in Normal mode (file ops, question, image). Excludes heavy/dangerous tools."""
     n = (name or "").lower().replace("-", "_")
     if any(bad in n for bad in ("bash", "run_command", "terminal", "browser", "delete", "rm", "unlink", "workflow", "schedule", "manage_task", "send_message")):
         return False
@@ -296,7 +296,7 @@ def _is_interactive_question_tool(name):
     return _is_normal_mode_allowed_tool(name)
 
 def slim_system_prompt_for_normal_mode(sys_p):
-    """Strip heavy agent bloat while preserving Identity, User Rules, Subagents (image-generator), and adding Image capability."""
+    """Strip heavy agent bloat while preserving Identity, User Rules, and adding Vector/Image capability."""
     if isinstance(sys_p, list):
         out = []
         for blk in sys_p:
@@ -309,20 +309,22 @@ def slim_system_prompt_for_normal_mode(sys_p):
         return out
     elif isinstance(sys_p, str):
         cleaned = sys_p
-        # Keep subagents intact so the model knows about image-generator without external URL calls
         tags_to_strip = (
-            "mcp_servers", "skills", "conversation_transcript",
+            "mcp_servers", "skills", "subagents", "conversation_transcript",
             "slash_commands", "messaging", "artifacts", "guidelines", "communication_style"
         )
         for tag in tags_to_strip:
             cleaned = re.sub(rf"<{tag}>.*?</{tag}>", "", cleaned, flags=re.DOTALL)
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
         img_directive = (
-            "\n\n[Image Generation Directive: When asked to generate, create, or draw an image, "
-            "call the invoke_subagent tool with TypeName='image-generator', Role='Image Generator', "
-            "and a descriptive prompt. Do NOT use external URLs or web links. Render the returned local file path in chat.]"
+            "\n\n[Visual & Image Generation Directive:\n"
+            "When the user asks to draw, generate, or create an image, diagram, logo, illustration, or visual artwork:\n"
+            "1. Write clean, complete, high-quality SVG vector code and save it to an SVG file (e.g., using write_file to `/sdcard/artwork.svg` or a project path).\n"
+            "2. Never output external web URLs, mock links, or image hosting domains.\n"
+            "3. Render the image directly inside the chat using Markdown image preview syntax on its own line: `![Artwork Description](/sdcard/artwork.svg)`.\n"
+            "4. Also provide a direct clickable file link on its own line: `[View Artwork](/sdcard/artwork.svg)`.]"
         )
-        if "[Image Generation Directive" not in cleaned:
+        if "[Visual & Image Generation Directive" not in cleaned:
             cleaned += img_directive
         return cleaned
     return sys_p
