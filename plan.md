@@ -131,3 +131,14 @@ All files across the entire repository are strictly under the 400-500 line limit
 | `README.md` | 225 | ✅ Pass | Full documentation for features, APIs & workflows |
 | `crouter` | 168 | ✅ Pass | CLI daemon management tool |
 | `GitHub Repository` | - | ✅ Live | https://github.com/myfunuiai-del/claude-router |
+
+
+---
+
+### [Phase 9] AntiGem App Auto-Setup & Internal Web Browser Integration (Completed)
+- **Auto-Environment Detection (`ensure_cli_environment`):** Automatically detects AntiGem Linux/Termux environment on execution, creating symlinks for `crouter` and `croute` in `$PREFIX/bin` and `~/.local/bin`.
+- **AntiGem Internal Web Browser Target:** Priority routing for web dashboard opening:
+  1. AntiGem In-App MCP Bridge (`jarvis_open_url` / `browser_open_url`).
+  2. Native Android Intent Receiver (`TermuxOpenReceiver` via `am broadcast --user 0`) ensuring opening directly inside AntiGem's internal web browser view.
+  3. System fallback (`termux-open-url` / `xdg-open`).
+- **File Length & Safety:** `crouter` CLI stands at 223 lines (< 500 max limit).

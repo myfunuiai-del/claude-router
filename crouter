@@ -6,25 +6,62 @@ PORT=8999
 STATUS_URL="http://127.0.0.1:$PORT/status"
 UI_URL="http://127.0.0.1:$PORT/ui"
 
+ensure_cli_environment() {
+    # Auto-detect AntiGem / Termux app environment and setup symlinks
+    local self_script="$(realpath "${BASH_SOURCE[0]:-$0}" 2>/dev/null || echo "$ROUTER_DIR/crouter")"
+    [ -f "$self_script" ] && chmod +x "$self_script" 2>/dev/null
+    
+    local target_dirs=()
+    [ -n "$PREFIX" ] && [ -d "$PREFIX/bin" ] && target_dirs+=("$PREFIX/bin")
+    [ -d "$HOME/.local/bin" ] && target_dirs+=("$HOME/.local/bin")
+    
+    # If in AntiGem environment, ensure standard user/app bin directories
+    for p in "/data/user/0/ai.antigem/files/usr/bin" "/data/user/0/ai.antigem/files/home/.local/bin"; do
+        if [ -d "$p" ]; then
+            local already_in=0
+            for d in "${target_dirs[@]}"; do
+                [ "$d" = "$p" ] && already_in=1
+            done
+            [ "$already_in" -eq 0 ] && target_dirs+=("$p")
+        fi
+    done
+    
+    for bin_dir in "${target_dirs[@]}"; do
+        mkdir -p "$bin_dir" 2>/dev/null
+        if [ ! -L "$bin_dir/crouter" ] || [ ! -e "$bin_dir/crouter" ]; then
+            ln -sf "$self_script" "$bin_dir/crouter" 2>/dev/null
+        fi
+        if [ ! -L "$bin_dir/croute" ] || [ ! -e "$bin_dir/croute" ]; then
+            ln -sf "$self_script" "$bin_dir/croute" 2>/dev/null
+        fi
+    done
+}
+
 open_browser() {
     local target_url="$1"
     [ -z "$target_url" ] && target_url="$UI_URL"
-    
-    # Open and bring AntiGem in-app browser screen to foreground
+
+    # 1. Preferred: AntiGem In-App MCP Bridge (Jarvis / Browser MCP)
     python3 -c '
 import json, os, urllib.request, sys
 target = sys.argv[1]
 dev_id = "e74b5ede909c4c94"
-try:
-    with open(os.path.expanduser("~/.gemini/config/mcp_config.json")) as f:
-        servers = json.load(f).get("mcpServers", {})
-        dev_id = (
-            servers.get("jarvis_mcp", {}).get("headers", {}).get("X-Device-Id")
-            or servers.get("browser_mcp", {}).get("headers", {}).get("X-Device-Id")
-            or dev_id
-        )
-except Exception:
-    pass
+for conf_path in [
+    os.path.expanduser("~/.gemini/antigravity/mcp_config.json"),
+    os.path.expanduser("~/.gemini/config/mcp_config.json")
+]:
+    try:
+        if os.path.exists(conf_path):
+            with open(conf_path) as f:
+                servers = json.load(f).get("mcpServers", {})
+                dev_id = (
+                    servers.get("jarvis_mcp", {}).get("headers", {}).get("X-Device-Id")
+                    or servers.get("browser_mcp", {}).get("headers", {}).get("X-Device-Id")
+                    or dev_id
+                )
+                break
+    except Exception:
+        pass
 
 def mcp_call(url, name, args):
     req = urllib.request.Request(
@@ -37,17 +74,17 @@ def mcp_call(url, name, args):
         }).encode("utf-8"),
         headers={"Content-Type": "application/json", "X-Device-Id": dev_id}
     )
-    with urllib.request.urlopen(req, timeout=4) as resp:
+    with urllib.request.urlopen(req, timeout=2) as resp:
         return resp.status == 200
 
-# 1. Preferred: jarvis_open_url opens the URL AND switches the app to the browser screen
+# Try jarvis_open_url (switches directly to browser tab)
 try:
     if mcp_call("http://127.0.0.1:8765/jarvis", "jarvis_open_url", {"url": target, "new_tab": False}):
         sys.exit(0)
 except Exception:
     pass
 
-# 2. Fallback: browser_open_url + switch screen to browser
+# Try browser_open_url + jarvis_open_screen
 try:
     if mcp_call("http://127.0.0.1:8765/browser", "browser_open_url", {"url": target}):
         try:
@@ -62,11 +99,24 @@ sys.exit(1)
 ' "$target_url" >/dev/null 2>&1
 
     if [ $? -eq 0 ]; then
-        echo "[Claude Router] Opened and switched to in-app browser."
+        echo "[Claude Router] Opened in AntiGem internal browser (via MCP)."
         return 0
     fi
 
-    # Fallback to Termux open or system open
+    # 2. Preferred Native App Receiver: AntiGem TermuxOpenReceiver Broadcast
+    # Directly delivers the URL to AntiGem internal browser component
+    local uid_val="${TERMUX__USER_ID:-0}"
+    case "$uid_val" in ''|*[!0-9]*) uid_val=0;; esac
+
+    if [ -x "/system/bin/am" ]; then
+        /system/bin/am broadcast --user "$uid_val"             -a android.intent.action.VIEW             -n "ai.antigem/ai.antigem.app.TermuxOpenReceiver"             -d "$target_url" >/dev/null 2>&1
+        if [ $? -eq 0 ]; then
+            echo "[Claude Router] Opened in AntiGem internal web browser."
+            return 0
+        fi
+    fi
+
+    # 3. Fallbacks
     if command -v termux-open-url >/dev/null 2>&1; then
         termux-open-url "$target_url"
     elif command -v termux-open >/dev/null 2>&1; then
@@ -82,6 +132,7 @@ is_running() {
 }
 
 start_router() {
+    ensure_cli_environment
     if is_running; then
         echo "[Claude Router] Already running on port $PORT."
         if [ -t 1 ]; then
@@ -125,6 +176,7 @@ stop_router() {
 }
 
 status_router() {
+    ensure_cli_environment
     if is_running; then
         echo "[Claude Router] Status: RUNNING on port $PORT (HTTP 200 OK)"
         echo "[Claude Router] Dashboard: http://127.0.0.1:$PORT/ui"
@@ -133,6 +185,9 @@ status_router() {
         echo "[Claude Router] Status: STOPPED (Port $PORT not responding)"
     fi
 }
+
+# Auto-ensure CLI environment on every execution
+ensure_cli_environment
 
 case "$1" in
     start)

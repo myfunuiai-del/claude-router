@@ -116,6 +116,8 @@ cp config.example.json config.json
 ```
 
 ### 2. Symlink the `crouter` / `croute` CLI
+> **Note for AntiGem / Termux:** When running inside the AntiGem app, `crouter` automatically detects the environment and self-configures symlinks in `$PREFIX/bin` and `~/.local/bin`. You can also link manually:
+
 ```bash
 mkdir -p ~/.local/bin
 chmod +x ~/.gemini/claude-router/crouter
