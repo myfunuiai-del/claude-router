@@ -282,13 +282,13 @@ def append_signature_to_response(resp_data, server, model):
 
 _NORMAL_MODE_ALLOWED_TOKENS = (
     "ask_question", "askuserquestion", "ask_user", "user_question", "prompt_user",
-    "write_file", "edit_file", "read_file", "image", "bash"
+    "write", "read", "write_file", "read_file", "image", "bash"
 )
 
 def _is_normal_mode_allowed_tool(name):
-    """Return True if tool is allowed in Normal mode. Excludes heavy code/orchestration tools while permitting file/bash for image converting."""
-    n = (name or "").lower().replace("-", "_")
-    if any(bad in n for bad in ("browser", "workflow", "schedule", "manage_task", "send_message", "terminal_mcp", "terminal_create")):
+    """Return True if tool is allowed in Normal mode (write, read, file ops, question, restricted bash)."""
+    n = (name or "").strip().lower().replace("-", "_")
+    if any(bad in n for bad in ("browser", "workflow", "schedule", "manage_task", "send_message", "terminal_mcp", "terminal_create", "edit")):
         return False
     return any(tok in n for tok in _NORMAL_MODE_ALLOWED_TOKENS)
 
