@@ -23,6 +23,7 @@ def _load_module_to_globals(filename, target_globals):
     return mod
 
 _config_mod = _load_module_to_globals("proxy_v2.config-1.py", globals())
+_anthropic_mod = _load_module_to_globals("proxy_v2.transform_anthropic-1.py", globals())
 
 def handle_ui_tester_post(handler, raw_body):
     if handler.path == "/api/ui/test-models":
@@ -49,12 +50,18 @@ def handle_ui_tester_post(handler, raw_body):
             discover_only = data.get("discover_only", False)
 
             # Build Universal Header Bag
+            if isinstance(custom_hdrs, str) and custom_hdrs.strip():
+                try: custom_hdrs = json.loads(custom_hdrs)
+                except Exception: custom_hdrs = {}
+            p_wire = (p.get("wire_api") or "default").lower()
+            clean_base = base_url.rstrip("/")
+
             universal_headers = {
                 'Authorization': f'Bearer {api_key}' if api_key else '',
                 'x-api-key': api_key if api_key else '',
                 'anthropic-version': '2023-06-01',
                 'Originator': 'codex_cli_rs',
-                'User-Agent': 'codex_cli_rs/0.101.0' if provider_id == 'agentrouter' else 'Mozilla/5.0 (compatible; AI-Proxy/2.0)',
+                'User-Agent': 'codex_cli_rs/0.101.0' if (provider_id == 'agentrouter' or p_wire == 'responses') else 'Mozilla/5.0 (compatible; AI-Proxy/2.0)',
                 'Content-Type': 'application/json',
                 'Accept-Encoding': 'identity'
             }
@@ -63,21 +70,26 @@ def handle_ui_tester_post(handler, raw_body):
 
             # Resolve endpoint URLs
             if provider_id == "agentrouter":
-                models_url = f"{base_url}/models"
-                ping_url = f"{base_url}/messages"
+                models_url = f"{clean_base}/models"
+                ping_url = f"{clean_base}/messages"
             elif p_type == "openai":
-                models_url = f"{base_url}/models"
-                ping_url = f"{base_url}/chat/completions"
-            else:
-                if base_url.endswith("/api"):
-                    models_url = f"{base_url}/v1/models"
-                    ping_url = f"{base_url}/v1/messages"
-                elif base_url.endswith("/v1") or base_url.endswith("/api/v1"):
-                    models_url = f"{base_url}/models"
-                    ping_url = f"{base_url}/messages"
+                models_url = f"{clean_base}/models"
+                if clean_base.endswith("/chat/completions") or clean_base.endswith("/responses") or clean_base.endswith("/messages"):
+                    ping_url = clean_base
+                elif p_wire == "responses" or clean_base.endswith("/v1/responses") or "/responses" in clean_base:
+                    ping_url = clean_base if clean_base.endswith("/responses") else (f"{clean_base}/responses" if clean_base.endswith("/v1") else f"{clean_base}/v1/responses")
                 else:
-                    models_url = f"{base_url}/v1/models"
-                    ping_url = f"{base_url}/v1/messages"
+                    ping_url = f"{clean_base}/chat/completions"
+            else:
+                if clean_base.endswith("/api"):
+                    models_url = f"{clean_base}/v1/models"
+                    ping_url = f"{clean_base}/v1/messages"
+                elif clean_base.endswith("/v1") or clean_base.endswith("/api/v1"):
+                    models_url = f"{clean_base}/models"
+                    ping_url = f"{clean_base}/messages"
+                else:
+                    models_url = f"{clean_base}/v1/models"
+                    ping_url = f"{clean_base}/v1/messages"
 
             discovered_models = []
             tested_results = []
@@ -196,12 +208,18 @@ def handle_ui_tester_post(handler, raw_body):
             models = p.get("models", [])
             test_model = p.get("default_model") or (models[0] if models else "")
 
+            if isinstance(custom_hdrs, str) and custom_hdrs.strip():
+                try: custom_hdrs = json.loads(custom_hdrs)
+                except Exception: custom_hdrs = {}
+            p_wire = (p.get("wire_api") or "default").lower()
+            clean_base = base_url.rstrip("/")
+
             universal_headers = {
                 'Authorization': f'Bearer {api_key}',
                 'x-api-key': api_key,
                 'anthropic-version': '2023-06-01',
                 'Originator': 'codex_cli_rs',
-                'User-Agent': 'codex_cli_rs/0.101.0' if provider_id == 'agentrouter' else 'Mozilla/5.0 (compatible; AI-Proxy/2.0)',
+                'User-Agent': 'codex_cli_rs/0.101.0' if (provider_id == 'agentrouter' or p_wire == 'responses') else 'Mozilla/5.0 (compatible; AI-Proxy/2.0)',
                 'Content-Type': 'application/json',
                 'Accept-Encoding': 'identity'
             }
@@ -209,16 +227,21 @@ def handle_ui_tester_post(handler, raw_body):
                 universal_headers.update(custom_hdrs)
 
             if provider_id == "agentrouter":
-                ping_url = f"{base_url}/messages"
+                ping_url = f"{clean_base}/messages"
             elif p_type == "openai":
-                ping_url = f"{base_url}/chat/completions"
-            else:
-                if base_url.endswith("/api"):
-                    ping_url = f"{base_url}/v1/messages"
-                elif base_url.endswith("/v1") or base_url.endswith("/api/v1"):
-                    ping_url = f"{base_url}/messages"
+                if clean_base.endswith("/chat/completions") or clean_base.endswith("/responses") or clean_base.endswith("/messages"):
+                    ping_url = clean_base
+                elif p_wire == "responses" or clean_base.endswith("/v1/responses") or "/responses" in clean_base:
+                    ping_url = clean_base if clean_base.endswith("/responses") else (f"{clean_base}/responses" if clean_base.endswith("/v1") else f"{clean_base}/v1/responses")
                 else:
-                    ping_url = f"{base_url}/v1/messages"
+                    ping_url = f"{clean_base}/chat/completions"
+            else:
+                if clean_base.endswith("/api"):
+                    ping_url = f"{clean_base}/v1/messages"
+                elif clean_base.endswith("/v1") or clean_base.endswith("/api/v1"):
+                    ping_url = f"{clean_base}/messages"
+                else:
+                    ping_url = f"{clean_base}/v1/messages"
 
             is_coarena = "coarena" in provider_id.lower() or "coarena.ai" in base_url
             max_tokens = 4096 if is_coarena else 10
@@ -372,7 +395,29 @@ def handle_ui_tester_post(handler, raw_body):
 
     # Fast local token counting
     if "count_tokens" in handler.path:
-        est = max(1, len(raw_body) // 4)
+        cfg = load_proxy_config() if "load_proxy_config" in globals() else {}
+        target_p = None
+        for pid in cfg.get("providers", {}):
+            if f"/{pid}" in handler.path:
+                target_p = pid
+                break
+        p_info = cfg.get("providers", {}).get(target_p, {}) if target_p else {}
+        p_mode = (p_info.get("mode") or "agentic").lower()
+        est = 0
+        try:
+            b_obj = json.loads(raw_body.decode('utf-8'))
+            if p_mode == "normal":
+                if "apply_engine_mode_to_anthropic_body" in globals():
+                    b_obj = apply_engine_mode_to_anthropic_body(b_obj, mode="normal")
+            trimmed_bytes = json.dumps(b_obj, ensure_ascii=False).encode('utf-8')
+            est = max(1, len(trimmed_bytes) // 4)
+            # If responses wire API (e.g. Codex/Xingchi), add upstream internal instruction base
+            p_wire = (p_info.get("wire_api") or "").lower()
+            if p_wire == "responses":
+                est += 4380
+        except Exception:
+            est = max(1, len(raw_body) // 4)
+
         resp_data = json.dumps({"input_tokens": est}).encode('utf-8')
         handler.send_response(200)
         handler.send_header('Content-Type', 'application/json')

@@ -2,6 +2,7 @@
 import http.server
 import socketserver
 import socket
+import ssl
 import sys
 import os
 import importlib.util
@@ -111,10 +112,35 @@ class ReusableTCPServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
+    def __init__(self, server_address, RequestHandlerClass, bind_and_activate=True):
+        super().__init__(server_address, RequestHandlerClass, bind_and_activate)
+        self.ssl_ctx = None
+        crt = os.path.join(os.path.dirname(__file__), "server.crt")
+        key = os.path.join(os.path.dirname(__file__), "server.key")
+        if os.path.exists(crt) and os.path.exists(key):
+            try:
+                ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+                ctx.load_cert_chain(certfile=crt, keyfile=key)
+                self.ssl_ctx = ctx
+            except Exception as e:
+                sys.stderr.write(f"[Proxy] Warning loading SSL certs: {e}\n")
+
+    def get_request(self):
+        newsock, fromaddr = self.socket.accept()
+        if self.ssl_ctx is not None:
+            try:
+                # Peek first byte to see if incoming connection is TLS Handshake (0x16)
+                first_byte = newsock.recv(1, socketserver.socket.MSG_PEEK)
+                if first_byte == b'\x16':
+                    newsock = self.ssl_ctx.wrap_socket(newsock, server_side=True)
+            except Exception as e:
+                pass
+        return newsock, fromaddr
+
 if __name__ == '__main__':
     trim_log_if_needed()
     threading.Thread(target=_log_janitor_loop, daemon=True).start()
-    with ReusableTCPServer(('127.0.0.1', PORT), UniversalProxyHandler) as httpd:
+    with ReusableTCPServer(('0.0.0.0', PORT), UniversalProxyHandler) as httpd:
         sys.stderr.write(f"[Proxy] Universal Bulletproof Proxy running on http://127.0.0.1:{PORT}\n")
         try:
             httpd.serve_forever()

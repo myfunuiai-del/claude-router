@@ -306,7 +306,16 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                 is_stream = body_obj.get("stream", False) if body_obj else False
                 openai_body_obj = anthropic_to_openai_body(body_obj, target_model, p_id=p_id, mode=p_mode, base_url=p_base) if body_obj else {}
                 fwd_body = json.dumps(openai_body_obj, ensure_ascii=False).encode('utf-8')
-                fwd_url = p_base if p_base.endswith("/chat/completions") else f"{p_base}/chat/completions"
+                
+                # Smart Foolproof URL resolution
+                p_wire = (p_info.get("wire_api") or "default").lower()
+                clean_base = p_base.rstrip("/")
+                if clean_base.endswith("/chat/completions") or clean_base.endswith("/responses") or clean_base.endswith("/messages"):
+                    fwd_url = clean_base
+                elif p_wire == "responses" or clean_base.endswith("/v1/responses") or "/responses" in clean_base:
+                    fwd_url = clean_base if clean_base.endswith("/responses") else (f"{clean_base}/responses" if clean_base.endswith("/v1") else f"{clean_base}/v1/responses")
+                else:
+                    fwd_url = f"{clean_base}/chat/completions"
 
                 p_candidates = _select_available_keys(p_id, p_keys, target_model, max_count=(2 if is_recovery else None))
                 for attempt, key in p_candidates:
@@ -317,22 +326,25 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                     fwd_headers = {
                         'Authorization': f"Bearer {key}",
                         'Content-Type': 'application/json',
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                        'User-Agent': 'codex_cli_rs/0.101.0' if (p_wire == 'responses' or p_id == 'agentrouter') else 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
                         'Accept-Encoding': 'identity'
                     }
                     custom_hdrs = p_info.get("custom_headers")
+                    if isinstance(custom_hdrs, str) and custom_hdrs.strip():
+                        try: custom_hdrs = json.loads(custom_hdrs)
+                        except Exception: custom_hdrs = {}
                     if custom_hdrs and isinstance(custom_hdrs, dict):
                         fwd_headers.update(custom_hdrs)
                     req = urllib.request.Request(fwd_url, data=fwd_body, headers=fwd_headers, method='POST')
                     req_t0 = time.time()
                     try:
-                        with urllib.request.urlopen(req, timeout=45) as resp:
+                        with urllib.request.urlopen(req, timeout=90) as resp:
                             resp_data = resp.read()
                             _advance_key_idx(p_id, attempt, len(p_keys), on_error=False)
                             clear_key_cooldown(p_id, key, target_model)
                             p_name = p_info.get("name", p_id)
                             text = resp_data.decode('utf-8', errors='ignore')
-                            if is_stream or "data:" in text:
+                            if is_stream or "data:" in text or "event:" in text:
                                 anth_resp = convert_openai_stream_to_anthropic(text, p_name, target_model)
                                 _record_winner_usage(handler, p_id, p_name, target_model, f"Key #{attempt+1}", anth_resp, req_t0, key=key)
                                 handler.send_response(200)

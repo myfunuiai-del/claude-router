@@ -25,6 +25,64 @@ _config_mod = _load_module_to_globals("proxy_v2.config-1.py", globals())
 _ui_tester_mod = _load_module_to_globals("proxy_v2.ui_tester-1.py", globals())
 _ui_playground_mod = _load_module_to_globals("proxy_v2.ui_playground-1.py", globals())
 
+def _auto_detect_model_for_server(base_url, p_type="openai", p_wire="default", custom_headers=None, api_key="", p_id=""):
+    clean_base = (base_url or "").rstrip("/")
+    p_wire = (p_wire or "default").lower()
+    p_lower = (p_id or "").lower()
+    b_lower = clean_base.lower()
+    discovered = []
+
+    # 1. Attempt live discovery via /models
+    if api_key:
+        try:
+            if p_type == "openai":
+                models_url = f"{clean_base}/models"
+            else:
+                models_url = f"{clean_base}/v1/models" if clean_base.endswith("/api") else f"{clean_base}/models"
+            
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "codex_cli_rs/0.101.0" if (p_wire == "responses" or p_lower == "agentrouter") else "Mozilla/5.0"
+            }
+            if custom_headers and isinstance(custom_headers, dict):
+                headers.update(custom_headers)
+            
+            req = urllib.request.Request(models_url, headers=headers)
+            with urllib.request.urlopen(req, timeout=3.5) as res:
+                m_data = json.loads(res.read().decode('utf-8'))
+                items = m_data.get("data") or m_data.get("models") or []
+                for it in items:
+                    m_id = it.get("id") if isinstance(it, dict) else (it if isinstance(it, str) else None)
+                    if m_id and isinstance(m_id, str):
+                        if not any(m_id.startswith(pfx) for pfx in ("text-embedding", "tts-", "whisper", "dall-e")):
+                            discovered.append(m_id)
+                if discovered:
+                    return discovered[0], discovered
+        except Exception:
+            pass
+
+    # 2. Smart heuristic fallbacks
+    best_fallback = "gpt-4o"
+    if p_wire == "responses" or "xingchi" in p_lower or "codex" in p_lower:
+        best_fallback = "gpt-6.1-sol"
+    elif "deepseek" in b_lower or "deepseek" in p_lower:
+        best_fallback = "deepseek-chat"
+    elif "groq" in b_lower or "groq" in p_lower:
+        best_fallback = "llama-3.3-70b-versatile"
+    elif "cohere" in b_lower or "cohere" in p_lower:
+        best_fallback = "command-r-plus"
+    elif "google" in b_lower or "generativelanguage" in b_lower:
+        best_fallback = "models/gemini-2.0-flash"
+    elif "openrouter" in b_lower or "openrouter" in p_lower:
+        best_fallback = "google/gemini-2.0-flash-exp:free"
+    elif p_type == "anthropic":
+        best_fallback = "claude-3-5-sonnet-20241022"
+    elif p_type == "openai":
+        best_fallback = "gpt-4o"
+
+    return best_fallback, [best_fallback]
+
 def handle_ui_post(handler, raw_body):
     """Handle UI dashboard API POST requests. Returns True if handled, False otherwise."""
     if handle_ui_tester_post(handler, raw_body):
@@ -132,13 +190,34 @@ def handle_ui_post(handler, raw_body):
             p_mode = (data.get("mode") or existing_mode or "agentic").strip().lower()
             if p_mode not in ("agentic", "normal"):
                 p_mode = "agentic"
+            existing_wire = existing_prov.get("wire_api", "default")
+            p_wire = (data.get("wire_api") or existing_wire or "default").strip().lower()
+            if p_wire not in ("default", "responses"):
+                p_wire = "default"
 
             # Preserve existing models when editing via server modal (don't wipe multi-model lists)
             existing_models = existing_prov.get("models", [])
             final_models = list(existing_models) if (existing_models and len(models) <= 1) else list(models)
             eff_default = default_model or (final_models[0] if final_models else "")
+            if not eff_default:
+                detected_m, discovered = _auto_detect_model_for_server(
+                    base_url=base_url,
+                    p_type=p_type,
+                    p_wire=p_wire,
+                    custom_headers=custom_headers,
+                    api_key=(keys[0] if keys else ""),
+                    p_id=p_id
+                )
+                eff_default = detected_m
+                if discovered:
+                    for dm in discovered:
+                        if dm not in final_models:
+                            final_models.append(dm)
+
             if eff_default and eff_default not in final_models:
                 final_models.insert(0, eff_default)
+            if not final_models and eff_default:
+                final_models = [eff_default]
 
             p_entry = {
                 "name": name,
@@ -150,6 +229,8 @@ def handle_ui_post(handler, raw_body):
                 "keys": keys,
                 "enabled": data.get("enabled", existing_enabled)
             }
+            if p_wire != "default":
+                p_entry["wire_api"] = p_wire
             if custom_headers:
                 p_entry["custom_headers"] = custom_headers
             custom_prompt = data.get("custom_prompt")
@@ -331,17 +412,22 @@ def handle_ui_post(handler, raw_body):
             handler.wfile.write(err)
             return True
     # UI API: Update global router settings (e.g. auto_recovery ON/OFF)
+    # UI API: Update global router settings (e.g. auto_recovery ON/OFF, show_model_signature ON/OFF)
     if handler.path == "/api/ui/settings":
         try:
             data = json.loads(raw_body.decode('utf-8'))
             cfg = load_proxy_config()
+            msgs = []
             if "auto_recovery" in data and isinstance(data["auto_recovery"], bool):
                 cfg["auto_recovery"] = data["auto_recovery"]
+                msgs.append(f"Auto-Recovery turned {'ON' if data['auto_recovery'] else 'OFF'}")
+            if "show_model_signature" in data and isinstance(data["show_model_signature"], bool):
+                cfg["show_model_signature"] = data["show_model_signature"]
+                msgs.append(f"Tag with response turned {'ON' if data['show_model_signature'] else 'OFF'}")
             save_proxy_config(cfg)
-            state_txt = "ON" if cfg.get("auto_recovery", True) else "OFF"
             resp = json.dumps({
                 "status": "ok",
-                "message": f"Auto-Recovery turned {state_txt}",
+                "message": ", ".join(msgs) if msgs else "Settings updated",
                 "config": cfg
             }).encode('utf-8')
             handler.send_response(200)

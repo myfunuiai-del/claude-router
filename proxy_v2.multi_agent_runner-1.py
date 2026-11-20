@@ -187,17 +187,29 @@ def _execute_member_turn(handler, pid, p_obj, target_model, body_obj, role_promp
                 return False, f"Network error from {p_name}: {str(e)}", 0, 0, ms
 
         elif p_type == "openai":
-            fwd_url = p_base if p_base.endswith("/chat/completions") else f"{p_base}/chat/completions"
+            p_wire = (p_obj.get("wire_api") or "default").lower()
+            clean_base = p_base.rstrip("/")
+            if clean_base.endswith("/chat/completions") or clean_base.endswith("/responses") or clean_base.endswith("/messages"):
+                fwd_url = clean_base
+            elif p_wire == "responses" or clean_base.endswith("/v1/responses") or "/responses" in clean_base:
+                fwd_url = clean_base if clean_base.endswith("/responses") else (f"{clean_base}/responses" if clean_base.endswith("/v1") else f"{clean_base}/v1/responses")
+            else:
+                fwd_url = f"{clean_base}/chat/completions"
+
             openai_body = anthropic_to_openai_body(b_copy, target_model, p_id=pid, mode=cur_mode, base_url=p_base)
             payload = json.dumps(openai_body, ensure_ascii=False).encode('utf-8')
             hdrs = {
                 'Authorization': f"Bearer {key}",
                 'Content-Type': 'application/json',
-                'User-Agent': 'Mozilla/5.0 (compatible; Claude-Router-MultiAgent/1.0)',
+                'User-Agent': 'codex_cli_rs/0.101.0' if (p_wire == 'responses' or pid == 'agentrouter') else 'Mozilla/5.0 (compatible; Claude-Router-MultiAgent/1.0)',
                 'Accept-Encoding': 'identity'
             }
-            if p_obj.get("custom_headers") and isinstance(p_obj["custom_headers"], dict):
-                hdrs.update(p_obj["custom_headers"])
+            custom_hdrs = p_obj.get("custom_headers")
+            if isinstance(custom_hdrs, str) and custom_hdrs.strip():
+                try: custom_hdrs = json.loads(custom_hdrs)
+                except Exception: custom_hdrs = {}
+            if custom_hdrs and isinstance(custom_hdrs, dict):
+                hdrs.update(custom_hdrs)
 
             req = urllib.request.Request(fwd_url, data=payload, headers=hdrs, method='POST')
             try:
@@ -206,7 +218,7 @@ def _execute_member_turn(handler, pid, p_obj, target_model, body_obj, role_promp
                     clear_key_cooldown(pid, key, target_model)
                     text = resp_data.decode('utf-8', errors='ignore')
                     anth_resp = None
-                    if b_copy.get("stream", False) or "data:" in text:
+                    if b_copy.get("stream", False) or "data:" in text or "event:" in text:
                         anth_resp = convert_openai_stream_to_anthropic(text, p_name, target_model)
                     else:
                         try:

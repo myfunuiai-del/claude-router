@@ -66,6 +66,7 @@ async function loadConfig() {
     renderLanes();
     renderDropdown();
     renderRecoveryToggle();
+    renderSignatureToggle();
   } catch (err) {
     showToast('Config load failure', true);
   }
@@ -82,6 +83,41 @@ function renderRecoveryToggle() {
   btn.title = isOn
     ? 'Auto History Recovery ON — tap to turn OFF'
     : 'Auto History Recovery OFF — tap to turn ON';
+}
+
+function renderSignatureToggle() {
+  const btn = document.getElementById('signature-toggle-btn');
+  if (!btn || !currentConfig) return;
+  const isOn = currentConfig.show_model_signature !== false;
+  btn.classList.toggle('is-on', isOn);
+  btn.classList.toggle('is-off', !isOn);
+  const lbl = btn.querySelector('.power-label');
+  if (lbl) lbl.innerText = isOn ? 'Tag with response: ON' : 'Tag with response: OFF';
+  btn.title = isOn
+    ? 'Tag with response ON — tap to turn OFF'
+    : 'Tag with response OFF — tap to turn ON';
+}
+
+async function toggleModelSignature() {
+  if (!currentConfig) return;
+  const nextVal = (currentConfig.show_model_signature === false);
+  try {
+    const res = await fetch('/api/ui/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ show_model_signature: nextVal })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.message || 'Settings update failed', true);
+      return;
+    }
+    currentConfig = data.config;
+    renderSignatureToggle();
+    showToast(data.message || `Tag with response: ${nextVal ? 'ON' : 'OFF'}`);
+  } catch (err) {
+    showToast('Failed to update Tag with response setting', true);
+  }
 }
 
 async function toggleAutoRecovery() {
