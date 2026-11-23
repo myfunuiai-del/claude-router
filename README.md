@@ -78,6 +78,12 @@ Zero-downtime rotation across multi-key pools without hammering dead or rate-lim
   - **Export JSON:** Download a dated config backup (`claude-router-backup-YYYY-MM-DD.json`), with an optional **"Include API Keys"** checkbox.
   - **Restore JSON:** Upload a `.json` file or paste JSON to restore servers & settings. Automatically saves your previous config to `config.json.bak` first and re-syncs `~/.claude/agy_providers.json`.
 
+### 9. 🎨 Bundled Skills & Image Generation Policy Auto-Setup
+- **Auto-Sync `svg-generator` Skill:** When `crouter` runs, it automatically provisions the `svg-generator` skill into `~/.claude/skills/` and `~/.gemini/config/skills/`.
+- **Image Generation Policy:** Automatically sets the policy across `~/.antigem/memory/global/` and `~/.claude/CLAUDE.md`:
+  - Disallows `pollinations.ai`.
+  - Prioritizes native/local image generation first, with intelligent fallback to Claude + `svg-generator` for scalable SVG vector graphics.
+
 ---
 
 ## 🎛️ Dashboard UI Quick Reference

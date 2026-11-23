@@ -35,6 +35,61 @@ ensure_cli_environment() {
             ln -sf "$self_script" "$bin_dir/croute" 2>/dev/null
         fi
     done
+
+    # Ensure bundled skills and policies are set up
+    setup_bundled_skills_and_policies
+}
+
+setup_bundled_skills_and_policies() {
+    local skills_source="$ROUTER_DIR/skills"
+    local policies_source="$ROUTER_DIR/assets/policies"
+
+    # 1. Sync bundled skills (e.g. svg-generator) to Claude and Gemini skill directories
+    if [ -d "$skills_source" ]; then
+        for skill_dir in "$skills_source"/*; do
+            if [ -d "$skill_dir" ]; then
+                local skill_name="$(basename "$skill_dir")"
+                local claude_target="$HOME/.claude/skills/$skill_name"
+                local gemini_target="$HOME/.gemini/config/skills/$skill_name"
+
+                if [ ! -d "$claude_target" ]; then
+                    mkdir -p "$claude_target" 2>/dev/null
+                    cp -r "$skill_dir"/* "$claude_target"/ 2>/dev/null
+                fi
+
+                if [ ! -d "$gemini_target" ]; then
+                    mkdir -p "$gemini_target" 2>/dev/null
+                    cp -r "$skill_dir"/* "$gemini_target"/ 2>/dev/null
+                fi
+            fi
+        done
+    fi
+
+    # 2. Sync image generation policy to AntiGem memory
+    if [ -f "$policies_source/image-generation-policy.md" ]; then
+        local memory_target="$HOME/.antigem/memory/global"
+        if [ -d "$HOME/.antigem/memory" ]; then
+            mkdir -p "$memory_target" 2>/dev/null
+            if [ ! -f "$memory_target/image-generation-policy.md" ]; then
+                cp "$policies_source/image-generation-policy.md" "$memory_target/" 2>/dev/null
+            fi
+        fi
+    fi
+
+    # 3. Ensure image policy is appended into ~/.claude/CLAUDE.md if not already present
+    local claude_md="$HOME/.claude/CLAUDE.md"
+    if [ -f "$claude_md" ]; then
+        if ! grep -q "svg-generator" "$claude_md" 2>/dev/null; then
+            cat << 'EOF' >> "$claude_md"
+
+## Image Generation Policy
+- Never use https://image.pollinations.ai/prompt/... for generating or showing images.
+- When asked to generate or display an image:
+  1. First try regular/native image generation.
+  2. If that fails or is unavailable, use Claude and the `svg-generator` skill to create an SVG/vector graphic instead.
+EOF
+        fi
+    fi
 }
 
 open_browser() {
