@@ -1,12 +1,39 @@
 # ⚡ Claude Router: Multi-Provider AI Gateway & Failover Proxy
 
 <p align="center">
-  <img src="assets/claude-router-logo.jpg" alt="Claude Router Logo" width="650" style="border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);" />
+  <img src="assets/claude-router-banner.svg" alt="Claude Router Banner" width="100%" style="border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.6);" />
 </p>
 
-A lightweight, **zero-dependency** local AI proxy gateway built for **Claude Code**, **Antigravity**, **Aider**, and any Anthropic/OpenAI-compatible CLI or IDE.
+<h3 align="center">Zero-Dependency AI Gateway, 5-Stage Context Recovery &amp; Key Failover Proxy</h3>
 
-It unifies multiple AI providers and API keys behind one local endpoint (`http://127.0.0.1:8999/api`), with a mobile-first Web Console (`http://127.0.0.1:8999/ui`), per-server ON/OFF switching, automatic chat-dropdown sync, 5-stage firewall/payload recovery, smart key cooldowns, and live concurrent testers.
+<p align="center">
+  <a href="#-platform--environment"><img src="https://img.shields.io/badge/Platform-Android%20Termux%20%7C%20Linux%20%7C%20macOS-2ea043?style=for-the-badge&logo=android&logoColor=white" alt="Platform" /></a>
+  <a href="#-tech-stack--architecture"><img src="https://img.shields.io/badge/Python-3.8%2B%20Zero--Dep-0284c7?style=for-the-badge&logo=python&logoColor=white" alt="Python" /></a>
+  <a href="#-tech-stack--architecture"><img src="https://img.shields.io/badge/Powered%20By-Standard%20Lib-7c3aed?style=for-the-badge&logo=fastapi&logoColor=white" alt="Powered By" /></a>
+  <a href="#-license"><img src="https://img.shields.io/badge/License-MIT-f97316?style=for-the-badge" alt="License" /></a>
+</p>
+
+---
+
+### 🚀 What is Claude Router?
+
+**Claude Router** is an ultra-lightweight, **zero-dependency** local AI proxy gateway and orchestration hub engineered specifically for **Claude Code**, **Antigravity**, **Aider**, and any Anthropic or OpenAI API compatible client.
+
+It consolidates multiple AI providers (Google AI Studio, Groq, Mistral, OpenRouter, Coarena, Ollama, etc.) behind a single high-performance local proxy endpoint (`http://127.0.0.1:8999/api`). Featuring an intuitive mobile-friendly Web Dashboard (`http://127.0.0.1:8999/ui`), real-time token/speed meters, dynamic key rotation, intelligent cooldown failover, and bundled SVG vector intelligence.
+
+---
+
+### 🛠️ Built With / Tech Stack
+
+Claude Router is crafted with a strict **zero external dependency** philosophy to ensure instant execution across low-resource mobile environments (Android Termux) and modern servers alike:
+
+| Layer | Technologies & Components | Architecture Details |
+| :--- | :--- | :--- |
+| **Backend Core** | **Python 3.8+ (Standard Library Only)** | Uses native `http.server`, `urllib.request`, `socketserver`, and `json`. Zero `pip install` required. |
+| **Streaming Engine** | **Async SSE / Chunked HTTP** | Real-time Server-Sent Events (SSE) streaming engine with bidirectional Anthropic ↔ OpenAI protocol transformation. |
+| **Frontend UI** | **Vanilla HTML5, Modern CSS3 & ES6+ JS** | Pure client-side reactive dashboard with glassmorphism dark-mode UI, touch-safe drag-and-drop, and live status polling. |
+| **Resilience System**| **Multi-Stage Context Trimmer** | 5-Stage sliding heuristic recovery algorithms preserving untouched history while bypassing upstream WAF/payload limits. |
+| **Bundled Intelligence**| **Vector AI & Python Automation** | Integrated `svg-generator` skill bundle for instant prompt-to-SVG vectorization without cloud image bloat. |
 
 ---
 
