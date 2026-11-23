@@ -1,169 +1,135 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 340" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 240" width="100%" height="100%">
   <defs>
-    <!-- Background Gradient -->
+    <!-- Background Gradients -->
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0a0e17"/>
-      <stop offset="50%" stop-color="#0f172a"/>
-      <stop offset="100%" stop-color="#111827"/>
+      <stop offset="0%" stop-color="#0b0f19" />
+      <stop offset="50%" stop-color="#111827" />
+      <stop offset="100%" stop-color="#1e1b4b" />
     </linearGradient>
 
-    <!-- Border Glow -->
-    <linearGradient id="borderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.6"/>
-      <stop offset="50%" stop-color="#818cf8" stop-opacity="0.3"/>
-      <stop offset="100%" stop-color="#c084fc" stop-opacity="0.5"/>
+    <!-- Theme Gradients -->
+    <linearGradient id="cyberCyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4" />
+      <stop offset="100%" stop-color="#3b82f6" />
+    </linearGradient>
+    <linearGradient id="accentPurple" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8b5cf6" />
+      <stop offset="100%" stop-color="#ec4899" />
+    </linearGradient>
+    <linearGradient id="amberOrange" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#ef4444" />
     </linearGradient>
 
-    <!-- Glowing Hexagon Gradients -->
-    <linearGradient id="hexGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0284c7"/>
-      <stop offset="50%" stop-color="#2563eb"/>
-      <stop offset="100%" stop-color="#7c3aed"/>
-    </linearGradient>
-
-    <linearGradient id="innerHexGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0f172a"/>
-      <stop offset="100%" stop-color="#020617"/>
-    </linearGradient>
-
-    <linearGradient id="accentCyan" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#38bdf8"/>
-      <stop offset="100%" stop-color="#60a5fa"/>
-    </linearGradient>
-
-    <!-- Lighting Bolt Gradient -->
-    <linearGradient id="boltGrad" x1="0%" y1="0%" x2="50%" y2="100%">
-      <stop offset="0%" stop-color="#fbbf24"/>
-      <stop offset="50%" stop-color="#f59e0b"/>
-      <stop offset="100%" stop-color="#ea580c"/>
-    </linearGradient>
-
-    <linearGradient id="textGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#ffffff"/>
-      <stop offset="100%" stop-color="#f1f5f9"/>
-    </linearGradient>
-
-    <!-- Glow Filter -->
+    <!-- Glow Filters -->
     <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="12" result="blur" />
+      <feGaussianBlur stdDeviation="8" result="blur" />
       <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
       </feMerge>
     </filter>
-
-    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur stdDeviation="28" result="blur" />
+    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
     </filter>
   </defs>
 
   <style>
-    .font-sans { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-    .title-white { font-size: 44px; font-weight: 800; fill: #ffffff; letter-spacing: -0.5px; }
-    .title-blue { font-size: 44px; font-weight: 800; fill: #38bdf8; letter-spacing: -0.5px; }
-    .subtitle { font-size: 13px; fill: #94a3b8; font-weight: 400; line-height: 1.5; }
-    .pill-text { font-size: 11px; font-weight: 600; }
+    .title-text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-weight: 800; font-size: 38px; fill: #ffffff; letter-spacing: -0.5px; }
+    .badge-text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-weight: 700; font-size: 12px; fill: #06b6d4; letter-spacing: 1.5px; }
+    .sub-text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-weight: 400; font-size: 15px; fill: #94a3b8; }
+    .pill-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-weight: 600; font-size: 11px; }
   </style>
 
-  <!-- Outer Rounded Container -->
-  <rect x="2" y="2" width="996" height="336" rx="20" fill="url(#bgGrad)" stroke="url(#borderGrad)" stroke-width="1.5"/>
+  <!-- Card Background -->
+  <rect width="800" height="240" rx="20" fill="url(#bgGrad)" stroke="#1e293b" stroke-width="1.5" />
 
-  <!-- Background Decorative Glowing Orbs -->
-  <circle cx="210" cy="170" r="140" fill="#0284c7" opacity="0.12" filter="url(#softGlow)"/>
-  <circle cx="820" cy="120" r="130" fill="#7c3aed" opacity="0.08" filter="url(#softGlow)"/>
+  <!-- Ambient Light Effect -->
+  <circle cx="120" cy="120" r="90" fill="#3b82f6" opacity="0.12" filter="url(#glow)" />
+  <circle cx="210" cy="80" r="70" fill="#8b5cf6" opacity="0.08" filter="url(#glow)" />
 
-  <!-- LEFT: Hexagonal Tech Logo Icon -->
-  <g transform="translate(190, 170)">
-    <!-- Outer Glow Hexagon Ring -->
-    <polygon points="0,-100 86.6,-50 86.6,50 0,100 -86.6,50 -86.6,-50"
-             fill="url(#innerHexGrad)" stroke="url(#hexGrad)" stroke-width="4" filter="url(#glow)"/>
+  <!-- Left Icon Area -->
+  <g transform="translate(45, 45)">
+    <!-- Hexagon Frame matching Video Analyzer style -->
+    <polygon points="75,5 140,42 140,118 75,155 10,118 10,42" fill="#0f172a" stroke="url(#cyberCyan)" stroke-width="2.5" filter="url(#softGlow)" opacity="0.9" />
 
-    <!-- Subtle Inner Hexagon Accent -->
-    <polygon points="0,-85 73.6,-42.5 73.6,42.5 0,85 -73.6,42.5 -73.6,-42.5"
-             fill="none" stroke="#38bdf8" stroke-width="1" stroke-dasharray="6,4" opacity="0.4"/>
+    <!-- Central Router Server Box -->
+    <rect x="36" y="52" width="60" height="46" rx="8" fill="url(#cyberCyan)" opacity="0.15" />
+    <rect x="36" y="52" width="60" height="46" rx="8" stroke="url(#cyberCyan)" stroke-width="2" fill="none" />
 
-    <!-- Router Nodes & Hub Graphic Inside Logo -->
-    <g transform="translate(0, -6)">
-      <!-- Server Node Top -->
-      <rect x="-24" y="-38" width="48" height="13" rx="3" fill="#1e293b" stroke="#38bdf8" stroke-width="1.5"/>
-      <circle cx="-14" cy="-31.5" r="2.5" fill="#38bdf8"/>
-      <circle cx="-6" cy="-31.5" r="2.5" fill="#38bdf8"/>
-      <circle cx="14" cy="-31.5" r="2.5" fill="#4ade80"/>
+    <!-- 3 Dynamic Server Tier Bars Inside -->
+    <rect x="44" y="60" width="44" height="6" rx="3" fill="#38bdf8" />
+    <circle cx="48" cy="63" r="1.5" fill="#ffffff" />
+    <circle cx="82" cy="63" r="1.5" fill="#4ade80" />
 
-      <!-- Server Node Middle -->
-      <rect x="-24" y="-18" width="48" height="13" rx="3" fill="#1e293b" stroke="#818cf8" stroke-width="1.5"/>
-      <circle cx="-14" cy="-11.5" r="2.5" fill="#818cf8"/>
-      <circle cx="-6" cy="-11.5" r="2.5" fill="#818cf8"/>
-      <circle cx="14" cy="-11.5" r="2.5" fill="#38bdf8"/>
+    <rect x="44" y="72" width="44" height="6" rx="3" fill="#818cf8" />
+    <circle cx="48" cy="75" r="1.5" fill="#ffffff" />
+    <circle cx="82" cy="75" r="1.5" fill="#38bdf8" />
 
-      <!-- Server Node Bottom -->
-      <rect x="-24" y="2" width="48" height="13" rx="3" fill="#1e293b" stroke="#c084fc" stroke-width="1.5"/>
-      <circle cx="-14" cy="8.5" r="2.5" fill="#c084fc"/>
-      <circle cx="-6" cy="8.5" r="2.5" fill="#c084fc"/>
-      <circle cx="14" cy="8.5" r="2.5" fill="#f59e0b"/>
+    <rect x="44" y="84" width="44" height="6" rx="3" fill="#c084fc" />
+    <circle cx="48" cy="87" r="1.5" fill="#ffffff" />
+    <circle cx="82" cy="87" r="1.5" fill="#f59e0b" />
 
-      <!-- Split / Routing Dynamic Curves -->
-      <path d="M 28,-31.5 C 50,-31.5 52,0 35,26" fill="none" stroke="#38bdf8" stroke-width="2.2" stroke-linecap="round"/>
-      <path d="M -28,-11.5 C -46,-11.5 -48,15 -32,28" fill="none" stroke="#818cf8" stroke-width="2.2" stroke-linecap="round"/>
+    <!-- Network Routing Node Dots & Curves -->
+    <circle cx="112" cy="63" r="3.5" fill="#38bdf8" />
+    <path d="M 96,63 L 108,63" stroke="#38bdf8" stroke-width="1.8" stroke-dasharray="2,2" />
 
-      <!-- Dynamic Lightning Bolt Over Node -->
-      <path d="M 12,-48 L -4,-18 L 6,-18 L 0,16 L 20,-12 L 8,-12 Z" fill="url(#boltGrad)" filter="url(#glow)"/>
-    </g>
+    <circle cx="112" cy="87" r="3.5" fill="#c084fc" />
+    <path d="M 96,87 L 108,87" stroke="#c084fc" stroke-width="1.8" stroke-dasharray="2,2" />
+
+    <!-- Lightning / Failover Spark -->
+    <path d="M124 35 L112 50 L120 50 L114 65 L130 47 L122 47 Z" fill="url(#amberOrange)" filter="url(#glow)" />
   </g>
 
-  <!-- RIGHT: Content Information -->
-  <g transform="translate(340, 52)" class="font-sans">
+  <!-- Typography / Brand -->
+  <!-- Tag / Pill Badge -->
+  <g transform="translate(230, 44)">
+    <rect width="180" height="24" rx="12" fill="#0c4a6e" fill-opacity="0.5" stroke="#0284c7" stroke-width="1" />
+    <circle cx="14" cy="12" r="3.5" fill="#38bdf8" filter="url(#softGlow)" />
+    <text x="24" y="16" class="badge-text">AI GATEWAY &amp; ROUTING</text>
+  </g>
 
-    <!-- Top Category Pill -->
+  <!-- Main Title -->
+  <text x="230" y="104" class="title-text">
+    Claude Router <tspan fill="url(#cyberCyan)">Gateway</tspan>
+  </text>
+
+  <!-- Tagline / Subtitle -->
+  <text x="230" y="136" class="sub-text">
+    Zero-Dependency AI Proxy with 5-Stage Context Auto-Recovery,
+  </text>
+  <text x="230" y="158" class="sub-text">
+    Zero-429 Key Cooldown Failover &amp; Bundled AI SVG Vector Intelligence.
+  </text>
+
+  <!-- Feature Pills / Highlights (Exact same styling as reference) -->
+  <g transform="translate(230, 182)">
+    <!-- Pill 1: 5-Stage Recovery -->
     <g transform="translate(0, 0)">
-      <rect width="180" height="24" rx="12" fill="#0c4a6e" fill-opacity="0.4" stroke="#0284c7" stroke-width="1"/>
-      <circle cx="14" cy="12" r="3.5" fill="#38bdf8"/>
-      <text x="25" y="16" class="pill-text" fill="#38bdf8" letter-spacing="0.8">AI GATEWAY &amp; FAILOVER</text>
+      <rect width="126" height="26" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+      <text x="10" y="17" class="pill-label" fill="#f59e0b">⚡ 5-Stage Recovery</text>
     </g>
 
-    <!-- Main Title -->
-    <g transform="translate(0, 62)">
-      <text class="title-white">Claude <tspan class="title-blue">Router</tspan></text>
+    <!-- Pill 2: Zero 429 -->
+    <g transform="translate(134, 0)">
+      <rect width="128" height="26" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+      <text x="10" y="17" class="pill-label" fill="#34d399">❄️ Zero-429 Failover</text>
     </g>
 
-    <!-- Subtitle / Value Proposition Description -->
-    <g transform="translate(0, 96)">
-      <text x="0" y="0" class="subtitle">Zero-Dependency AI Proxy Gateway with 5-Stage Context Recovery,</text>
-      <text x="0" y="20" class="subtitle">Instant Rate-Limit Key Failover &amp; Bundled AI SVG Vector Intelligence.</text>
+    <!-- Pill 3: SVG Generator -->
+    <g transform="translate(270, 0)">
+      <rect width="128" height="26" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+      <text x="10" y="17" class="pill-label" fill="#c084fc">🎨 Bundled SVG Gen</text>
     </g>
 
-    <!-- Key Feature Pills (Exact match to theme in reference) -->
-    <g transform="translate(0, 150)">
-      <!-- Pill 1: 5-Stage Recovery -->
-      <g transform="translate(0, 0)">
-        <rect width="144" height="28" rx="7" fill="#1e293b" fill-opacity="0.8" stroke="#334155" stroke-width="1"/>
-        <text x="12" y="18" class="pill-text" fill="#f59e0b">⚡ 5-Stage Recovery</text>
-      </g>
-
-      <!-- Pill 2: Zero 429 Cooldown -->
-      <g transform="translate(154, 0)">
-        <rect width="146" height="28" rx="7" fill="#1e293b" fill-opacity="0.8" stroke="#334155" stroke-width="1"/>
-        <text x="12" y="18" class="pill-text" fill="#4ade80">❄️ Zero-429 Cooldown</text>
-      </g>
-
-      <!-- Pill 3: Bundled SVG -->
-      <g transform="translate(310, 0)">
-        <rect width="138" height="28" rx="7" fill="#1e293b" fill-opacity="0.8" stroke="#334155" stroke-width="1"/>
-        <text x="12" y="18" class="pill-text" fill="#c084fc">🎨 Bundled SVG Gen</text>
-      </g>
-
-      <!-- Pill 4: Mobile Web UI -->
-      <g transform="translate(458, 0)">
-        <rect width="132" height="28" rx="7" fill="#1e293b" fill-opacity="0.8" stroke="#334155" stroke-width="1"/>
-        <text x="12" y="18" class="pill-text" fill="#38bdf8">🎛️ Live Web UI</text>
-      </g>
+    <!-- Pill 4: Mobile Web Console -->
+    <g transform="translate(406, 0)">
+      <rect width="120" height="26" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+      <text x="10" y="17" class="pill-label" fill="#38bdf8">🎛️ Live Web UI</text>
     </g>
-
-    <!-- Platform & Compatibility Tagline -->
-    <g transform="translate(0, 218)" opacity="0.85">
-      <text x="0" y="0" font-size="11" font-weight="700" fill="#64748b" letter-spacing="1">BUILT FOR:</text>
-      <text x="75" y="0" font-size="11" font-weight="600" fill="#cbd5e1" letter-spacing="0.5">CLAUDE CODE &bull; ANTIGRAVITY &bull; AIDER &bull; OPENAI &bull; ANTHROPIC SDK</text>
-    </g>
-
   </g>
 </svg>
