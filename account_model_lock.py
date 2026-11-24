@@ -148,14 +148,14 @@ def resolve_effective_model(model_name, state=None):
     
     # Pass 1: Exact / case-insensitive check
     for r in state.get("redirections", []):
-        if r.get("enabled", True):
+        if r.get("enabled", True) and r.get("to_model"):
             from_m = (r.get("from_model") or "").strip().lower()
             if from_m == req_clean:
                 return r.get("to_model"), True
 
     # Pass 2: Family normalized check
     for r in state.get("redirections", []):
-        if r.get("enabled", True):
+        if r.get("enabled", True) and r.get("to_model"):
             if normalize_model_family(r.get("from_model")) == norm_req:
                 return r.get("to_model"), True
 
