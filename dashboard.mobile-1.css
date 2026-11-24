@@ -517,9 +517,17 @@
   box-shadow: 0 0 18px rgba(248, 81, 73, 0.6);
 }
 .fab-icon-plus {
-  font-size: 26px;
-  font-weight: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
   line-height: 1;
+}
+.fab-core-svg {
+  display: block;
+  filter: drop-shadow(0 0 4px rgba(121, 192, 255, 0.75));
+  transition: transform 0.25s ease;
 }
 
 /* Radial Backdrop & Connectors */
