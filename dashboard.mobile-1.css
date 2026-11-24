@@ -1042,6 +1042,80 @@
   transition: transform 0.24s ease;
 }
 
+/* Impatient / "Time is running out" Pose: Arms crossed over chest + tapping foot */
+.crouter-bot.is-impatient .bot-svg {
+  transform: translateY(-8px);
+  transition: transform 0.25s ease-out;
+}
+.crouter-bot.is-impatient .f-arm-l {
+  transform: rotate(-42deg);
+  transition: transform 0.3s ease;
+}
+.crouter-bot.is-impatient .f-forearm-l {
+  transform: rotate(-68deg);
+  transition: transform 0.3s ease;
+}
+.crouter-bot.is-impatient .f-arm-r {
+  transform: rotate(42deg);
+  transition: transform 0.3s ease;
+}
+.crouter-bot.is-impatient .f-forearm-r {
+  transform: rotate(68deg);
+  transition: transform 0.3s ease;
+}
+.crouter-bot.is-impatient .f-shin-r {
+  animation: botImpatientFootTap 0.42s ease-in-out infinite alternate;
+}
+@keyframes botImpatientFootTap {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(-18deg); }
+}
+.crouter-bot.is-impatient .bot-head {
+  transform-origin: 40px 52px;
+  animation: botImpatientHead 1.6s ease-in-out infinite;
+}
+@keyframes botImpatientHead {
+  0%, 100% { transform: rotate(0deg); }
+  25%      { transform: rotate(-6deg) translateY(1px); }
+  55%      { transform: rotate(5deg) translateY(0px); }
+  80%      { transform: rotate(-4deg) translateY(1px); }
+}
+.crouter-bot.is-impatient .bot-eyes {
+  transform: scaleY(0.68);
+  animation: none;
+}
+
+/* Annoyed / Frustrated Pose (when user deletes/backspaces text) */
+.crouter-bot.is-annoyed .bot-svg {
+  transform-origin: 40px 80px;
+  animation: botAnnoyedShake 0.32s ease-in-out 4 alternate;
+}
+@keyframes botAnnoyedShake {
+  0%   { transform: translateY(-8px) rotate(-5deg); }
+  100% { transform: translateY(-9px) rotate(5deg); }
+}
+.crouter-bot.is-annoyed .f-ear-l {
+  transform: rotate(-28deg);
+  transition: transform 0.18s ease;
+}
+.crouter-bot.is-annoyed .f-ear-r {
+  transform: rotate(28deg);
+  transition: transform 0.18s ease;
+}
+.crouter-bot.is-annoyed .f-arm-l {
+  animation: botAnnoyedArmL 0.28s ease-in-out 4 alternate;
+}
+.crouter-bot.is-annoyed .f-arm-r {
+  animation: botAnnoyedArmR 0.28s ease-in-out 4 alternate;
+}
+@keyframes botAnnoyedArmL { 0% { transform: rotate(-25deg); } 100% { transform: rotate(35deg); } }
+@keyframes botAnnoyedArmR { 0% { transform: rotate(25deg); }  100% { transform: rotate(-35deg); } }
+.crouter-bot.is-annoyed .bot-eyes {
+  transform: scaleY(0.45);
+  filter: drop-shadow(0 0 4px #ff4d4d);
+  animation: none;
+}
+
 /* Back-view jetpack flames */
 .crouter-bot.is-flying-back .bot-flames-back {
   filter: drop-shadow(0 4px 6px rgba(255, 110, 0, 0.85));

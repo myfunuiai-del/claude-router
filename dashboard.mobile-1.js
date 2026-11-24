@@ -489,7 +489,7 @@ window.addEventListener('keydown', function(e) {
   function setBotState(state) {
     const bot = document.getElementById('crouter-bot');
     if (!bot) return;
-    bot.classList.remove('is-sitting', 'is-standing', 'is-walking', 'is-igniting', 'is-flying', 'is-teetering', 'is-falling', 'is-flying-back', 'is-turn-side', 'is-turn-squish', 'is-turn-unsquish');
+    bot.classList.remove('is-sitting', 'is-standing', 'is-walking', 'is-igniting', 'is-flying', 'is-teetering', 'is-falling', 'is-flying-back', 'is-turn-side', 'is-turn-squish', 'is-turn-unsquish', 'is-impatient', 'is-annoyed');
     if (state) bot.classList.add(state);
   }
 
@@ -700,100 +700,216 @@ window.addEventListener('keydown', function(e) {
     moveBotToTab(mapped);
   };
 
-  // Dramatic teeter ("aa pore gelam!") -> fast fall -> slow back-view jetpack rise -> realistic smooth turn -> soft stand -> sit
+  // ========================================================
+  // INPUT-BOX PERCHING, CURSOR-FOLLOWING WALK, IMPATIENT & ANNOYED ANIMATIONS
+  // ========================================================
   let isDoingFallSequence = false;
   let lastKbFallTime = 0;
+  let activeInputEl = null;
+  let lastInputLength = 0;
+  let typingWalkTimer = null;
+  let idleImpatientTimer = null;
+  let blurReturnTimer = null;
+  let isPerchedOnInput = false;
+  let measureCanvas = null;
 
-  async function triggerKeyboardFallAndReturn() {
+  function isTextInput(el) {
+    if (!el || !el.tagName) return false;
+    const tag = el.tagName.toUpperCase();
+    if (tag === 'TEXTAREA') return true;
+    if (tag === 'INPUT') {
+      const t = (el.type || 'text').toLowerCase();
+      return !['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'color', 'file', 'hidden'].includes(t);
+    }
+    return false;
+  }
+
+  function clearInputTimers() {
+    if (typingWalkTimer) { clearTimeout(typingWalkTimer); typingWalkTimer = null; }
+    if (idleImpatientTimer) { clearTimeout(idleImpatientTimer); idleImpatientTimer = null; }
+    if (blurReturnTimer) { clearTimeout(blurReturnTimer); blurReturnTimer = null; }
+  }
+
+  function getInputCursorCoords(inputEl) {
+    const bar = document.getElementById('sticky-bottom-bar');
+    if (!bar || !inputEl) return null;
+    const barRect = bar.getBoundingClientRect();
+    const inRect = inputEl.getBoundingClientRect();
+    if (barRect.width === 0 || inRect.width === 0) return null;
+
+    if (!measureCanvas) measureCanvas = document.createElement('canvas');
+    const ctx = measureCanvas.getContext('2d');
+    const cs = window.getComputedStyle(inputEl);
+    ctx.font = `${cs.fontWeight || '400'} ${cs.fontSize || '14px'} ${cs.fontFamily || 'sans-serif'}`;
+
+    const val = inputEl.value || '';
+    let caretIdx = val.length;
+    try {
+      if (typeof inputEl.selectionStart === 'number') caretIdx = inputEl.selectionStart;
+    } catch (e) {}
+    const beforeCaret = val.slice(0, caretIdx);
+    const lastLine = beforeCaret.split('\n').pop() || '';
+    const textW = ctx.measureText(lastLine).width;
+    const padL = parseFloat(cs.paddingLeft) || 12;
+    const scrollL = inputEl.scrollLeft || 0;
+
+    const rawScreenX = inRect.left + padL + textW - scrollL;
+    const clampedScreenX = Math.max(inRect.left + 16, Math.min(inRect.right - 16, rawScreenX));
+
+    return {
+      x: clampedScreenX - barRect.left,
+      y: inRect.top - barRect.top
+    };
+  }
+
+  function scheduleImpatientPose(token) {
+    if (idleImpatientTimer) clearTimeout(idleImpatientTimer);
+    idleImpatientTimer = setTimeout(() => {
+      if (!activeInputEl || !isPerchedOnInput || token !== animToken) return;
+      const bot = document.getElementById('crouter-bot');
+      if (bot) bot.classList.remove('face-left');
+      setBotState('is-impatient');
+    }, 1150);
+  }
+
+  // Fly smoothly from current position (with optional 60% fall first if starting on bottom bar) to stand on top of the focused text box
+  async function flyBotToInputBox(inputEl, allowFall) {
     const bot = document.getElementById('crouter-bot');
     const bar = document.getElementById('sticky-bottom-bar');
-    const now = Date.now();
-    if (!bot || !bar || bar.getBoundingClientRect().width === 0 || isDoingFallSequence) return;
-    if (now - lastKbFallTime < 1500) return;
-    lastKbFallTime = now;
+    if (!bot || !bar || bar.getBoundingClientRect().width === 0 || !inputEl) return;
 
-    // 60% chance to fall off-screen; 40% chance to catch balance with a cute wobble!
-    if (Math.random() >= 0.60) {
-      window.triggerBotReaction();
+    clearInputTimers();
+    const token = ++animToken;
+    if (animFrameId) cancelAnimationFrame(animFrameId);
+    isDoingFallSequence = true;
+
+    const now = Date.now();
+    const shouldFall = allowFall && !isPerchedOnInput && (now - lastKbFallTime > 1500) && (Math.random() < 0.60);
+
+    if (shouldFall) {
+      lastKbFallTime = now;
+      bot.classList.remove('face-left');
+      setBotState('is-teetering');
+      await new Promise(r => setTimeout(r, 950));
+      if (token !== animToken) { isDoingFallSequence = false; return; }
+
+      setBotState('is-falling');
+      const okFall = await animateSegment(currentX, currentX, currentY, 155, 340, 'easeIn', token);
+      if (!okFall) { isDoingFallSequence = false; return; }
+
+      await new Promise(r => setTimeout(r, 200));
+      if (token !== animToken) { isDoingFallSequence = false; return; }
+    } else if (!isPerchedOnInput) {
+      // Brief ignition reaction before taking off to the text box
+      setBotState('is-igniting');
+      await new Promise(r => setTimeout(r, 260));
+      if (token !== animToken) { isDoingFallSequence = false; return; }
+    }
+
+    const coords = getInputCursorCoords(inputEl);
+    if (!coords) { isDoingFallSequence = false; return; }
+
+    // Face direction of flight
+    if (coords.x < currentX - 4) bot.classList.add('face-left');
+    else bot.classList.remove('face-left');
+
+    // Smooth jetpack flight directly to hover just above the input box top edge
+    setBotState('is-flying');
+    const dist = Math.hypot(coords.x - currentX, (coords.y - 16) - currentY);
+    const flyDur = Math.max(460, Math.min(1050, dist * 2.4));
+    const okFly = await animateSegment(currentX, coords.x, currentY, coords.y - 16, flyDur, 'thrust', token);
+    if (!okFly) { isDoingFallSequence = false; return; }
+
+    // Soft touchdown onto the top edge of the text box
+    bot.classList.remove('face-left');
+    setBotState('is-standing');
+    const finalCoords = getInputCursorCoords(inputEl) || coords;
+    const okLand = await animateSegment(currentX, finalCoords.x, currentY, finalCoords.y, 260, 'land', token);
+    if (!okLand) { isDoingFallSequence = false; return; }
+
+    isDoingFallSequence = false;
+    isPerchedOnInput = true;
+    scheduleImpatientPose(token);
+  }
+
+  // Smoothly walk along the top of the text box to catch up to the cursor
+  async function walkBotAlongInput(inputEl, isDeleting) {
+    const bot = document.getElementById('crouter-bot');
+    if (!bot || !inputEl || !isPerchedOnInput || isDoingFallSequence) return;
+
+    const coords = getInputCursorCoords(inputEl);
+    if (!coords) return;
+
+    const dx = coords.x - currentX;
+    const absDx = Math.abs(dx);
+    if (absDx < 5 && !isDeleting) {
+      scheduleImpatientPose(animToken);
       return;
     }
 
-    isDoingFallSequence = true;
     const token = ++animToken;
     if (animFrameId) cancelAnimationFrame(animFrameId);
+
+    if (dx < -2) bot.classList.add('face-left');
+    else bot.classList.remove('face-left');
+
+    if (absDx >= 5) {
+      setBotState('is-walking');
+      // Deliberate, slow walking speed
+      const walkDur = Math.max(360, Math.min(1400, absDx * 15));
+      const okWalk = await animateSegment(currentX, coords.x, currentY, coords.y, walkDur, 'walk', token);
+      if (!okWalk) return;
+    }
+
     bot.classList.remove('face-left');
 
-    // 1. Teeter & wobble on edge ("aa pore gelam pore gelam!")
-    setBotState('is-teetering');
-    await new Promise(r => setTimeout(r, 1200));
-    if (token !== animToken) { isDoingFallSequence = false; return; }
-
-    // 2. Drop fast off the bottom of the screen!
-    setBotState('is-falling');
-    const okFall = await animateSegment(currentX, currentX, currentY, 165, 380, 'easeIn', token);
-    if (!okFall) { isDoingFallSequence = false; return; }
-
-    await new Promise(r => setTimeout(r, 240));
-    if (token !== animToken) { isDoingFallSequence = false; return; }
-
-    // 3. Fly UP SLOWLY showing BACK VIEW + jetpack fire, hovering slightly above tab
-    setBotState('is-flying-back');
-    const okReturn = await animateSegment(currentX, currentX, 165, -24, 1400, 'land', token);
-    if (!okReturn) { isDoingFallSequence = false; return; }
-
-    // 4. Realistic smooth turn above the tab: Back -> Side -> Front
-    bot.classList.add('is-turn-squish');
-    await new Promise(r => setTimeout(r, 160));
-    if (token !== animToken) { isDoingFallSequence = false; return; }
-
-    setBotState('is-turn-side');
-    bot.classList.add('is-turn-unsquish');
-    await new Promise(r => setTimeout(r, 180));
-    if (token !== animToken) { isDoingFallSequence = false; return; }
-
-    bot.classList.remove('is-turn-unsquish');
-    bot.classList.add('is-turn-squish');
-    await new Promise(r => setTimeout(r, 160));
-    if (token !== animToken) { isDoingFallSequence = false; return; }
-
-    // 5. Face front, descend softly onto the ledge, and stand gently
-    setBotState('is-standing');
-    bot.classList.add('is-turn-unsquish');
-    const okTouchdown = await animateSegment(currentX, currentX, -24, 0, 320, 'land', token);
-    bot.classList.remove('is-turn-unsquish');
-    if (!okTouchdown) { isDoingFallSequence = false; return; }
-
-    await new Promise(r => setTimeout(r, 320));
-    isDoingFallSequence = false;
-    if (token !== animToken) return;
-    setBotState('is-sitting');
+    if (isDeleting) {
+      // Show annoyed / frustrated animation after walking back!
+      setBotState('is-annoyed');
+      await new Promise(r => setTimeout(r, 1350));
+      if (token !== animToken || !isPerchedOnInput) return;
+      setBotState('is-impatient');
+    } else {
+      setBotState('is-standing');
+      scheduleImpatientPose(token);
+    }
   }
 
-  // When keyboard closes and the bottom bar drops back down, bot floats & flies gently back onto the active tab
-  async function triggerKeyboardCloseFlySettle() {
+  // Fly smoothly back from the text box to sit on the active bottom tab
+  async function flyBotBackToActiveTab() {
     const bot = document.getElementById('crouter-bot');
     const bar = document.getElementById('sticky-bottom-bar');
-    if (!bot || !bar || bar.getBoundingClientRect().width === 0 || isDoingFallSequence) return;
+    if (!bot || !bar || bar.getBoundingClientRect().width === 0) return;
 
-    isDoingFallSequence = true;
+    clearInputTimers();
+    isPerchedOnInput = false;
+    activeInputEl = null;
+
     const token = ++animToken;
     if (animFrameId) cancelAnimationFrame(animFrameId);
-    bot.classList.remove('face-left');
+    isDoingFallSequence = true;
 
     const targetX = getTabCenterX(currentTab);
+    if (targetX < currentX - 4) bot.classList.add('face-left');
+    else bot.classList.remove('face-left');
+
+    // Lift off slightly with jetpack, then sway-fly smoothly down to the active tab
     setBotState('is-flying');
-    // Pop up into mid-air as the bar drops away, then sway-fly down to sit
-    const okUp = await animateSegment(currentX, currentX, currentY, -38, 280, 'land', token);
-    if (!okUp) { isDoingFallSequence = false; return; }
+    const liftY = currentY - 26;
+    const okLift = await animateSegment(currentX, currentX, currentY, liftY, 240, 'land', token);
+    if (!okLift) { isDoingFallSequence = false; return; }
 
-    const okHover = await animateSegment(currentX, targetX, -38, -28, 520, 'thrust', token);
-    if (!okHover) { isDoingFallSequence = false; return; }
+    const dist = Math.hypot(targetX - currentX, (-24) - currentY);
+    const flyDur = Math.max(480, Math.min(1000, dist * 2.3));
+    const okFly = await animateSegment(currentX, targetX, currentY, -24, flyDur, 'thrust', token);
+    if (!okFly) { isDoingFallSequence = false; return; }
 
+    bot.classList.remove('face-left');
     setBotState('is-standing');
-    const okSettle = await animateSegment(currentX, targetX, -28, 0, 320, 'land', token);
+    const okSettle = await animateSegment(currentX, targetX, currentY, 0, 280, 'land', token);
     if (!okSettle) { isDoingFallSequence = false; return; }
 
-    await new Promise(r => setTimeout(r, 240));
+    await new Promise(r => setTimeout(r, 220));
     isDoingFallSequence = false;
     if (token !== animToken) return;
     setBotState('is-sitting');
@@ -801,14 +917,55 @@ window.addEventListener('keydown', function(e) {
 
   document.addEventListener('focusin', (e) => {
     if (window.innerWidth > 768) return;
-    const tag = e.target && e.target.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA') {
-      triggerKeyboardFallAndReturn();
+    if (!isTextInput(e.target)) return;
+    if (blurReturnTimer) { clearTimeout(blurReturnTimer); blurReturnTimer = null; }
+    const sameInput = (activeInputEl === e.target);
+    activeInputEl = e.target;
+    lastInputLength = (activeInputEl.value || '').length;
+    if (!sameInput || !isPerchedOnInput) {
+      // Wait briefly for keyboard/viewport to settle before flying to the box
+      setTimeout(() => {
+        if (activeInputEl === e.target) {
+          flyBotToInputBox(e.target, true);
+        }
+      }, 120);
     }
   });
 
+  document.addEventListener('input', (e) => {
+    if (window.innerWidth > 768) return;
+    if (!activeInputEl || e.target !== activeInputEl || !isPerchedOnInput) return;
+
+    const newLen = (activeInputEl.value || '').length;
+    const isDeleting = newLen < lastInputLength;
+    lastInputLength = newLen;
+
+    if (idleImpatientTimer) { clearTimeout(idleImpatientTimer); idleImpatientTimer = null; }
+    if (typingWalkTimer) { clearTimeout(typingWalkTimer); typingWalkTimer = null; }
+
+    // Wait a moment before walking forward (or walking back + getting annoyed on delete)
+    const delayMs = isDeleting ? 480 : 420;
+    typingWalkTimer = setTimeout(() => {
+      typingWalkTimer = null;
+      if (activeInputEl === e.target && isPerchedOnInput) {
+        walkBotAlongInput(activeInputEl, isDeleting);
+      }
+    }, delayMs);
+  });
+
+  document.addEventListener('focusout', (e) => {
+    if (window.innerWidth > 768) return;
+    if (!activeInputEl || e.target !== activeInputEl) return;
+    if (blurReturnTimer) clearTimeout(blurReturnTimer);
+    blurReturnTimer = setTimeout(() => {
+      blurReturnTimer = null;
+      if (!isTextInput(document.activeElement)) {
+        flyBotBackToActiveTab();
+      }
+    }, 100);
+  });
+
   if (window.visualViewport) {
-    let lastH = window.visualViewport.height;
     const syncBarToKeyboard = () => {
       const bar = document.getElementById('sticky-bottom-bar');
       const radial = document.getElementById('radial-dial-wrap');
@@ -817,19 +974,20 @@ window.addEventListener('keydown', function(e) {
       if (bar) bar.style.bottom = kbOffset + 'px';
       if (radial) radial.style.bottom = `calc(var(--mobile-bottom-height) + 8px + ${kbOffset}px)`;
 
-      if (lastH - vv.height > 100) {
-        triggerKeyboardFallAndReturn();
-      } else if (vv.height - lastH > 100) {
-        triggerKeyboardCloseFlySettle();
+      // Keep robot smoothly aligned to the focused text box if viewport shifts
+      if (activeInputEl && isPerchedOnInput && !isDoingFallSequence) {
+        const coords = getInputCursorCoords(activeInputEl);
+        if (coords && Math.abs(coords.y - currentY) > 2) {
+          setBotTransform(currentX, coords.y);
+        }
       }
-      lastH = vv.height;
     };
     window.visualViewport.addEventListener('resize', syncBarToKeyboard);
     window.visualViewport.addEventListener('scroll', syncBarToKeyboard);
   }
 
   window.addEventListener('resize', () => {
-    if (isDoingFallSequence) return;
+    if (isDoingFallSequence || isPerchedOnInput) return;
     moveBotToTab(currentTab);
   });
 
