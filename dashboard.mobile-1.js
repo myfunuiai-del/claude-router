@@ -836,19 +836,30 @@ window.addEventListener('keydown', function(e) {
     if (coords.x < currentX - 4) bot.classList.add('face-left');
     else bot.classList.remove('face-left');
 
-    // Smooth jetpack flight directly to hover just above the input box top edge
+    // Smooth jetpack flight with realistic sway to hover above the input box
     setBotState('is-flying');
-    const dist = Math.hypot(coords.x - currentX, (coords.y - 16) - currentY);
-    const flyDur = Math.max(460, Math.min(1050, dist * 2.4));
-    const okFly = await animateSegment(currentX, coords.x, currentY, coords.y - 16, flyDur, 'thrust', token);
+    const hoverY = coords.y - 26;
+    const dist = Math.hypot(coords.x - currentX, hoverY - currentY);
+    const flyDur = Math.max(520, Math.min(1150, dist * 2.5));
+    const okFly = await animateSegment(currentX, coords.x, currentY, hoverY, flyDur, 'thrust', token);
     if (!okFly) { isDoingFallSequence = false; return; }
 
-    // Soft touchdown onto the top edge of the text box
+    // Brief mid-air floating hover above the text box before touching down
+    const okHover = await animateSegment(currentX, currentX, currentY, hoverY, 620, 'hover', token);
+    if (!okHover) { isDoingFallSequence = false; return; }
+
+    // Face front & soft touchdown onto the top edge of the text box
     bot.classList.remove('face-left');
     setBotState('is-standing');
     const finalCoords = getInputCursorCoords(inputEl) || coords;
-    const okLand = await animateSegment(currentX, finalCoords.x, currentY, finalCoords.y, 260, 'land', token);
+    const okLand = await animateSegment(currentX, finalCoords.x, currentY, finalCoords.y, 340, 'land', token);
     if (!okLand) { isDoingFallSequence = false; return; }
+
+    // Cute settling nod/perk-up before standing ready
+    setBotState('is-settling');
+    await new Promise(r => setTimeout(r, 420));
+    if (token !== animToken) { isDoingFallSequence = false; return; }
+    setBotState('is-standing');
 
     isDoingFallSequence = false;
     isPerchedOnInput = true;
