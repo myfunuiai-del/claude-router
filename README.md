@@ -95,10 +95,14 @@ When a long chat hits an upstream firewall/WAF or payload-size block (**HTTP `40
 - **`HTTP 429` (Rate Limit / Daily Quota):** Placed on a **3-minute** cooldown (or **30-minute** cooldown if daily quota exhaustion is detected).
 - **`HTTP 402` (Payment Required / Paid Model):** Only that specific **`(key + model)`** pair is placed on a **5-minute** cooldown.
 
-### 6. 📱 Mobile-First Gateway UI & Interactive Fox-Mecha Mascot
+### 6. 📱 Mobile-First Gateway UI, Fox-Mecha Mascot & Offline Local Brain
 - **Touch-Optimized Mobile Architecture:** Curved sticky bottom navigation bar (`Routes`, `Stats`, futuristic **Gateway Core SVG** radial FAB, `Teams`, `Quotas`), swipeable horizontal lane pills, slide-out quick-settings drawer, and full **Android hardware Back button** support for closing modals/sheets/drawers.
 - **Custom Dark Bottom-Sheet Pickers & In-UI Modals:** Replaces native browser dropdowns, `prompt()`, and `confirm()` dialogs with sleek dark-mode bottom sheets and action modals.
 - **Interactive Origami Fox-Mecha Mascot:** Physics-based companion featuring 2-part articulated limbs, swaying jetpack flight, mid-air hovering, smooth rising/settling gestures, and cursor-following walking on focused text boxes (with impatient arms-crossed foot-tapping when idle and annoyed walk-back on delete).
+- **🦊 Fox-Mecha AI Persona (Online & On-Demand Local LoRA Engine):**
+  - **Online Mode:** Connects to free cloud providers (Google AI Studio, Groq) with intelligent system prompts, dynamic tool action generation, micro-motions, and persistent memory.
+  - **Offline Local LoRA Engine:** Bundled with a custom fine-tuned **`fox_lora.gguf`** (8.3 MB) adapter. On-demand one-click download for base `Qwen2.5-0.5B` (~320 MB) directly from the Web Console settings card.
+  - **Safe Remove & 10-Second Undo:** Easily delete the downloaded local base model file anytime with in-UI confirmation and an interactive 10-second countdown Undo toast.
 
 ### 7. 🔒 Account-Model Binding & Model Redirection Profiles
 - **Auto-Detect Local Accounts:** Automatically detects configured AntiGem Google accounts without hardcoding personal credentials.

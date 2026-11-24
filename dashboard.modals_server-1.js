@@ -398,6 +398,104 @@ function toggleUnlimitedWindow() {
   }
 }
 
+async function detectServerLimits() {
+  const btn = document.getElementById('btn-detect-limits');
+  const icon = document.getElementById('btn-detect-limits-icon');
+  const text = document.getElementById('btn-detect-limits-text');
+  const statusBox = document.getElementById('detect-limits-status');
+
+  const sId = document.getElementById('server-id')?.value.trim().toLowerCase() || '';
+  const sBase = document.getElementById('server-base')?.value.trim() || '';
+  const sType = document.getElementById('server-type')?.value || 'openai';
+  const sWireApi = document.getElementById('server-wire-api')?.value || 'default';
+  const sModel = document.getElementById('server-default-model')?.value.trim() || '';
+  const sKey = document.getElementById('server-key')?.value.trim() || '';
+  const sHdrs = document.getElementById('server-custom-headers')?.value.trim() || '';
+
+  if (statusBox) {
+    statusBox.style.display = 'block';
+    statusBox.style.background = '#161b22';
+    statusBox.style.color = '#79c0ff';
+    statusBox.style.border = '1px solid #30363d';
+    statusBox.innerText = 'Testing API response headers...';
+  }
+  if (btn) btn.disabled = true;
+  if (icon) icon.innerText = '⏳';
+  if (text) text.innerText = 'Detecting...';
+
+  try {
+    const payload = {
+      id: sId,
+      base_url: sBase,
+      type: sType,
+      wire_api: sWireApi,
+      default_model: sModel,
+      key: sKey,
+      custom_headers: sHdrs
+    };
+
+    const res = await fetch('/api/ui/detect-limits', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+
+    if (res.ok && data.detected) {
+      const rpmInput = document.getElementById('server-rpm');
+      const maxReqInput = document.getElementById('server-max-requests');
+      const winHoursInput = document.getElementById('server-window-hours');
+
+      let summary = [];
+      if (data.rpm !== null && data.rpm !== undefined) {
+        if (rpmInput) {
+          rpmInput.value = data.rpm;
+          onRpmInput(rpmInput);
+        }
+        summary.push(`${data.rpm} RPM`);
+      }
+      if (data.max_requests !== null && data.max_requests !== undefined) {
+        if (maxReqInput) {
+          maxReqInput.value = data.max_requests;
+          onWindowReqInput(maxReqInput);
+        }
+        if (winHoursInput && data.window_hours) {
+          winHoursInput.value = data.window_hours;
+        }
+        summary.push(`${data.max_requests} req/${data.window_hours || 1}h`);
+      }
+
+      if (statusBox) {
+        statusBox.style.display = 'block';
+        statusBox.style.background = '#0e2a1b';
+        statusBox.style.color = '#56d364';
+        statusBox.style.border = '1px solid #238636';
+        statusBox.innerText = `✓ Detected: ${summary.join(', ') || 'Limits updated!'}`;
+      }
+    } else {
+      if (statusBox) {
+        statusBox.style.display = 'block';
+        statusBox.style.background = '#2a1a0e';
+        statusBox.style.color = '#e3b341';
+        statusBox.style.border = '1px solid #9e6a03';
+        statusBox.innerText = data.message || 'No rate limit headers found in server response.';
+      }
+    }
+  } catch (err) {
+    if (statusBox) {
+      statusBox.style.display = 'block';
+      statusBox.style.background = '#2c1517';
+      statusBox.style.color = '#f85149';
+      statusBox.style.border = '1px solid #da3633';
+      statusBox.innerText = 'Failed: ' + err.message;
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+    if (icon) icon.innerText = '⚡';
+    if (text) text.innerText = 'Auto Detect';
+  }
+}
+
 // Auto-blur focused input on Enter / Done on mobile keyboard
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target && e.target.tagName === 'INPUT' && e.target.type !== 'submit') {

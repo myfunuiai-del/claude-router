@@ -9,6 +9,8 @@
   <link rel="stylesheet" href="/dashboard.styles-1.css">
   <link rel="stylesheet" href="/dashboard.usage-1.css">
   <link rel="stylesheet" href="/dashboard.mobile-1.css">
+  <link rel="stylesheet" href="/dashboard.fox_brain-1.css?v=2" />
+  <link rel="stylesheet" href="/dashboard.fox_puppet-1.css" />
 </head>
 <body>
   <!-- MOBILE SIDE DRAWER BACKDROP & PANEL -->
@@ -334,7 +336,7 @@
         <span id="modal-title-text">Configure Server</span>
         <span style="cursor:pointer;" onclick="closeServerModal()">✕</span>
       </div>
-      <form onsubmit="saveServer(event)" style="display:flex; flex-direction:column; gap:8px;">
+      <form onsubmit="saveServer(event)" novalidate style="display:flex; flex-direction:column; gap:8px;">
         <input type="hidden" id="edit-id" />
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
           <div>
@@ -382,8 +384,11 @@
         <div style="background:#090e15; border:1px solid #1f2837; border-radius:6px; padding:7px 9px; display:flex; flex-direction:column; gap:6px;">
           <div style="font-size:10px; font-weight:700; color:#58a6ff; text-transform:uppercase; display:flex; justify-content:space-between; align-items:center;">
             <span>⚡ Rate Limits &amp; Quota (Optional)</span>
-            <span style="font-size:9px; color:var(--text-muted); font-weight:400;">0 or empty = Unlimited</span>
+            <button type="button" class="btn btn-xs" id="btn-detect-limits" onclick="detectServerLimits()" title="Auto detect RPM and Quota from API headers" style="background:#1f2837; border:1px solid #30363d; color:#79c0ff; font-weight:600; padding:2px 8px; font-size:10px; border-radius:4px; display:inline-flex; align-items:center; gap:4px; cursor:pointer;">
+              <span id="btn-detect-limits-icon">⚡</span> <span id="btn-detect-limits-text">Auto Detect</span>
+            </button>
           </div>
+          <div id="detect-limits-status" style="display:none; font-size:10px; padding:3px 6px; border-radius:4px;"></div>
           <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; background:#0d141f; padding:5px 8px; border-radius:4px; border:1px solid #1a2536;">
             <div style="display:flex; align-items:center; gap:6px; min-width:85px;">
               <span style="font-size:11px; font-weight:500;">Max RPM</span>
@@ -402,7 +407,7 @@
             <div style="display:flex; align-items:center; gap:4px;">
               <input type="number" id="server-max-requests" placeholder="∞" min="1" style="width:62px; padding:3px 6px; font-size:12px; text-align:center;" oninput="onWindowReqInput(this)" title="Max Requests" />
               <span style="font-size:11px; color:var(--text-muted);">/</span>
-              <input type="number" id="server-window-hours" value="1" min="0.1" step="0.5" style="width:40px; padding:3px 2px; font-size:11px; text-align:center;" title="Window in Hours" />
+              <input type="number" id="server-window-hours" value="1" min="0.1" step="any" style="width:40px; padding:3px 2px; font-size:11px; text-align:center;" title="Window in Hours" />
               <span style="font-size:10.5px; color:var(--text-muted);">h</span>
               <button type="button" class="btn btn-xs" id="btn-unlimited-window" onclick="toggleUnlimitedWindow()" title="Set to Unlimited" style="padding:2px 7px;">∞</button>
             </div>
@@ -1127,7 +1132,9 @@
     </div>
   </nav>
 
-  <script src="/dashboard.mobile-1.js"></script>
+  <script src="/dashboard.mobile-1.js?v=3"></script>
+  <script src="/dashboard.fox_puppet-1.js"></script>
+  <script src="/dashboard.fox_brain-1.js?v=6"></script>
   <script src="/account_lock_ui.js?v=9"></script>
   <script src="/dashboard.usage-1.js"></script>
 </body>

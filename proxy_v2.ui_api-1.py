@@ -24,6 +24,8 @@ def _load_module_to_globals(filename, target_globals):
 _config_mod = _load_module_to_globals("proxy_v2.config-1.py", globals())
 _ui_tester_mod = _load_module_to_globals("proxy_v2.ui_tester-1.py", globals())
 _ui_playground_mod = _load_module_to_globals("proxy_v2.ui_playground-1.py", globals())
+_fox_brain_mod = _load_module_to_globals("proxy_v2.fox_brain-1.py", globals())
+_fox_local_mod = _load_module_to_globals("proxy_v2.fox_local-1.py", globals())
 
 def _auto_detect_model_for_server(base_url, p_type="openai", p_wire="default", custom_headers=None, api_key="", p_id=""):
     clean_base = (base_url or "").rstrip("/")
@@ -85,6 +87,10 @@ def _auto_detect_model_for_server(base_url, p_type="openai", p_wire="default", c
 
 def handle_ui_post(handler, raw_body):
     """Handle UI dashboard API POST requests. Returns True if handled, False otherwise."""
+    if handle_fox_local_installer(handler, raw_body):
+        return True
+    if handle_fox_brain_post(handler, raw_body) or (hasattr(_fox_brain_mod, "handle_fox_brain_post_alias") and _fox_brain_mod.handle_fox_brain_post_alias(handler, raw_body)):
+        return True
     if handle_ui_tester_post(handler, raw_body):
         return True
     if handle_ui_playground_post(handler, raw_body):

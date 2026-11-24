@@ -310,6 +310,203 @@ def handle_ui_tester_post(handler, raw_body):
             return True
 
 
+    # UI API: Auto detect rate limits from server response headers
+    if handler.path == "/api/ui/detect-limits":
+        try:
+            data = json.loads(raw_body.decode('utf-8'))
+            provider_id = (data.get("id") or data.get("provider") or "").strip().lower()
+            base_url = (data.get("base_url") or "").strip()
+            p_type = (data.get("type") or "openai").strip().lower()
+            p_wire = (data.get("wire_api") or "default").strip().lower()
+            test_model = (data.get("default_model") or data.get("model") or "").strip()
+            api_key = (data.get("key") or "").strip()
+            custom_hdrs = data.get("custom_headers")
+
+            cfg = load_proxy_config()
+            p = cfg.get("providers", {}).get(provider_id, {})
+            if not base_url:
+                base_url = p.get("base_url", "")
+            if not p_type:
+                p_type = p.get("type", "openai")
+            if not test_model:
+                test_model = p.get("default_model") or (p.get("models", [""])[0] if p.get("models") else "")
+            if not api_key:
+                keys = p.get("keys", [])
+                api_key = keys[0] if keys else ""
+
+            if isinstance(custom_hdrs, str) and custom_hdrs.strip():
+                try:
+                    custom_hdrs = json.loads(custom_hdrs)
+                except Exception:
+                    custom_hdrs = None
+            if not custom_hdrs and p.get("custom_headers"):
+                custom_hdrs = p.get("custom_headers")
+
+            clean_base = (base_url or "").rstrip("/")
+            if not clean_base or not api_key:
+                handler.send_response(400)
+                handler.send_header('Content-Type', 'application/json')
+                handler.send_header('Access-Control-Allow-Origin', '*')
+                err = json.dumps({"status": "error", "message": "Base URL and API Key are required to detect limits"}).encode()
+                handler.send_header('Content-Length', str(len(err)))
+                handler.end_headers()
+                handler.wfile.write(err)
+                return True
+
+            universal_headers = {
+                'Authorization': f'Bearer {api_key}',
+                'x-api-key': api_key,
+                'anthropic-version': '2023-06-01',
+                'Content-Type': 'application/json',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            if custom_hdrs and isinstance(custom_hdrs, dict):
+                universal_headers.update(custom_hdrs)
+
+            if provider_id == "agentrouter":
+                ping_url = f"{clean_base}/messages"
+            elif p_type == "openai":
+                if clean_base.endswith("/chat/completions") or clean_base.endswith("/responses") or clean_base.endswith("/messages"):
+                    ping_url = clean_base
+                elif p_wire == "responses" or clean_base.endswith("/v1/responses") or "/responses" in clean_base:
+                    ping_url = clean_base if clean_base.endswith("/responses") else (f"{clean_base}/responses" if clean_base.endswith("/v1") else f"{clean_base}/v1/responses")
+                else:
+                    ping_url = f"{clean_base}/chat/completions"
+            else:
+                if clean_base.endswith("/api"):
+                    ping_url = f"{clean_base}/v1/messages"
+                elif clean_base.endswith("/v1") or clean_base.endswith("/api/v1"):
+                    ping_url = f"{clean_base}/messages"
+                else:
+                    ping_url = f"{clean_base}/v1/messages"
+
+            is_coarena = "coarena" in provider_id.lower() or "coarena.ai" in base_url
+            max_tokens = 4096 if is_coarena else 2
+            body = json.dumps({
+                'model': test_model or 'gpt-4o',
+                'messages': [{'role': 'user', 'content': 'hi'}],
+                'max_tokens': max_tokens
+            }).encode('utf-8')
+
+            resp_headers = {}
+            status_code = 0
+            try:
+                t_req = urllib.request.Request(ping_url, data=body, headers=universal_headers, method='POST')
+                with urllib.request.urlopen(t_req, timeout=30) as t_resp:
+                    status_code = t_resp.status
+                    for k, v in t_resp.headers.items():
+                        resp_headers[k.lower()] = v
+            except urllib.error.HTTPError as he:
+                status_code = he.code
+                for k, v in he.headers.items():
+                    resp_headers[k.lower()] = v
+            except Exception as ex:
+                status_code = 0
+
+            rpm = None
+            max_requests = None
+            window_hours = 1
+            tpm = None
+
+            # 1. Mistral headers:
+            # x-ratelimit-limit-req-minute => Requests Per Minute (RPM)
+            # x-ratelimit-limit-tokens-minute => TPM
+            if 'x-ratelimit-limit-req-minute' in resp_headers:
+                try:
+                    rpm = int(resp_headers['x-ratelimit-limit-req-minute'])
+                except: pass
+            if 'x-ratelimit-limit-tokens-minute' in resp_headers:
+                try:
+                    tpm = int(resp_headers['x-ratelimit-limit-tokens-minute'])
+                except: pass
+
+            # 2. Groq headers:
+            # In Groq, x-ratelimit-limit-requests is Requests Per Day (RPD), NOT RPM!
+            # Groq indicates reset time via x-ratelimit-reset-requests
+            is_groq = "groq" in clean_base or provider_id == "groq"
+            if is_groq:
+                if 'x-ratelimit-limit-requests' in resp_headers:
+                    try:
+                        max_requests = int(resp_headers['x-ratelimit-limit-requests'])
+                        window_hours = 24
+                    except: pass
+            else:
+                # Standard OpenAI: x-ratelimit-limit-requests is RPM
+                if rpm is None and 'x-ratelimit-limit-requests' in resp_headers:
+                    try:
+                        rpm = int(resp_headers['x-ratelimit-limit-requests'])
+                    except: pass
+
+            # 3. Explicit Daily quota header:
+            if 'x-ratelimit-limit-requests-day' in resp_headers:
+                try:
+                    max_requests = int(resp_headers['x-ratelimit-limit-requests-day'])
+                    window_hours = 24
+                except: pass
+
+            # 4. Token headers:
+            if tpm is None and 'x-ratelimit-limit-tokens' in resp_headers:
+                try:
+                    tpm = int(resp_headers['x-ratelimit-limit-tokens'])
+                except: pass
+
+            # 5. Anthropic style headers:
+            if rpm is None and 'anthropic-ratelimit-requests-limit' in resp_headers:
+                try:
+                    rpm = int(resp_headers['anthropic-ratelimit-requests-limit'])
+                except: pass
+            if tpm is None and 'anthropic-ratelimit-tokens-limit' in resp_headers:
+                try:
+                    tpm = int(resp_headers['anthropic-ratelimit-tokens-limit'])
+                except: pass
+
+            # 6. OpenRouter live API query (/auth/key):
+            # Only extracts the actual limit returned by their API without any assumptions
+            if ("openrouter" in clean_base or provider_id == "openrouter") and max_requests is None:
+                try:
+                    or_req = urllib.request.Request(
+                        "https://openrouter.ai/api/v1/auth/key",
+                        headers={"Authorization": f"Bearer {api_key}"}
+                    )
+                    with urllib.request.urlopen(or_req, timeout=10) as or_resp:
+                        or_data = json.loads(or_resp.read().decode('utf-8')).get("data", {})
+                        f_limits = or_data.get("free_model_daily_requests", {})
+                        if f_limits and f_limits.get("limit"):
+                            max_requests = int(f_limits["limit"])
+                            window_hours = 24
+                except Exception:
+                    pass
+
+            success = (rpm is not None or max_requests is not None or tpm is not None)
+            resp = json.dumps({
+                "status": "ok" if success else "warning",
+                "detected": success,
+                "rpm": rpm,
+                "max_requests": max_requests,
+                "window_hours": window_hours,
+                "tpm": tpm,
+                "http_status": status_code,
+                "message": f"Detected: {rpm or '∞'} RPM, {max_requests or '∞'} Req/{window_hours}h" if success else "No rate limit headers found in server response."
+            }).encode('utf-8')
+
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            handler.send_header('Content-Length', str(len(resp)))
+            handler.end_headers()
+            handler.wfile.write(resp)
+            return True
+        except Exception as e:
+            handler.send_response(500)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            err = json.dumps({"status": "error", "message": str(e)}).encode()
+            handler.send_header('Content-Length', str(len(err)))
+            handler.end_headers()
+            handler.wfile.write(err)
+            return True
+
+
     if handler.path == "/api/ui/provider-mode":
         try:
             data = json.loads(raw_body.decode('utf-8'))

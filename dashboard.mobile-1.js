@@ -774,9 +774,12 @@ window.addEventListener('keydown', function(e) {
     const rawScreenX = inRect.left + padL + textW - scrollL;
     const clampedScreenX = Math.max(inRect.left + 16, Math.min(inRect.right - 16, rawScreenX));
 
+    // Feet of the standing fox robot touch down exactly on top border of the input box
+    // sy = (barRect.top - 33) + y => For feet to rest on inRect.top:
+    // We offset by -12px so the feet land squarely on the input's top edge
     return {
       x: clampedScreenX - barRect.left,
-      y: inRect.top - barRect.top
+      y: (inRect.top - barRect.top) - 4
     };
   }
 

@@ -1,8 +1,18 @@
 # Sensitive configurations with real API keys
 config.json
 config.json.bak
+config.json.bak*
 *backup*.json
 account_lock_state.json
+fox_pref.json
+fox_mode.json
+fox_memory.json
+
+# Large Base Model Files (Manual download via UI - Never push 400MB+ to GitHub)
+models/*.gguf
+!models/fox_lora.gguf
+models/*.part
+models/fox_lora/
 
 # Logs & temp files
 *.log
