@@ -337,6 +337,26 @@
 .crouter-bot.is-drag-down .f-thigh-l { transform: rotate(22deg); }
 .crouter-bot.is-drag-down .f-thigh-r { transform: rotate(-22deg); }
 
+/* Dragging RIGHT -> inertia swings arms, legs, shins & ears to the LEFT */
+.crouter-bot.is-drag-right .f-arm-l { transform: rotate(62deg); transition: transform 0.11s ease-out; }
+.crouter-bot.is-drag-right .f-arm-r { transform: rotate(24deg); transition: transform 0.11s ease-out; }
+.crouter-bot.is-drag-right .f-thigh-l { transform: rotate(34deg); transition: transform 0.11s ease-out; }
+.crouter-bot.is-drag-right .f-thigh-r { transform: rotate(28deg); transition: transform 0.11s ease-out; }
+.crouter-bot.is-drag-right .f-shin-l { transform: rotate(24deg); transition: transform 0.13s ease-out; }
+.crouter-bot.is-drag-right .f-shin-r { transform: rotate(20deg); transition: transform 0.13s ease-out; }
+.crouter-bot.is-drag-right .f-ear-l { transform: rotate(-20deg); transition: transform 0.11s ease-out; }
+.crouter-bot.is-drag-right .f-ear-r { transform: rotate(-16deg); transition: transform 0.11s ease-out; }
+
+/* Dragging LEFT -> inertia swings arms, legs, shins & ears to the RIGHT */
+.crouter-bot.is-drag-left .f-arm-l { transform: rotate(-24deg); transition: transform 0.11s ease-out; }
+.crouter-bot.is-drag-left .f-arm-r { transform: rotate(-62deg); transition: transform 0.11s ease-out; }
+.crouter-bot.is-drag-left .f-thigh-l { transform: rotate(-28deg); transition: transform 0.11s ease-out; }
+.crouter-bot.is-drag-left .f-thigh-r { transform: rotate(-34deg); transition: transform 0.11s ease-out; }
+.crouter-bot.is-drag-left .f-shin-l { transform: rotate(-20deg); transition: transform 0.13s ease-out; }
+.crouter-bot.is-drag-left .f-shin-r { transform: rotate(-24deg); transition: transform 0.13s ease-out; }
+.crouter-bot.is-drag-left .f-ear-l { transform: rotate(16deg); transition: transform 0.11s ease-out; }
+.crouter-bot.is-drag-left .f-ear-r { transform: rotate(20deg); transition: transform 0.11s ease-out; }
+
 /* PHASE 1: Zero-Gravity Float (~1s) - Lying back & wiggling limbs cutely */
 .crouter-bot.is-zero-g .bot-svg {
   animation: foxZeroGLieDown 1.05s cubic-bezier(0.22, 1, 0.36, 1) forwards;

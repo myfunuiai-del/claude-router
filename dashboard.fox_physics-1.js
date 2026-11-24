@@ -29,6 +29,8 @@
     'is-dragged',
     'is-drag-up',
     'is-drag-down',
+    'is-drag-left',
+    'is-drag-right',
     'is-zero-g',
     'is-front-jetpack',
     'is-jetpack-hover',
@@ -541,7 +543,7 @@
       svg.style.transform = `rotate(${tiltDeg.toFixed(1)}deg) scaleX(${stretchX.toFixed(3)}) scaleY(${stretchY.toFixed(3)})`;
     }
 
-    // Toggle directional gravity limb classes (upward pull vs downward drop)
+    // Toggle directional gravity limb classes (up/down + left/right inertia swing)
     if (smoothVy < -1.2) {
       bot.classList.add('is-drag-up');
       bot.classList.remove('is-drag-down');
@@ -550,6 +552,16 @@
       bot.classList.remove('is-drag-up');
     } else {
       bot.classList.remove('is-drag-up', 'is-drag-down');
+    }
+
+    if (smoothVx > 1.2) {
+      bot.classList.add('is-drag-right');
+      bot.classList.remove('is-drag-left');
+    } else if (smoothVx < -1.2) {
+      bot.classList.add('is-drag-left');
+      bot.classList.remove('is-drag-right');
+    } else {
+      bot.classList.remove('is-drag-left', 'is-drag-right');
     }
   }
 
