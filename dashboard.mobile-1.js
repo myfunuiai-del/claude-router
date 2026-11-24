@@ -1118,3 +1118,103 @@ window.addEventListener('keydown', function(e) {
     openCustomSelectSheet(sel);
   });
 })();
+
+// ========================================================
+// MOBILE HARDWARE BACK BUTTON -> CLOSE MODALS / SHEETS / DRAWERS
+// ========================================================
+(function initMobileBackButtonHandler() {
+  let hasPushedOverlayState = false;
+
+  function getOpenOverlays() {
+    const open = [];
+    // 1. Topmost: Redirection action modal (Add/Edit/Delete confirm)
+    const redirAction = document.getElementById('redir-action-modal');
+    if (redirAction && window.getComputedStyle(redirAction).display !== 'none') {
+      open.push({ type: 'redir-action', el: redirAction });
+    }
+    // 2. Custom select bottom sheet
+    const selectSheet = document.getElementById('custom-select-sheet');
+    if (selectSheet && selectSheet.classList.contains('is-open')) {
+      open.push({ type: 'select-sheet', el: selectSheet });
+    }
+    // 3. Any open .modal (excluding redir-action already handled)
+    document.querySelectorAll('.modal').forEach(m => {
+      if (m.id === 'redir-action-modal') return;
+      const cs = window.getComputedStyle(m);
+      if (cs.display !== 'none' && cs.visibility !== 'hidden' && !m.classList.contains('hidden')) {
+        open.push({ type: 'modal', el: m });
+      }
+    });
+    // 4. Radial FAB dial
+    const radial = document.getElementById('radial-dial-wrap');
+    if (radial && radial.classList.contains('is-open')) {
+      open.push({ type: 'radial', el: radial });
+    }
+    // 5. Side drawer
+    const drawer = document.getElementById('mobile-drawer');
+    if (drawer && drawer.classList.contains('is-open')) {
+      open.push({ type: 'drawer', el: drawer });
+    }
+    return open;
+  }
+
+  function syncOverlayHistory() {
+    const open = getOpenOverlays();
+    if (open.length > 0 && !hasPushedOverlayState) {
+      hasPushedOverlayState = true;
+      try {
+        history.pushState({ crouterOverlay: true }, '');
+      } catch (e) {}
+    } else if (open.length === 0) {
+      hasPushedOverlayState = false;
+    }
+  }
+
+  function closeTopOverlay() {
+    const open = getOpenOverlays();
+    if (open.length === 0) return false;
+    const top = open[0];
+
+    if (top.type === 'redir-action') {
+      const cancelBtn = top.el.querySelector('#redir-action-cancel, button[onclick*="close"], .btn-cancel');
+      if (cancelBtn) cancelBtn.click();
+      else top.el.style.display = 'none';
+    } else if (top.type === 'select-sheet') {
+      if (typeof window.closeCustomSelectSheet === 'function') window.closeCustomSelectSheet();
+      else top.el.classList.remove('is-open');
+    } else if (top.type === 'modal') {
+      const closeBtn = top.el.querySelector('[onclick*="close"], [onclick*="Close"], .modal-close, .close-btn, button[title="Close"]');
+      if (closeBtn) closeBtn.click();
+      else top.el.style.display = 'none';
+    } else if (top.type === 'radial') {
+      if (typeof window.toggleRadialDial === 'function') window.toggleRadialDial(false);
+      else top.el.classList.remove('is-open');
+    } else if (top.type === 'drawer') {
+      if (typeof window.toggleMobileDrawer === 'function') window.toggleMobileDrawer(false);
+      else top.el.classList.remove('is-open');
+    }
+    return true;
+  }
+
+  window.addEventListener('popstate', () => {
+    const closed = closeTopOverlay();
+    if (closed) {
+      hasPushedOverlayState = false;
+      // If another overlay is still open underneath, push state again so next Back closes it too
+      setTimeout(syncOverlayHistory, 50);
+    }
+  });
+
+  // Watch DOM class/style changes to automatically arm Back button whenever any modal/sheet/drawer opens
+  const observer = new MutationObserver(() => {
+    syncOverlayHistory();
+  });
+
+  document.addEventListener('DOMContentLoaded', () => {
+    observer.observe(document.body, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'style']
+    });
+  });
+})();
