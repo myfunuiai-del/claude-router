@@ -1205,10 +1205,42 @@
   95% { transform: scaleY(0.12); }
 }
 
+/* Pre-Sit Settling Gesture (~0.55s cute stretch, ear wiggle & satisfied nod before sitting) */
+.crouter-bot.is-settling .bot-svg {
+  transform: translateY(-3px);
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.crouter-bot.is-settling .bot-head {
+  transform-origin: 40px 52px;
+  animation: botSettleNod 0.55s ease-in-out;
+}
+@keyframes botSettleNod {
+  0%   { transform: rotate(0deg) translateY(0); }
+  35%  { transform: rotate(-8deg) translateY(-1px); }
+  70%  { transform: rotate(6deg) translateY(1px); }
+  100% { transform: rotate(0deg) translateY(0); }
+}
+.crouter-bot.is-settling .f-arm-l {
+  animation: botSettleArmL 0.55s ease-in-out;
+}
+.crouter-bot.is-settling .f-arm-r {
+  animation: botSettleArmR 0.55s ease-in-out;
+}
+@keyframes botSettleArmL { 0%, 100% { transform: rotate(0deg); } 45% { transform: rotate(28deg); } }
+@keyframes botSettleArmR { 0%, 100% { transform: rotate(0deg); } 45% { transform: rotate(-28deg); } }
+.crouter-bot.is-settling .f-ear-l {
+  animation: botSettleEarL 0.55s ease-in-out;
+}
+.crouter-bot.is-settling .f-ear-r {
+  animation: botSettleEarR 0.55s ease-in-out;
+}
+@keyframes botSettleEarL { 0%, 100% { transform: rotate(0deg); } 40% { transform: rotate(-16deg); } 75% { transform: rotate(6deg); } }
+@keyframes botSettleEarR { 0%, 100% { transform: rotate(0deg); } 40% { transform: rotate(16deg); }  75% { transform: rotate(-6deg); } }
+
 /* Sitting Pose: Dangling 2-Part Legs Swinging from Knees! */
 .crouter-bot.is-sitting .bot-svg {
   transform: translateY(2px);
-  transition: transform 0.2s ease;
+  transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .crouter-bot.is-sitting .f-shin-l {
   animation: dangleShinL 1.5s ease-in-out infinite alternate;

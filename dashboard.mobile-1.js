@@ -489,7 +489,7 @@ window.addEventListener('keydown', function(e) {
   function setBotState(state) {
     const bot = document.getElementById('crouter-bot');
     if (!bot) return;
-    bot.classList.remove('is-sitting', 'is-standing', 'is-walking', 'is-igniting', 'is-flying', 'is-teetering', 'is-falling', 'is-flying-back', 'is-turn-side', 'is-turn-squish', 'is-turn-unsquish', 'is-impatient', 'is-annoyed');
+    bot.classList.remove('is-sitting', 'is-standing', 'is-settling', 'is-walking', 'is-igniting', 'is-flying', 'is-teetering', 'is-falling', 'is-flying-back', 'is-turn-side', 'is-turn-squish', 'is-turn-unsquish', 'is-impatient', 'is-annoyed');
     if (state) bot.classList.add(state);
   }
 
@@ -645,8 +645,11 @@ window.addEventListener('keydown', function(e) {
       if (!ok) return;
     }
 
-    // 4. Face front & sit down on active tab with dangling legs
+    // 4. Face front, do a cute 0.55s settling gesture (stretch/nod/ear-wiggle), then smoothly sit down
     bot.classList.remove('face-left');
+    setBotState('is-settling');
+    await new Promise(r => setTimeout(r, 550));
+    if (token !== animToken) return;
     setBotState('is-sitting');
   }
 
@@ -906,10 +909,12 @@ window.addEventListener('keydown', function(e) {
 
     bot.classList.remove('face-left');
     setBotState('is-standing');
-    const okSettle = await animateSegment(currentX, targetX, currentY, 0, 280, 'land', token);
+    const okSettle = await animateSegment(currentX, targetX, currentY, 0, 340, 'land', token);
     if (!okSettle) { isDoingFallSequence = false; return; }
 
-    await new Promise(r => setTimeout(r, 220));
+    // Cute 0.55s settling gesture before smoothly sitting down
+    setBotState('is-settling');
+    await new Promise(r => setTimeout(r, 550));
     isDoingFallSequence = false;
     if (token !== animToken) return;
     setBotState('is-sitting');
