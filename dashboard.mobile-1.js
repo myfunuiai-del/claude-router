@@ -1028,9 +1028,24 @@ window.addEventListener('keydown', function(e) {
   }
 
   window.addEventListener('resize', () => {
-    if (isDoingFallSequence || isPerchedOnInput) return;
+    if (isDoingFallSequence || isPerchedOnInput || (window.__foxBotBridge && window.__foxBotBridge.isPhysicsActive)) return;
     moveBotToTab(currentTab);
   });
+
+  // Expose lightweight bridge for Fox Drag & Jetpack Physics Engine
+  window.__foxBotBridge = {
+    isPhysicsActive: false,
+    setBotTransform,
+    setBotState,
+    getActiveTabX: () => getTabCenterX(currentTab || 'routes'),
+    cancelAnim: () => {
+      animToken++;
+      if (animFrameId) {
+        cancelAnimationFrame(animFrameId);
+        animFrameId = null;
+      }
+    }
+  };
 
   document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {

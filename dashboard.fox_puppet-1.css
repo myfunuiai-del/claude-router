@@ -299,6 +299,147 @@
 .crouter-bot.action-hide .bot-svg {
   animation: foxHidePeek 2.5s cubic-bezier(0.2, 0.9, 0.3, 1) infinite alternate;
 }
+
+/* ========================================================
+   INTERACTIVE DRAG, GRAVITY PHYSICS & JETPACK RECOVERY
+   ======================================================== */
+.crouter-bot.is-dragged {
+  cursor: grabbing;
+}
+.crouter-bot.is-dragged .bot-shadow,
+.crouter-bot.is-zero-g .bot-shadow,
+.crouter-bot.is-jetpack-hover .bot-shadow,
+.crouter-bot.is-jetpack-dive .bot-shadow {
+  opacity: 0 !important;
+}
+
+/* Dragging: gravity pulls legs down & ears react to vertical velocity */
+.crouter-bot.is-dragged .f-thigh-l { transform: rotate(6deg); transition: transform 0.12s ease; }
+.crouter-bot.is-dragged .f-thigh-r { transform: rotate(-6deg); transition: transform 0.12s ease; }
+.crouter-bot.is-dragged .f-arm-l { transform: rotate(38deg); transition: transform 0.12s ease; }
+.crouter-bot.is-dragged .f-arm-r { transform: rotate(-38deg); transition: transform 0.12s ease; }
+
+/* Pulling UP against gravity: legs dangle straight down heavily, ears fold down */
+.crouter-bot.is-drag-up .f-thigh-l { transform: rotate(2deg); }
+.crouter-bot.is-drag-up .f-thigh-r { transform: rotate(-2deg); }
+.crouter-bot.is-drag-up .f-shin-l { transform: rotate(-4deg); }
+.crouter-bot.is-drag-up .f-shin-r { transform: rotate(4deg); }
+.crouter-bot.is-drag-up .f-ear-l { transform: rotate(-18deg); transition: transform 0.14s ease; }
+.crouter-bot.is-drag-up .f-ear-r { transform: rotate(18deg); transition: transform 0.14s ease; }
+.crouter-bot.is-drag-up .f-arm-l { transform: rotate(18deg); }
+.crouter-bot.is-drag-up .f-arm-r { transform: rotate(-18deg); }
+
+/* Pulling DOWN: air resistance lifts arms & ears upward */
+.crouter-bot.is-drag-down .f-arm-l { transform: rotate(115deg); transition: transform 0.12s ease; }
+.crouter-bot.is-drag-down .f-arm-r { transform: rotate(-115deg); transition: transform 0.12s ease; }
+.crouter-bot.is-drag-down .f-ear-l { transform: rotate(16deg) translateY(-2px); transition: transform 0.12s ease; }
+.crouter-bot.is-drag-down .f-ear-r { transform: rotate(-16deg) translateY(-2px); transition: transform 0.12s ease; }
+.crouter-bot.is-drag-down .f-thigh-l { transform: rotate(22deg); }
+.crouter-bot.is-drag-down .f-thigh-r { transform: rotate(-22deg); }
+
+/* PHASE 1: Zero-Gravity Float (~1s) - Lying back & wiggling limbs cutely */
+.crouter-bot.is-zero-g .bot-svg {
+  animation: foxZeroGLieDown 1.05s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.crouter-bot.is-zero-g .f-arm-l {
+  animation: foxZeroGArmL 0.2s ease-in-out infinite alternate;
+}
+.crouter-bot.is-zero-g .f-arm-r {
+  animation: foxZeroGArmR 0.22s ease-in-out infinite alternate;
+}
+.crouter-bot.is-zero-g .f-thigh-l {
+  animation: foxZeroGLegL 0.24s ease-in-out infinite alternate;
+}
+.crouter-bot.is-zero-g .f-thigh-r {
+  animation: foxZeroGLegR 0.24s ease-in-out infinite alternate-reverse;
+}
+.crouter-bot.is-zero-g .f-shin-l {
+  animation: foxZeroGShin 0.19s ease-in-out infinite alternate;
+}
+.crouter-bot.is-zero-g .f-shin-r {
+  animation: foxZeroGShin 0.21s ease-in-out infinite alternate-reverse;
+}
+@keyframes foxZeroGLieDown {
+  0%   { transform: rotate(0deg) scale(1); }
+  30%  { transform: rotate(-72deg) translateY(-2px); }
+  65%  { transform: rotate(-84deg) translateY(2px); }
+  100% { transform: rotate(-76deg) translateY(0); }
+}
+@keyframes foxZeroGArmL {
+  0%   { transform: rotate(35deg); }
+  100% { transform: rotate(125deg); }
+}
+@keyframes foxZeroGArmR {
+  0%   { transform: rotate(-35deg); }
+  100% { transform: rotate(-125deg); }
+}
+@keyframes foxZeroGLegL {
+  0%   { transform: rotate(-22deg); }
+  100% { transform: rotate(28deg); }
+}
+@keyframes foxZeroGLegR {
+  0%   { transform: rotate(22deg); }
+  100% { transform: rotate(-28deg); }
+}
+@keyframes foxZeroGShin {
+  0%   { transform: rotate(-25deg); }
+  100% { transform: rotate(25deg); }
+}
+
+/* PHASE 2-5: Jetpack Flames Flicker & Braking Burst */
+.crouter-bot.is-jetpack-hover .bot-flames-back {
+  transform-origin: 40px 77px;
+  animation: foxJetFlicker 0.11s ease-in-out infinite alternate;
+}
+.crouter-bot.is-jetpack-dive .bot-flames-back {
+  transform-origin: 40px 77px;
+  animation: foxJetDiveFlame 0.09s ease-in-out infinite alternate;
+}
+.crouter-bot.is-jetpack-brake .bot-flames-back {
+  transform-origin: 40px 77px;
+  animation: foxJetBrakeBurst 0.08s ease-in-out infinite alternate;
+  filter: drop-shadow(0 0 8px #ff9900) drop-shadow(0 0 12px #58a6ff);
+}
+@keyframes foxJetFlicker {
+  0%   { transform: scaleY(0.88) scaleX(0.95); opacity: 0.92; }
+  100% { transform: scaleY(1.14) scaleX(1.06); opacity: 1; }
+}
+@keyframes foxJetDiveFlame {
+  0%   { transform: scaleY(0.55) scaleX(0.8); opacity: 0.78; }
+  100% { transform: scaleY(0.72) scaleX(0.88); opacity: 0.92; }
+}
+@keyframes foxJetBrakeBurst {
+  0%   { transform: scaleY(1.22) scaleX(1.18); opacity: 0.96; }
+  100% { transform: scaleY(1.52) scaleX(1.32); opacity: 1; }
+}
+
+/* PHASE 6: Soft Touchdown Squash & Stand Up */
+.crouter-bot.is-soft-land .bot-svg {
+  transform-origin: 40px 104px;
+  animation: foxSoftTouchdown 0.44s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes foxSoftTouchdown {
+  0%   { transform: translateY(-10px) scaleY(1.04) scaleX(0.96); }
+  38%  { transform: translateY(-3px) scaleY(0.86) scaleX(1.12); }
+  75%  { transform: translateY(-9px) scaleY(1.03) scaleX(0.98); }
+  100% { transform: translateY(-8px) scaleY(1) scaleX(1); }
+}
+
+/* Jetpack Spark Particles */
+.fox-jet-spark {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #ff9900;
+  box-shadow: 0 0 5px #ff7b00;
+  pointer-events: none;
+  animation: foxJetSparkFly 0.36s ease-out forwards;
+}
+@keyframes foxJetSparkFly {
+  0%   { transform: translate(0, 0) scale(1.1); opacity: 1; }
+  100% { transform: translate(var(--jx), var(--jy)) scale(0.1); opacity: 0; }
+}
 @keyframes foxHidePeek {
   0% { transform: translateY(32px) scale(0.7); opacity: 0.4; }
   40% { transform: translateY(32px) scale(0.7); opacity: 0.4; }
