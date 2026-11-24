@@ -481,8 +481,15 @@ window.addEventListener('keydown', function(e) {
     currentX = x;
     currentY = y;
     const bot = document.getElementById('crouter-bot');
+    const bar = document.getElementById('sticky-bottom-bar');
     if (bot) {
-      bot.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+      if (bot.parentElement !== document.body) {
+        document.body.appendChild(bot);
+      }
+      const barRect = bar ? bar.getBoundingClientRect() : { left: 0, top: window.innerHeight - 60 };
+      const sx = barRect.left + x;
+      const sy = (barRect.top - 33) + y;
+      bot.style.transform = `translate3d(${sx.toFixed(1)}px, ${sy.toFixed(1)}px, 0)`;
     }
   }
 
@@ -992,12 +999,14 @@ window.addEventListener('keydown', function(e) {
       if (bar) bar.style.bottom = kbOffset + 'px';
       if (radial) radial.style.bottom = `calc(var(--mobile-bottom-height) + 8px + ${kbOffset}px)`;
 
-      // Keep robot smoothly aligned to the focused text box if viewport shifts
+      // Keep robot smoothly aligned to the focused text box or bottom bar if viewport shifts
       if (activeInputEl && isPerchedOnInput && !isDoingFallSequence) {
         const coords = getInputCursorCoords(activeInputEl);
         if (coords && Math.abs(coords.y - currentY) > 2) {
           setBotTransform(currentX, coords.y);
         }
+      } else if (!isDoingFallSequence) {
+        setBotTransform(currentX, currentY);
       }
     };
     window.visualViewport.addEventListener('resize', syncBarToKeyboard);
