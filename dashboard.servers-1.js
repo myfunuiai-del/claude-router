@@ -369,6 +369,7 @@ function createServerCard(id, p, isRouted, index) {
   `;
   const kList = document.createElement('div');
   kList.className = 'keys-compact-list';
+  kList.style.cssText = 'max-height: 235px; overflow-y: auto; padding-right: 3px; scrollbar-width: thin;';
   (p.keys || []).forEach((k, idx) => {
     const row = document.createElement('div');
     row.className = 'key-line';
