@@ -1032,15 +1032,35 @@
 }
 .crouter-bot.is-standing .bot-svg {
   transform: translateY(-8px);
-  transition: transform 0.26s ease-out;
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .crouter-bot.is-standing .f-thigh-l,
 .crouter-bot.is-standing .f-shin-l,
 .crouter-bot.is-standing .f-thigh-r,
 .crouter-bot.is-standing .f-shin-r {
   transform: rotate(0deg);
-  transition: transform 0.24s ease;
+  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
 }
+
+/* Smooth Rising / Standing-Up Gesture (~0.42s push-off & perk-up before walking/flying) */
+.crouter-bot.is-rising .bot-svg {
+  animation: botRiseUp 0.42s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes botRiseUp {
+  0%   { transform: translateY(2px) scaleY(0.95); }
+  35%  { transform: translateY(4px) scaleY(0.90); }
+  100% { transform: translateY(-8px) scaleY(1); }
+}
+.crouter-bot.is-rising .f-arm-l {
+  animation: botRiseArmL 0.42s ease-in-out;
+}
+.crouter-bot.is-rising .f-arm-r {
+  animation: botRiseArmR 0.42s ease-in-out;
+}
+@keyframes botRiseArmL { 0%, 100% { transform: rotate(0deg); } 40% { transform: rotate(-22deg); } }
+@keyframes botRiseArmR { 0%, 100% { transform: rotate(0deg); } 40% { transform: rotate(22deg); } }
+.crouter-bot.is-rising .f-ear-l { transform: rotate(-10deg); transition: transform 0.3s ease; }
+.crouter-bot.is-rising .f-ear-r { transform: rotate(10deg); transition: transform 0.3s ease; }
 
 /* Impatient / "Time is running out" Pose: Arms crossed over chest + tapping foot */
 .crouter-bot.is-impatient .bot-svg {

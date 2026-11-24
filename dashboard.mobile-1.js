@@ -489,7 +489,7 @@ window.addEventListener('keydown', function(e) {
   function setBotState(state) {
     const bot = document.getElementById('crouter-bot');
     if (!bot) return;
-    bot.classList.remove('is-sitting', 'is-standing', 'is-settling', 'is-walking', 'is-igniting', 'is-flying', 'is-teetering', 'is-falling', 'is-flying-back', 'is-turn-side', 'is-turn-squish', 'is-turn-unsquish', 'is-impatient', 'is-annoyed');
+    bot.classList.remove('is-sitting', 'is-standing', 'is-settling', 'is-rising', 'is-walking', 'is-igniting', 'is-flying', 'is-teetering', 'is-falling', 'is-flying-back', 'is-turn-side', 'is-turn-squish', 'is-turn-unsquish', 'is-impatient', 'is-annoyed');
     if (state) bot.classList.add(state);
   }
 
@@ -550,6 +550,7 @@ window.addEventListener('keydown', function(e) {
     }
 
     currentTab = targetTab;
+    const wasSitting = bot.classList.contains('is-sitting');
     const token = ++animToken;
     if (animFrameId) cancelAnimationFrame(animFrameId);
 
@@ -559,6 +560,13 @@ window.addEventListener('keydown', function(e) {
     const gapHalf = 46;
     const totalDist = Math.abs(targetX - currentX);
     const crossesCenter = (currentX < centerX && targetX > centerX) || (currentX > centerX && targetX < centerX);
+
+    // Smoothly stand up from sitting before walking or taking off
+    if (wasSitting && Math.abs(currentY) <= 4) {
+      setBotState('is-rising');
+      await new Promise(r => setTimeout(r, 420));
+      if (token !== animToken) return;
+    }
 
     // Case 1: Already in mid-air or below screen -> never teleport! Smoothly fly from (currentX, currentY)
     if (Math.abs(currentY) > 4) {
@@ -803,7 +811,12 @@ window.addEventListener('keydown', function(e) {
       await new Promise(r => setTimeout(r, 200));
       if (token !== animToken) { isDoingFallSequence = false; return; }
     } else if (!isPerchedOnInput) {
-      // Brief ignition reaction before taking off to the text box
+      // Smoothly rise from sitting, then brief ignition reaction before taking off to the text box
+      if (bot.classList.contains('is-sitting')) {
+        setBotState('is-rising');
+        await new Promise(r => setTimeout(r, 420));
+        if (token !== animToken) { isDoingFallSequence = false; return; }
+      }
       setBotState('is-igniting');
       await new Promise(r => setTimeout(r, 260));
       if (token !== animToken) { isDoingFallSequence = false; return; }
