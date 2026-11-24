@@ -30,11 +30,39 @@
     'is-drag-up',
     'is-drag-down',
     'is-zero-g',
+    'is-front-jetpack',
     'is-jetpack-hover',
     'is-jetpack-dive',
     'is-jetpack-brake',
     'is-soft-land'
   ];
+
+  function ensureFrontJetpackEl(bot) {
+    if (!bot) return null;
+    const wrap = bot.querySelector('.bot-flip-wrap') || bot;
+    let jp = wrap.querySelector('.fox-front-jetpack');
+    if (!jp) {
+      jp = document.createElement('div');
+      jp.className = 'fox-front-jetpack';
+      jp.innerHTML = `
+        <svg viewBox="0 0 80 112" width="34" height="48" xmlns="http://www.w3.org/2000/svg">
+          <!-- Back-mounted jetpack pods peeking out from behind torso in front view -->
+          <rect x="19" y="57" width="8" height="17" rx="3" fill="#21262d" stroke="#ff7b72" stroke-width="1.2"/>
+          <rect x="53" y="57" width="8" height="17" rx="3" fill="#21262d" stroke="#ff7b72" stroke-width="1.2"/>
+          <g class="front-jp-flames">
+            <path d="M19.5 74 Q23 108 26.5 74 Z" fill="#ff5500"/>
+            <path d="M21 74 Q23 99 25 74 Z" fill="#ff9900"/>
+            <path d="M22 74 Q23 91 24 74 Z" fill="#fff3a1"/>
+            <path d="M53.5 74 Q57 108 60.5 74 Z" fill="#ff5500"/>
+            <path d="M55 74 Q57 99 59 74 Z" fill="#ff9900"/>
+            <path d="M56 74 Q57 91 58 74 Z" fill="#fff3a1"/>
+          </g>
+        </svg>
+      `;
+      wrap.insertBefore(jp, wrap.firstChild);
+    }
+    return jp;
+  }
 
   function getBot() {
     return document.getElementById('crouter-bot');
@@ -203,12 +231,14 @@
     const startY = curRelY;
     const targetX = getActiveTabTargetX();
 
-    // Short hop if released very close to the bottom bar
-    const isHighDrop = startY < -28;
+    // Only trigger Zero-G + Jetpack flight if dropped high enough above the bar!
+    const isHighDrop = startY < -95;
 
     if (isHighDrop) {
+      ensureFrontJetpackEl(bot);
+
       // ------------------------------------------------------
-      // PHASE 1: ZERO-GRAVITY FLOAT (~1.0s)
+      // PHASE 1A: ZERO-GRAVITY FLOAT (~0.82s)
       // Floats weightlessly in mid-air, lies back horizontally,
       // and wiggles arms & legs cutely!
       // ------------------------------------------------------
@@ -217,36 +247,51 @@
       bot.classList.remove('face-left');
       bot.classList.add('is-zero-g');
 
-      const okZeroG = await animatePhase(1020, token, (t) => {
-        // Weightless sinusoidal hover right where released
-        const floatY = Math.sin(t * Math.PI * 2.2) * 5.5 - Math.sin(t * Math.PI) * 4;
-        const driftX = Math.sin(t * Math.PI * 1.6) * 3.5;
+      const okZeroG = await animatePhase(820, token, (t) => {
+        const floatY = Math.sin(t * Math.PI * 2) * 4.5;
+        const driftX = Math.sin(t * Math.PI * 1.5) * 3;
         applyPosition(startX + driftX, startY + floatY);
       });
       if (!okZeroG) return;
 
       // ------------------------------------------------------
-      // PHASE 2: JETPACK IGNITION + LATERAL SWAY (~1.15s)
-      // Twin-nozzle jetpack fires up from his back!
-      // Doesn't drop immediately — hovers & shifts slightly
-      // left and right from the jetpack thrust!
+      // PHASE 1B: GRAVITY CATCH / SLIP DOWN (~0.32s)
+      // Starts falling slightly downward ("pore jaba bhaab"),
+      // and the jetpack opens right at that lower spot to catch him!
+      // ------------------------------------------------------
+      const slipStartX = curRelX;
+      const slipStartY = curRelY;
+      const slipDropPx = Math.min(42, Math.max(24, Math.abs(slipStartY) * 0.2));
+      const slipTargetY = Math.min(-55, slipStartY + slipDropPx);
+
+      const okSlip = await animatePhase(320, token, (t) => {
+        const easeFall = t * t;
+        applyPosition(slipStartX, slipStartY + (slipTargetY - slipStartY) * easeFall);
+      });
+      if (!okSlip) return;
+
+      // ------------------------------------------------------
+      // PHASE 2: FRONT-FACING JETPACK IGNITION + LATERAL SWAY (~1.1s)
+      // Opens RIGHT at the lower falling position (not above!),
+      // facing FORWARD toward the user with twin back flames!
       // ------------------------------------------------------
       const hoverOriginX = curRelX;
       const hoverOriginY = curRelY;
       clearPhysicsClasses(bot);
-      setNativeState('is-flying-back');
-      bot.classList.add('is-jetpack-hover');
+      setNativeState(null); // Keep front view visible!
+      bot.classList.remove('face-left');
+      bot.classList.add('is-front-jetpack', 'is-jetpack-hover');
       spawnJetpackSparks(bot, 7, 1.15);
 
       const swayDir = targetX >= hoverOriginX ? 1 : -1;
-      const okIgnite = await animatePhase(1150, token, (t, now) => {
-        // Gentle lateral sway left-right from jetpack thrust
+      const okIgnite = await animatePhase(1100, token, (t, now) => {
+        // Gentle lateral sway left-right right around the catch altitude
         const swayX = Math.sin(t * Math.PI * 2.5) * 18 * swayDir;
-        const bobY = -Math.sin(t * Math.PI) * 10 + Math.sin(t * Math.PI * 4) * 3.5;
+        const bobY = Math.sin(t * Math.PI * 4) * 3.5;
         const clamped = clampRelToViewport(hoverOriginX + swayX, hoverOriginY + bobY);
         applyPosition(clamped.x, clamped.y);
         if (svg) {
-          const tilt = Math.cos(t * Math.PI * 2.5) * 10 * swayDir;
+          const tilt = Math.cos(t * Math.PI * 2.5) * 9 * swayDir;
           svg.style.transform = `rotate(${tilt.toFixed(1)}deg)`;
         }
         if (now - sparkTimer > 110) {
@@ -257,23 +302,23 @@
       if (!okIgnite) return;
 
       // ------------------------------------------------------
-      // PHASE 3: SLOW INITIAL DESCENT (~0.55s)
+      // PHASE 3: SLOW INITIAL DESCENT (~0.52s)
       // Begins descending slowly while aligning horizontally
-      // toward the active tab.
+      // toward the active tab (still facing forward).
       // ------------------------------------------------------
       const p3StartX = curRelX;
       const p3StartY = curRelY;
-      const brakeHoverY = Math.min(-42, p3StartY * 0.25);
+      const brakeHoverY = Math.min(-38, p3StartY * 0.3);
       const slowEndY = p3StartY + (brakeHoverY - p3StartY) * 0.28;
       const slowEndX = p3StartX + (targetX - p3StartX) * 0.45;
 
-      const okSlow = await animatePhase(560, token, (t, now) => {
+      const okSlow = await animatePhase(520, token, (t, now) => {
         const ease = t * t * (3 - 2 * t);
-        const nx = p3StartX + (slowEndX - p3StartX) * ease + Math.sin(t * Math.PI * 2) * 5;
+        const nx = p3StartX + (slowEndX - p3StartX) * ease + Math.sin(t * Math.PI * 2) * 4.5;
         const ny = p3StartY + (slowEndY - p3StartY) * ease;
         applyPosition(nx, ny);
         if (svg) {
-          const bank = Math.max(-14, Math.min(14, (targetX - p3StartX) * 0.06));
+          const bank = Math.max(-12, Math.min(12, (targetX - p3StartX) * 0.055));
           svg.style.transform = `rotate(${(bank * (1 - t * 0.3)).toFixed(1)}deg)`;
         }
         if (now - sparkTimer > 120) {
@@ -284,7 +329,7 @@
       if (!okSlow) return;
 
       // ------------------------------------------------------
-      // PHASE 4: FAST DIVE (~0.42s)
+      // PHASE 4: FAST DIVE (~0.40s)
       // Accelerates rapidly downward toward the active tab!
       // ------------------------------------------------------
       const p4StartX = curRelX;
@@ -292,8 +337,7 @@
       bot.classList.remove('is-jetpack-hover');
       bot.classList.add('is-jetpack-dive');
 
-      const okDive = await animatePhase(420, token, (t, now) => {
-        // Fast accelerating curve down
+      const okDive = await animatePhase(400, token, (t, now) => {
         const easeY = Math.pow(t, 2.1);
         const easeX = 1 - Math.pow(1 - t, 2);
         const nx = p4StartX + (targetX - p4StartX) * easeX;
@@ -310,7 +354,7 @@
       if (!okDive) return;
 
       // ------------------------------------------------------
-      // PHASE 5: BRAKING HOVER ABOVE ACTIVE TAB (~0.58s)
+      // PHASE 5: BRAKING HOVER ABOVE ACTIVE TAB (~0.56s)
       // Fires bright reverse thrust right above the active tab,
       // slowing down smoothly to a gentle touchdown!
       // ------------------------------------------------------
@@ -320,14 +364,12 @@
       bot.classList.add('is-jetpack-brake');
       spawnJetpackSparks(bot, 8, 1.5);
 
-      const okBrake = await animatePhase(580, token, (t, now) => {
-        // Cubic ease-out: fast deceleration -> super slow near 0
+      const okBrake = await animatePhase(560, token, (t, now) => {
         const easeOut = 1 - Math.pow(1 - t, 3);
         const nx = p5StartX + (targetX - p5StartX) * easeOut;
         const ny = p5StartY + (0 - p5StartY) * easeOut;
         applyPosition(nx, ny);
         if (svg) {
-          // Slight compression from braking thrust
           const compress = Math.sin(t * Math.PI) * 0.06;
           svg.style.transform = `scaleY(${(1 - compress).toFixed(3)}) scaleX(${(1 + compress * 0.7).toFixed(3)})`;
         }
@@ -338,19 +380,53 @@
       });
       if (!okBrake) return;
     } else {
-      // Short low-altitude jetpack hop directly to active tab
+      // ------------------------------------------------------
+      // CLOSE DROP: NO FLYING / NO JETPACK!
+      // Gently drops straight down to the bar, then walks on foot
+      // back to the active tab and sits down.
+      // ------------------------------------------------------
       clearPhysicsClasses(bot);
-      setNativeState('is-flying-back');
-      bot.classList.add('is-jetpack-brake');
-      spawnJetpackSparks(bot, 5, 1.1);
-      const okHop = await animatePhase(440, token, (t) => {
-        const ease = 1 - Math.pow(1 - t, 3);
-        const arcY = -Math.sin(t * Math.PI) * 26;
-        const nx = startX + (targetX - startX) * ease;
-        const ny = startY * (1 - ease) + arcY;
-        applyPosition(nx, ny);
-      });
-      if (!okHop) return;
+      setNativeState('is-standing');
+      bot.classList.remove('face-left');
+
+      // 1. Simple gravity drop down to bar level (y = 0)
+      if (Math.abs(startY) > 2) {
+        const dropDur = Math.max(140, Math.min(280, Math.abs(startY) * 2.8));
+        const okDrop = await animatePhase(dropDur, token, (t) => {
+          const easeFall = t * t;
+          applyPosition(startX, startY * (1 - easeFall));
+        });
+        if (!okDrop) return;
+      } else {
+        applyPosition(startX, 0);
+      }
+
+      // Soft landing bounce on foot
+      bot.classList.add('is-soft-land');
+      if (!(await waitMs(220, token))) return;
+      bot.classList.remove('is-soft-land');
+
+      // 2. If horizontally away from active tab, walk back on foot (no jetpack!)
+      const walkDist = Math.abs(targetX - curRelX);
+      if (walkDist > 5) {
+        const walkStartX = curRelX;
+        bot.classList.toggle('face-left', targetX < walkStartX);
+        setNativeState('is-walking');
+        const walkDur = Math.max(260, Math.min(950, walkDist * 6.5));
+        const okWalk = await animatePhase(walkDur, token, (t) => {
+          const nx = walkStartX + (targetX - walkStartX) * t;
+          applyPosition(nx, 0);
+        });
+        if (!okWalk) return;
+        bot.classList.remove('face-left');
+      }
+
+      // 3. Stand & settle into sitting on the active tab
+      setNativeState('is-settling');
+      if (!(await waitMs(420, token))) return;
+      setNativeState('is-sitting');
+      if (bridge) bridge.isPhysicsActive = false;
+      return;
     }
 
     // ------------------------------------------------------

@@ -386,17 +386,43 @@
   100% { transform: rotate(25deg); }
 }
 
-/* PHASE 2-5: Jetpack Flames Flicker & Braking Burst */
+/* PHASE 2-5: Front-Facing Jetpack Overlay (ONLY for drag-drop recovery!) */
+.fox-front-jetpack {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 34px;
+  height: 48px;
+  pointer-events: none;
+  display: none;
+  z-index: 0;
+}
+.crouter-bot.is-front-jetpack .bot-svg {
+  position: relative;
+  z-index: 1;
+}
+.crouter-bot.is-front-jetpack .fox-front-jetpack {
+  display: block;
+}
+/* Cute front-facing flying limb pose */
+.crouter-bot.is-front-jetpack .f-arm-l { transform: rotate(28deg); transition: transform 0.18s ease; }
+.crouter-bot.is-front-jetpack .f-arm-r { transform: rotate(-28deg); transition: transform 0.18s ease; }
+.crouter-bot.is-front-jetpack .f-thigh-l { transform: rotate(8deg); transition: transform 0.18s ease; }
+.crouter-bot.is-front-jetpack .f-thigh-r { transform: rotate(-8deg); transition: transform 0.18s ease; }
+
+.crouter-bot.is-jetpack-hover .front-jp-flames,
 .crouter-bot.is-jetpack-hover .bot-flames-back {
-  transform-origin: 40px 77px;
+  transform-origin: 40px 74px;
   animation: foxJetFlicker 0.11s ease-in-out infinite alternate;
 }
+.crouter-bot.is-jetpack-dive .front-jp-flames,
 .crouter-bot.is-jetpack-dive .bot-flames-back {
-  transform-origin: 40px 77px;
+  transform-origin: 40px 74px;
   animation: foxJetDiveFlame 0.09s ease-in-out infinite alternate;
 }
+.crouter-bot.is-jetpack-brake .front-jp-flames,
 .crouter-bot.is-jetpack-brake .bot-flames-back {
-  transform-origin: 40px 77px;
+  transform-origin: 40px 74px;
   animation: foxJetBrakeBurst 0.08s ease-in-out infinite alternate;
   filter: drop-shadow(0 0 8px #ff9900) drop-shadow(0 0 12px #58a6ff);
 }
