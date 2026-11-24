@@ -135,6 +135,9 @@ def handle_ui_post(handler, raw_body):
                 return True
 
             keys.append(key_val)
+            key_name = (data.get("name") or "").strip()
+            if key_name:
+                cfg["providers"][provider].setdefault("key_names", {})[key_val] = key_name
             save_proxy_config(cfg)
             resp = json.dumps({"status": "ok", "message": "Key added successfully", "config": cfg}).encode()
             handler.send_response(200)
@@ -146,6 +149,123 @@ def handle_ui_post(handler, raw_body):
             return True
         except Exception as e:
             handler.send_response(500)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            err = json.dumps({"status": "error", "message": str(e)}).encode()
+            handler.send_header('Content-Length', str(len(err)))
+            handler.end_headers()
+            handler.wfile.write(err)
+            return True
+
+    if handler.path == "/api/ui/keys/rename":
+        try:
+            data = json.loads(raw_body.decode('utf-8'))
+            provider = data.get("provider")
+            idx = int(data.get("index", -1))
+            new_name = (data.get("name") or "").strip()
+            cfg = load_proxy_config()
+            p_obj = cfg.get("providers", {}).get(provider)
+            if not p_obj or idx < 0 or idx >= len(p_obj.get("keys", [])):
+                raise ValueError("Invalid provider or key index")
+            key_val = p_obj["keys"][idx]
+            key_names = p_obj.setdefault("key_names", {})
+            if new_name:
+                key_names[key_val] = new_name
+            else:
+                key_names.pop(key_val, None)
+            save_proxy_config(cfg)
+            resp = json.dumps({"status": "ok", "message": "Key renamed", "config": cfg}).encode()
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            handler.send_header('Content-Length', str(len(resp)))
+            handler.end_headers()
+            handler.wfile.write(resp)
+            return True
+        except Exception as e:
+            handler.send_response(400)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            err = json.dumps({"status": "error", "message": str(e)}).encode()
+            handler.send_header('Content-Length', str(len(err)))
+            handler.end_headers()
+            handler.wfile.write(err)
+            return True
+
+    if handler.path == "/api/ui/keys/move":
+        try:
+            data = json.loads(raw_body.decode('utf-8'))
+            provider = data.get("provider")
+            idx = int(data.get("index", -1))
+            direction = data.get("direction", "")
+            cfg = load_proxy_config()
+            p_obj = cfg.get("providers", {}).get(provider)
+            keys = p_obj.get("keys", []) if p_obj else []
+            if idx < 0 or idx >= len(keys):
+                raise ValueError("Invalid key index")
+            if direction == "up" and idx > 0:
+                keys[idx], keys[idx - 1] = keys[idx - 1], keys[idx]
+            elif direction == "down" and idx < len(keys) - 1:
+                keys[idx], keys[idx + 1] = keys[idx + 1], keys[idx]
+            save_proxy_config(cfg)
+            resp = json.dumps({"status": "ok", "message": "Key priority updated", "config": cfg}).encode()
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            handler.send_header('Content-Length', str(len(resp)))
+            handler.end_headers()
+            handler.wfile.write(resp)
+            return True
+        except Exception as e:
+            handler.send_response(400)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            err = json.dumps({"status": "error", "message": str(e)}).encode()
+            handler.send_header('Content-Length', str(len(err)))
+            handler.end_headers()
+            handler.wfile.write(err)
+            return True
+
+    if handler.path == "/api/ui/keys/test-single":
+        try:
+            data = json.loads(raw_body.decode('utf-8'))
+            provider = data.get("provider")
+            idx = int(data.get("index", -1))
+            cfg = load_proxy_config()
+            p_obj = cfg.get("providers", {}).get(provider)
+            keys = p_obj.get("keys", []) if p_obj else []
+            if not p_obj or idx < 0 or idx >= len(keys):
+                raise ValueError("Invalid provider or key index")
+            key_val = keys[idx]
+            base_url = (p_obj.get("base_url") or "").rstrip("/")
+            p_type = p_obj.get("type", "openai")
+            test_url = f"{base_url}/models" if p_type == "openai" else (f"{base_url}/v1/models" if base_url.endswith("/api") else f"{base_url}/models")
+            headers = {"Authorization": f"Bearer {key_val}", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+            t0 = time.time()
+            alive = False
+            msg = ""
+            try:
+                req = urllib.request.Request(test_url, headers=headers)
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    alive = (r.status == 200)
+                    msg = f"HTTP {r.status}"
+            except urllib.error.HTTPError as he:
+                alive = False
+                msg = f"HTTP {he.code}"
+            except Exception as ex:
+                alive = False
+                msg = str(ex)[:40]
+            latency_ms = int((time.time() - t0) * 1000)
+            resp = json.dumps({"status": "ok", "alive": alive, "latency_ms": latency_ms, "message": msg}).encode()
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            handler.send_header('Content-Length', str(len(resp)))
+            handler.end_headers()
+            handler.wfile.write(resp)
+            return True
+        except Exception as e:
+            handler.send_response(400)
             handler.send_header('Content-Type', 'application/json')
             handler.send_header('Access-Control-Allow-Origin', '*')
             err = json.dumps({"status": "error", "message": str(e)}).encode()

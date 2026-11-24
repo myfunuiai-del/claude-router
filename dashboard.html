@@ -236,7 +236,11 @@
           <select id="provider-select" aria-label="Choose Server / Provider" style="width:100%; max-width:100%;" required></select>
         </div>
         <div style="width:100%;">
-          <label for="new-key-val" style="display:block; font-size:10.5px; font-weight:600; color:#79c0ff; margin-bottom:4px; text-transform:uppercase;">2. Paste API Key</label>
+          <label for="new-key-name" style="display:block; font-size:10.5px; font-weight:600; color:#79c0ff; margin-bottom:4px; text-transform:uppercase;">2. Key Name / Label (Optional)</label>
+          <input type="text" id="new-key-name" style="width:100%; max-width:100%;" placeholder="e.g. Personal, Free Tier #1, Work" autocomplete="off" />
+        </div>
+        <div style="width:100%;">
+          <label for="new-key-val" style="display:block; font-size:10.5px; font-weight:600; color:#79c0ff; margin-bottom:4px; text-transform:uppercase;">3. Paste API Key</label>
           <div style="display:flex; gap:6px; width:100%;">
             <input type="text" id="new-key-val" class="flex-1" placeholder="Paste key (sk-..., coa_..., gsk_...)" required autocomplete="off" />
             <button type="submit" class="btn btn-success">+ Add Key</button>

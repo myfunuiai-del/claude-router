@@ -361,12 +361,24 @@ function createServerCard(id, p, isRouted, index) {
   (p.keys || []).forEach((k, idx) => {
     const row = document.createElement('div');
     row.className = 'key-line';
+    const keyName = (p.key_names && p.key_names[k]) ? p.key_names[k] : '';
+    const nameBadge = keyName ? `<span style="color:#ffd166; font-weight:600; margin-right:5px;">🏷️ ${keyName.replace(/</g,'&lt;')}</span>` : '';
     row.innerHTML = `
-      <span class="key-line-left">
-        <span style="color:#79c0ff;">#${idx+1} ${maskKey(k)}</span>
+      <span class="key-line-left" style="flex:1; min-width:0; display:flex; align-items:center; flex-wrap:wrap; gap:4px;">
+        <span style="color:#8b949e; font-size:10px;">#${idx+1}</span>
+        ${nameBadge}
+        <span id="key-val-${id}-${idx}" style="color:#79c0ff; font-family:monospace; font-size:10.5px;" data-masked="1">${maskKey(k)}</span>
         <span class="key-status" id="key-status-${id}-${idx}"></span>
       </span>
-      <span class="chip-x" title="Revoke Key" onclick="openConfirmDeleteKey('${id}', ${idx})">✕</span>
+      <span style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
+        ${idx > 0 ? `<span class="chip-x" title="Move Up" style="color:#8b949e;" onclick="moveKeyPriority('${id}', ${idx}, 'up')">▲</span>` : ''}
+        ${idx < (p.keys.length - 1) ? `<span class="chip-x" title="Move Down" style="color:#8b949e;" onclick="moveKeyPriority('${id}', ${idx}, 'down')">▼</span>` : ''}
+        <span class="chip-x" title="Show/Hide Key" style="color:#79c0ff;" onclick="toggleShowKey('${id}', ${idx})">👁️</span>
+        <span class="chip-x" title="Copy Key" style="color:#79c0ff;" onclick="copySingleKey('${id}', ${idx})">📋</span>
+        <span class="chip-x" title="Test Key" style="color:#56d364;" onclick="testSingleKey('${id}', ${idx})">⚡</span>
+        <span class="chip-x" title="Rename Key" style="color:#ffd166;" onclick="openRenameKeyModal('${id}', ${idx})">✏️</span>
+        <span class="chip-x" title="Revoke Key" onclick="openConfirmDeleteKey('${id}', ${idx})">✕</span>
+      </span>
     `;
     kList.appendChild(row);
   });
@@ -450,19 +462,119 @@ async function addKey(e) {
   e.preventDefault();
   const pId = document.getElementById('provider-select').value;
   const input = document.getElementById('new-key-val');
+  const nameInput = document.getElementById('new-key-name');
   const val = input.value.trim();
+  const keyName = nameInput ? nameInput.value.trim() : '';
   if (!val) return;
   const res = await fetch('/api/ui/keys', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider: pId, key: val })
+    body: JSON.stringify({ provider: pId, key: val, name: keyName })
   });
   const data = await res.json();
   if (res.ok) {
-    showToast('Key added');
+    showToast(keyName ? `Key '${keyName}' added` : 'Key added');
     input.value = '';
+    if (nameInput) nameInput.value = '';
     currentConfig = data.config;
     renderLanes();
+  } else {
+    showToast(data.message || 'Failed to add key', true);
+  }
+}
+
+function toggleShowKey(pId, idx) {
+  const el = document.getElementById(`key-val-${pId}-${idx}`);
+  const k = currentConfig?.providers?.[pId]?.keys?.[idx];
+  if (!el || !k) return;
+  if (el.getAttribute('data-masked') === '1') {
+    el.innerText = k;
+    el.setAttribute('data-masked', '0');
+  } else {
+    el.innerText = maskKey(k);
+    el.setAttribute('data-masked', '1');
+  }
+}
+
+function copySingleKey(pId, idx) {
+  const k = currentConfig?.providers?.[pId]?.keys?.[idx];
+  if (!k) return;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(k).then(() => showToast('API Key copied!')).catch(() => showToast('Copy failed', true));
+  } else {
+    showToast('Clipboard not available', true);
+  }
+}
+
+async function moveKeyPriority(pId, idx, direction) {
+  try {
+    const res = await fetch('/api/ui/keys/move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: pId, index: idx, direction })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      currentConfig = data.config;
+      renderLanes();
+      showToast('Key priority updated');
+    }
+  } catch (e) {
+    showToast('Failed to reorder key', true);
+  }
+}
+
+async function testSingleKey(pId, idx) {
+  const statusEl = document.getElementById(`key-status-${pId}-${idx}`);
+  if (statusEl) {
+    statusEl.innerHTML = '<span style="color:#79c0ff; font-size:10px;">⏳ Testing...</span>';
+  }
+  try {
+    const res = await fetch('/api/ui/keys/test-single', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: pId, index: idx })
+    });
+    const data = await res.json();
+    if (statusEl) {
+      if (data.alive) {
+        statusEl.innerHTML = `<span style="color:#56d364; font-size:10px;">✅ ${data.latency_ms}ms</span>`;
+      } else {
+        statusEl.innerHTML = `<span style="color:#f85149; font-size:10px;">❌ ${data.message}</span>`;
+      }
+    }
+  } catch (e) {
+    if (statusEl) statusEl.innerHTML = '<span style="color:#f85149; font-size:10px;">❌ Error</span>';
+  }
+}
+
+function openRenameKeyModal(pId, idx) {
+  const p = currentConfig?.providers?.[pId];
+  const k = p?.keys?.[idx];
+  if (!k) return;
+  const curName = (p.key_names && p.key_names[k]) ? p.key_names[k] : '';
+  if (typeof openConfirmModal === 'function') {
+    openConfirmModal(
+      'Rename API Key',
+      `<div style="margin-bottom:8px; font-size:11.5px; color:#8b949e;">Key #${idx+1}: <code>${maskKey(k)}</code></div>
+       <input type="text" id="rename-key-input" value="${curName.replace(/"/g, '&quot;')}" placeholder="Enter key name (e.g. Personal, Work)" style="width:100%; padding:8px 10px; border-radius:6px; background:#0d1117; border:1px solid #30363d; color:#e6edf3; font-size:12px;" />`,
+      'Save Name',
+      async () => {
+        const newName = document.getElementById('rename-key-input')?.value?.trim() || '';
+        const res = await fetch('/api/ui/keys/rename', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: pId, index: idx, name: newName })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          currentConfig = data.config;
+          renderLanes();
+          showToast(newName ? `Renamed to '${newName}'` : 'Key name cleared');
+        }
+      }
+    );
+    setTimeout(() => document.getElementById('rename-key-input')?.focus(), 100);
   }
 }
 
