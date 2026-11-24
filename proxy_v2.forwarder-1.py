@@ -88,22 +88,70 @@ def dispatch_inference(handler, raw_body):
         orig_model = body_obj.get('model', 'unknown')
         body_obj = clean_history_tags(body_obj)
         body_obj = sanitize_anthropic_body(body_obj)
-        # Check and enforce account model binding / blocking if enabled
+        # Check Redirection (Switch Account Only — 0 Quota) or normal Account-Model Binding
         try:
-            from account_model_lock import check_and_enforce_binding, is_model_blocked
-            if is_model_blocked(orig_model):
-                err_payload = json.dumps({
-                    "type": "error",
-                    "error": {
-                        "type": "permission_error",
-                        "message": f"Blocked by C-Router Redirection Rule: Model '{orig_model}' is blocked from sending requests."
-                    }
-                }).encode('utf-8')
-                handler.send_response(403)
-                handler.send_header('Content-Type', 'application/json')
-                handler.send_header('Content-Length', str(len(err_payload)))
-                handler.end_headers()
-                handler.wfile.write(err_payload)
+            from account_model_lock import check_and_enforce_binding, handle_redirection_switch_only
+            redir_matched, acc_name, acc_email, switch_msg = handle_redirection_switch_only(orig_model)
+            if redir_matched:
+                confirm_text = f"✅ Account switched to **{acc_name}** (`{acc_email}`).\nRequest halted — **0 quota used**."
+                is_stream = bool(body_obj.get("stream"))
+                path_low = (getattr(handler, "path", "") or "").lower()
+                is_openai = ("/chat/completions" in path_low)
+
+                if is_stream:
+                    handler.send_response(200)
+                    handler.send_header('Content-Type', 'text/event-stream; charset=utf-8')
+                    handler.send_header('Cache-Control', 'no-cache')
+                    handler.end_headers()
+                    if is_openai:
+                        chunk = {
+                            "id": f"chatcmpl-switch-{int(time.time())}",
+                            "object": "chat.completion.chunk",
+                            "created": int(time.time()),
+                            "model": orig_model,
+                            "choices": [{"index": 0, "delta": {"role": "assistant", "content": confirm_text}, "finish_reason": "stop"}]
+                        }
+                        handler.wfile.write(f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n".encode('utf-8'))
+                    else:
+                        msg_id = f"msg_switch_{int(time.time())}"
+                        events = [
+                            ("message_start", {"type": "message_start", "message": {"id": msg_id, "type": "message", "role": "assistant", "content": [], "model": orig_model, "stop_reason": None, "stop_sequence": None, "usage": {"input_tokens": 0, "output_tokens": 0}}}),
+                            ("content_block_start", {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}),
+                            ("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": confirm_text}}),
+                            ("content_block_stop", {"type": "content_block_stop", "index": 0}),
+                            ("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None}, "usage": {"output_tokens": 0}}),
+                            ("message_stop", {"type": "message_stop"})
+                        ]
+                        sse_body = "".join(f"event: {ev}\ndata: {json.dumps(pl)}\n\n" for ev, pl in events)
+                        handler.wfile.write(sse_body.encode('utf-8'))
+                    handler.wfile.flush()
+                else:
+                    if is_openai:
+                        resp_obj = {
+                            "id": f"chatcmpl-switch-{int(time.time())}",
+                            "object": "chat.completion",
+                            "created": int(time.time()),
+                            "model": orig_model,
+                            "choices": [{"index": 0, "message": {"role": "assistant", "content": confirm_text}, "finish_reason": "stop"}],
+                            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+                        }
+                    else:
+                        resp_obj = {
+                            "id": f"msg_switch_{int(time.time())}",
+                            "type": "message",
+                            "role": "assistant",
+                            "model": orig_model,
+                            "content": [{"type": "text", "text": confirm_text}],
+                            "stop_reason": "end_turn",
+                            "stop_sequence": None,
+                            "usage": {"input_tokens": 0, "output_tokens": 0}
+                        }
+                    payload = json.dumps(resp_obj).encode('utf-8')
+                    handler.send_response(200)
+                    handler.send_header('Content-Type', 'application/json')
+                    handler.send_header('Content-Length', str(len(payload)))
+                    handler.end_headers()
+                    handler.wfile.write(payload)
                 return
             check_and_enforce_binding(orig_model)
         except Exception:

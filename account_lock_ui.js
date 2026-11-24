@@ -630,16 +630,15 @@ function renderRedirectionModalContent() {
     fromSelect.value = "GPT-OSS 120B (Medium)";
   }
 
-  // Populate 'Switch To Account Profile' from configured Google Accounts + Block Request option
+  // Populate 'Switch To Account Profile' from configured Google Accounts
   const accounts = accountLockState.accounts || [];
-  const blockOptionHtml = '<option value="__BLOCK__">🚫 Block Request (Do Not Send)</option>';
   if (accounts.length > 0) {
     toSelect.innerHTML = accounts.map(acc => {
       const label = acc.name ? `${acc.name} (${acc.email})` : acc.email;
       return `<option value="${escapeHtml(acc.email)}">${escapeHtml(label)}</option>`;
-    }).join('') + blockOptionHtml;
+    }).join('');
   } else {
-    toSelect.innerHTML = blockOptionHtml;
+    toSelect.innerHTML = '<option value="">No accounts configured</option>';
   }
 
   // Render Existing Redirection Profiles List

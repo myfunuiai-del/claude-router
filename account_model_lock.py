@@ -219,16 +219,44 @@ def switch_to_account(target_email):
     except Exception as e:
         return False, f"Failed to switch account: {e}"
 
-def is_model_blocked(requested_model, state=None):
-    """Returns True if an active redirection rule explicitly blocks this model."""
+def handle_redirection_switch_only(requested_model, state=None):
+    """
+    If an active Redirection rule matches requested_model, switches the active
+    Google account immediately and signals the proxy to halt the request (0 quota).
+    Returns: (matched: bool, account_name: str, account_email: str, status_msg: str)
+    """
     if state is None:
         state = load_state()
     if not state.get("enabled", False):
-        return False
+        return False, "", "", ""
     if state.get("redirections_enabled", True) is False:
-        return False
-    target = find_bound_account_for_model(requested_model, state)
-    return target == "__BLOCK__"
+        return False, "", "", ""
+
+    req_clean = requested_model.strip().lower() if requested_model else ""
+    fam = normalize_model_family(requested_model)
+    matched_rule = None
+
+    for r in state.get("redirections", []):
+        if r.get("enabled", True) and r.get("to_account") and r.get("to_account") != "__BLOCK__":
+            from_m = (r.get("from_model") or "").strip().lower()
+            if from_m == req_clean:
+                matched_rule = r
+                break
+
+    if not matched_rule:
+        for r in state.get("redirections", []):
+            if r.get("enabled", True) and r.get("to_account") and r.get("to_account") != "__BLOCK__":
+                if normalize_model_family(r.get("from_model")) == fam:
+                    matched_rule = r
+                    break
+
+    if not matched_rule:
+        return False, "", "", ""
+
+    target_email = matched_rule.get("to_account", "")
+    target_name = matched_rule.get("to_account_name") or target_email
+    ok, msg = switch_to_account(target_email)
+    return True, target_name, target_email, msg
 
 def check_and_enforce_binding(requested_model):
     state = load_state()
