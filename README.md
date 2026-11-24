@@ -23,6 +23,29 @@ It consolidates multiple AI providers (Google AI Studio, Groq, Mistral, OpenRout
 
 ---
 
+## 📱 Mobile Web Console Preview
+
+<div align="center">
+  <table>
+    <tr>
+      <td align="center" width="33%">
+        <img src="./assets/screenshots/dashboard-pipelines.jpg" alt="Mobile Pipelines Dashboard" width="240" /><br/>
+        <b>⚡ Routed Pipelines & Mascot</b>
+      </td>
+      <td align="center" width="33%">
+        <img src="./assets/screenshots/account-binding.jpg" alt="Account Model Binding" width="240" /><br/>
+        <b>🔒 Account-Model Binding</b>
+      </td>
+      <td align="center" width="33%">
+        <img src="./assets/screenshots/model-redirection.jpg" alt="Model Redirection Profiles" width="240" /><br/>
+        <b>🔀 Redirection Profiles</b>
+      </td>
+    </tr>
+  </table>
+</div>
+
+---
+
 ## 🛠️ Built With / Tech Stack
 
 Claude Router is crafted with a strict **zero external dependency** standard to ensure instant execution across low-resource mobile environments (Android Termux) and modern Linux servers:
@@ -72,7 +95,17 @@ When a long chat hits an upstream firewall/WAF or payload-size block (**HTTP `40
 - **`HTTP 429` (Rate Limit / Daily Quota):** Placed on a **3-minute** cooldown (or **30-minute** cooldown if daily quota exhaustion is detected).
 - **`HTTP 402` (Payment Required / Paid Model):** Only that specific **`(key + model)`** pair is placed on a **5-minute** cooldown.
 
-### 6. 🎨 Bundled Skills & Image Generation Policy Auto-Setup
+### 6. 📱 Mobile-First Gateway UI & Interactive Fox-Mecha Mascot
+- **Touch-Optimized Mobile Architecture:** Curved sticky bottom navigation bar (`Routes`, `Stats`, futuristic **Gateway Core SVG** radial FAB, `Teams`, `Quotas`), swipeable horizontal lane pills, slide-out quick-settings drawer, and full **Android hardware Back button** support for closing modals/sheets/drawers.
+- **Custom Dark Bottom-Sheet Pickers & In-UI Modals:** Replaces native browser dropdowns, `prompt()`, and `confirm()` dialogs with sleek dark-mode bottom sheets and action modals.
+- **Interactive Origami Fox-Mecha Mascot:** Physics-based companion featuring 2-part articulated limbs, swaying jetpack flight, mid-air hovering, smooth rising/settling gestures, and cursor-following walking on focused text boxes (with impatient arms-crossed foot-tapping when idle and annoyed walk-back on delete).
+
+### 7. 🔒 Account-Model Binding & Model Redirection Profiles
+- **Auto-Detect Local Accounts:** Automatically detects configured AntiGem Google accounts without hardcoding personal credentials.
+- **Model-to-Account Binding:** Bind specific model families to dedicated Google accounts with automatic background token switching.
+- **Redirection Profiles (+Add / Edit / Delete + 10s Undo):** Map any trigger model to a target account profile with custom in-UI dark modals, confirmation dialogs, 10-second live Undo bar, and **Switch-Only (0 Quota)** proxy handling.
+
+### 8. 🎨 Bundled Skills & Image Generation Policy Auto-Setup
 - **Auto-Sync `svg-generator` Skill:** When `crouter` runs, it automatically provisions the `svg-generator` skill into `~/.claude/skills/` and `~/.gemini/config/skills/`.
 - **Image Generation Policy:** Automatically sets the policy across `~/.antigem/memory/global/` and `~/.claude/CLAUDE.md`:
   - Disallows `pollinations.ai`.
@@ -81,6 +114,13 @@ When a long chat hits an upstream firewall/WAF or payload-size block (**HTTP `40
 ---
 
 ## 🚀 Quick Start & CLI Usage
+
+### Install
+```bash
+git clone https://github.com/myfunuiai-del/claude-router.git ~/.gemini/claude-router
+cd ~/.gemini/claude-router
+./crouter start
+```
 
 ### Start Claude Router
 ```bash
