@@ -2,6 +2,7 @@
 config.json
 config.json.bak
 *backup*.json
+account_lock_state.json
 
 # Logs & temp files
 *.log

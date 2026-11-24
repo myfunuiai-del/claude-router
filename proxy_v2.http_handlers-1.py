@@ -39,7 +39,30 @@ def handle_GET(handler):
     """Handle GET requests for Web Dashboard, static assets, /status, and provider metadata."""
     # Static dashboard assets
     clean_p = handler.path.split('?')[0]
-    if clean_p.startswith('/dashboard.') and (clean_p.endswith('.js') or clean_p.endswith('.css')):
+    if clean_p in ["/ui/demo", "/ui/demo/", "/demo", "/demo/"]:
+        demo_path = os.path.join(os.path.dirname(__file__), "demo.html")
+        if os.path.exists(demo_path):
+            try:
+                with open(demo_path, "rb") as f:
+                    content = f.read()
+                handler.send_response(200)
+                handler.send_header('Content-Type', 'text/html; charset=utf-8')
+                handler.send_header('Access-Control-Allow-Origin', '*')
+                handler.send_header('Content-Length', str(len(content)))
+                handler.end_headers()
+                handler.wfile.write(content)
+                return
+            except Exception as e:
+                handler.send_response(500)
+                handler.end_headers()
+                handler.wfile.write(f"Error serving demo: {e}".encode())
+                return
+
+    if clean_p == "/api/ui/account-lock":
+        import account_lock_api
+        account_lock_api.handle_account_lock_get(handler)
+        return
+    if (clean_p.startswith('/dashboard.') or clean_p == '/account_lock_ui.js') and (clean_p.endswith('.js') or clean_p.endswith('.css')):
         filename = clean_p.lstrip('/')
         filepath = os.path.join(os.path.dirname(__file__), filename)
         mime = "application/javascript; charset=utf-8" if filename.endswith('.js') else "text/css; charset=utf-8"
@@ -285,3 +308,5 @@ def handle_DELETE(handler, raw_body):
             handler.end_headers()
             handler.wfile.write(err)
             return
+
+

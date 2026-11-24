@@ -8,15 +8,132 @@
   <title>Claude Code &bull; Gateway Console</title>
   <link rel="stylesheet" href="/dashboard.styles-1.css">
   <link rel="stylesheet" href="/dashboard.usage-1.css">
+  <link rel="stylesheet" href="/dashboard.mobile-1.css">
 </head>
 <body>
+  <!-- MOBILE SIDE DRAWER BACKDROP & PANEL -->
+  <div id="mobile-drawer-backdrop" class="mobile-drawer-backdrop" onclick="closeMobileDrawer()"></div>
+  <aside id="mobile-drawer" class="mobile-drawer">
+    <div class="drawer-header">
+      <div class="drawer-user-badge">
+        <div class="drawer-avatar" style="background:transparent; border:none; padding:0;">
+          <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="C-Router Logo">
+            <rect width="40" height="40" rx="10" fill="#0d1829" stroke="#2f81f7" stroke-width="1.5"/>
+            <path d="M25.5 13.5C23.9 11.9 21.6 11 19 11C13.8 11 9.5 15 9.5 20C9.5 25 13.8 29 19 29C21.6 29 23.9 28.1 25.5 26.5" stroke="#58a6ff" stroke-width="2.6" stroke-linecap="round"/>
+            <line x1="19" y1="20" x2="29" y2="20" stroke="#3fb950" stroke-width="2" stroke-linecap="round"/>
+            <line x1="19" y1="20" x2="27" y2="14.5" stroke="#58a6ff" stroke-width="1.6" stroke-linecap="round" opacity="0.8"/>
+            <line x1="19" y1="20" x2="27" y2="25.5" stroke="#bc8cff" stroke-width="1.6" stroke-linecap="round" opacity="0.8"/>
+            <circle cx="19" cy="20" r="3" fill="#58a6ff"/>
+            <circle cx="29.5" cy="20" r="2.2" fill="#3fb950"/>
+            <circle cx="27.5" cy="14.2" r="1.8" fill="#79c0ff"/>
+            <circle cx="27.5" cy="25.8" r="1.8" fill="#d2a8ff"/>
+          </svg>
+        </div>
+        <div>
+          <div class="drawer-title">C-Router</div>
+          <div class="drawer-status" id="drawer-status-line">● Gateway Active</div>
+        </div>
+      </div>
+      <button type="button" class="drawer-close-btn" onclick="closeMobileDrawer()">✕</button>
+    </div>
+
+    <div class="drawer-section-title">CORE WORKSPACES</div>
+    <div class="drawer-nav-list">
+      <button type="button" class="drawer-nav-item active" id="drawer-nav-routed" onclick="switchMainTab('console'); switchMobileLane('routed'); closeMobileDrawer();">
+        <span class="drawer-nav-icon">⚡</span>
+        <span class="drawer-nav-text">Routing Pipelines</span>
+        <span class="drawer-count-pill is-green" id="drawer-count-routed">0</span>
+      </button>
+      <button type="button" class="drawer-nav-item" id="drawer-nav-live" onclick="switchMainTab('live'); closeMobileDrawer();">
+        <span class="drawer-nav-icon">📡</span>
+        <span class="drawer-nav-text">Live Traffic &amp; Stream</span>
+        <span class="drawer-live-dot"></span>
+      </button>
+      <button type="button" class="drawer-nav-item" id="drawer-nav-unrouted" onclick="switchMainTab('console'); switchMobileLane('unrouted'); closeMobileDrawer();">
+        <span class="drawer-nav-icon">💤</span>
+        <span class="drawer-nav-text">Standby Server Pool</span>
+        <span class="drawer-count-pill" id="drawer-count-standby">0</span>
+      </button>
+      <button type="button" class="drawer-nav-item" id="drawer-nav-teams" onclick="switchMainTab('console'); switchMobileLane('multiagent'); closeMobileDrawer();">
+        <span class="drawer-nav-icon">🤖</span>
+        <span class="drawer-nav-text">Multi-Agent Teams</span>
+        <span class="drawer-count-pill is-purple" id="drawer-count-teams">0</span>
+      </button>
+      <button type="button" class="drawer-nav-item" id="drawer-nav-usage" onclick="switchMainTab('usage'); closeMobileDrawer();">
+        <span class="drawer-nav-icon">📊</span>
+        <span class="drawer-nav-text">Token Quotas &amp; Costs</span>
+      </button>
+    </div>
+
+    <div class="drawer-divider"></div>
+    <div class="drawer-section-title">QUICK CONFIG TOGGLES</div>
+    <div class="drawer-toggles-list">
+      <div class="drawer-toggle-row" onclick="toggleAutoRecovery()">
+        <span class="drawer-toggle-label">Auto Error Recovery</span>
+        <span class="drawer-switch is-on" id="drawer-switch-recovery"><span class="drawer-switch-knob"></span></span>
+      </div>
+      <div class="drawer-toggle-row" onclick="toggleAccountLock()">
+        <span class="drawer-toggle-label">Google Model Lock</span>
+        <span class="drawer-switch" id="drawer-switch-lock"><span class="drawer-switch-knob"></span></span>
+      </div>
+      <div class="drawer-toggle-row" onclick="toggleModelSignature()">
+        <span class="drawer-toggle-label">Tag Model Footer</span>
+        <span class="drawer-switch is-on" id="drawer-switch-signature"><span class="drawer-switch-knob"></span></span>
+      </div>
+    </div>
+
+    <div class="drawer-divider"></div>
+    <div class="drawer-section-title">TOOLS &amp; RULES</div>
+    <div class="drawer-nav-list">
+      <button type="button" class="drawer-nav-item" onclick="openServerModal(); closeMobileDrawer();">
+        <span class="drawer-nav-icon">🖥️</span>
+        <span class="drawer-nav-text">+ Add New Server</span>
+      </button>
+      <button type="button" class="drawer-nav-item" onclick="openTeamModal(); closeMobileDrawer();">
+        <span class="drawer-nav-icon">🧩</span>
+        <span class="drawer-nav-text">+ Create Agent Team</span>
+      </button>
+      <button type="button" class="drawer-nav-item" onclick="openLogsModal(); closeMobileDrawer();">
+        <span class="drawer-nav-icon">📜</span>
+        <span class="drawer-nav-text">Proxy Logs &amp; Cooldowns</span>
+      </button>
+      <button type="button" class="drawer-nav-item" onclick="openRedirectionModal(); closeMobileDrawer();">
+        <span class="drawer-nav-icon">🔀</span>
+        <span class="drawer-nav-text">Model Redirections</span>
+      </button>
+    </div>
+
+    <div class="drawer-utility-row">
+      <button type="button" class="drawer-util-btn" onclick="openBackupModal(); closeMobileDrawer();">📥 Backup JSON</button>
+      <button type="button" class="drawer-util-btn" onclick="fetchStatus(); loadConfig(); showToast('Synced'); closeMobileDrawer();">🔄 Sync Routes</button>
+    </div>
+
+    <div class="drawer-footer">
+      <div>Claude Router on Android (Termux)</div>
+      <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">Zero-Loss Mobile Console</div>
+    </div>
+  </aside>
+
   <div class="console-wrapper">
     <!-- Header -->
     <header class="top-header">
       <div class="brand-title">
+        <button type="button" class="mobile-drawer-trigger" onclick="openMobileDrawer()" aria-label="Open side menu">
+          <span></span><span></span><span></span>
+        </button>
         <span class="brand-dot"></span>
-        <span>GATEWAY CONSOLE</span>
+        <span>C-Router Gateway</span>
         <span class="route-pill">MULTI-POOL ROUTING</span>
+      </div>
+      <div class="mobile-active-pill" onclick="switchMainTab('console'); switchMobileLane('routed');">
+        <div class="mobile-pill-top">
+          <span>⚡</span>
+          <span id="mobile-header-server">Coarena</span>
+          <span class="mobile-pill-dot"></span>
+        </div>
+        <div class="mobile-pill-model-box" id="mobile-header-model-box">
+          <span class="mobile-pill-model-text" id="mobile-header-model">gemini-4-carbon</span>
+        </div>
       </div>
       <div class="top-header-actions">
         <button class="btn btn-xs btn-primary" onclick="openTeamModal()" style="background:#8957e5; border-color:#a371f7;">+ New Team</button>
@@ -36,6 +153,32 @@
     </div>
     <!-- VIEW 1: CONSOLE -->
     <div id="view-console">
+    <!-- Mobile Horizontal Pill Tabs (SVG Demo 1 Style) -->
+    <div class="mobile-pill-tabs" id="mobile-pill-tabs">
+      <button type="button" class="mobile-pill-tab active" data-lane="routed" onclick="switchMobileLane('routed')">⚡ Pipelines</button>
+      <button type="button" class="mobile-pill-tab" data-lane="unrouted" onclick="switchMobileLane('unrouted')">Standby (<span id="mobile-pill-standby-count">0</span>)</button>
+      <button type="button" class="mobile-pill-tab" data-lane="multiagent" onclick="switchMobileLane('multiagent')">Multi-Agent (<span id="mobile-pill-teams-count">0</span>)</button>
+      <button type="button" class="mobile-pill-tab" data-lane="lock" onclick="switchMobileLane('lock')">🔒 Binding</button>
+      <button type="button" class="mobile-pill-tab" data-lane="keys" onclick="switchMobileLane('keys')">🔑 Add Key</button>
+    </div>
+
+    <!-- Mobile Quick Summary Card (SVG Demo 1 Style) -->
+    <div class="mobile-summary-card" id="mobile-summary-card">
+      <div class="summary-row">
+        <span class="summary-label">Primary Model:</span>
+        <span class="summary-val-blue" id="mobile-sum-model">gemini-4-carbon</span>
+      </div>
+      <div class="summary-row-split">
+        <div class="summary-pair" onclick="toggleAutoRecovery()" style="cursor:pointer;">
+          <span class="summary-label">Auto Recovery:</span>
+          <span class="summary-badge-green" id="mobile-sum-recovery">ACTIVE</span>
+        </div>
+        <div class="summary-pair">
+          <span class="summary-label">Account:</span>
+          <span class="summary-val-mono" id="mobile-sum-account">#1</span>
+        </div>
+      </div>
+    </div>
     <!-- Stat Bar -->
     <div class="live-route-bar">
       <div class="live-meta">
@@ -50,14 +193,57 @@
         <div class="live-sync-group"><span style="font-size:10px; color:var(--text-muted); font-family:var(--mono);" id="active-updated">&bull;</span><button class="btn btn-xs" onclick="fetchStatus()">Sync</button></div>
       </div>
     </div>
+    <!-- Dedicated Option Card: Google Account Model Lock -->
+    <div class="panel" id="account-lock-panel" style="border: 1px solid #30363d; background: #0d1117; margin-bottom: 12px;">
+      <div class="panel-head" style="display: flex; flex-direction: column; align-items: stretch; gap: 6px; border-bottom: 1px solid #21262d; padding-bottom: 10px; text-transform: none; letter-spacing: 0;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; gap: 7px;">
+            <span style="font-size: 14px;">🔒</span>
+            <span style="font-size: 13px; font-weight: 700; color: #58a6ff; letter-spacing: 0.3px;">ACCOUNT MODEL BINDING</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <button type="button" class="power-toggle is-off" id="account-lock-toggle-btn" style="min-width: 72px;" onclick="toggleAccountLock()">
+              <span class="power-dot"></span>
+              <span class="power-label" id="account-lock-toggle-label">OFF</span>
+            </button>
+            <button type="button" class="btn btn-xs" id="open-redirection-modal-btn" onclick="openRedirectionModal()" style="display: flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 11px; background: #21262d; border: 1px solid #30363d; color: #58a6ff; border-radius: 5px;" title="Model Redirection Profiles">
+              <span>🔀</span>
+              <span>Redirection</span>
+              <span id="redirection-count-badge" style="background: #1f6feb; color: #fff; border-radius: 10px; padding: 0 5px; font-size: 9px; font-weight: 700; display: none;">0</span>
+            </button>
+          </div>
+        </div>
+        <div style="font-size: 11.5px; color: var(--text-muted); font-weight: normal; line-height: 1.4;">
+          Automatically switches to the matching Google account when you pick one of its bound models.
+        </div>
+      </div>
+      <div id="account-lock-content" style="padding-top: 10px;">
+        <div id="account-lock-items" style="display: flex; flex-direction: column; gap: 8px;"></div>
+      </div>
+    </div>
+
     <!-- Quick Add Key -->
-    <div class="panel">
-      <div class="panel-head">Quick Key Provisioning</div>
-      <form class="input-row" onsubmit="addKey(event)">
-        <select id="provider-select" style="max-width:180px;" required></select>
-        <input type="text" id="new-key-val" class="flex-1" placeholder="Paste API Key (sk-..., coa_..., gsk_...)" required autocomplete="off" />
-        <button type="submit" class="btn btn-success">+ Add Key</button>
+    <div class="panel" id="quick-key-panel">
+      <div class="panel-head" style="margin-bottom:4px;">🔑 ADD API KEY TO SERVER</div>
+      <div style="font-size:11.5px; color:var(--text-muted); margin-bottom:12px; line-height:1.4;">
+        Select a server below and paste an API key to add it to your active rotation &amp; failover pool.
+      </div>
+      <form class="input-row" onsubmit="addKey(event)" style="flex-direction:column; gap:10px;">
+        <div style="width:100%;">
+          <label for="provider-select" style="display:block; font-size:10.5px; font-weight:600; color:#79c0ff; margin-bottom:4px; text-transform:uppercase;">1. Choose Server / Provider</label>
+          <select id="provider-select" aria-label="Choose Server / Provider" style="width:100%; max-width:100%;" required></select>
+        </div>
+        <div style="width:100%;">
+          <label for="new-key-val" style="display:block; font-size:10.5px; font-weight:600; color:#79c0ff; margin-bottom:4px; text-transform:uppercase;">2. Paste API Key</label>
+          <div style="display:flex; gap:6px; width:100%;">
+            <input type="text" id="new-key-val" class="flex-1" placeholder="Paste key (sk-..., coa_..., gsk_...)" required autocomplete="off" />
+            <button type="submit" class="btn btn-success">+ Add Key</button>
+          </div>
+        </div>
       </form>
+      <div style="font-size:10.5px; color:var(--text-muted); margin-top:10px;">
+        💡 Multiple keys per server are auto-rotated on 429 rate limits and saved to <code>config.json</code>.
+      </div>
     </div>
     <!-- TWO POOL LANES: Drag and Drop Between Routed & Standby -->
     <div class="pools-layout">
@@ -79,12 +265,12 @@
       </div>
       <!-- LANE 3: MULTI-AGENT TEAMS (Mix Presets) -->
       <div class="pool-lane" id="lane-multiagent">
-        <div class="lane-header">
-          <div><div class="lane-title" style="color:#d2a8ff;"><span>🤖 MULTI-AGENT TEAMS (PRESETS)</span></div><div class="lane-subtitle">Mix teams (syncs to chat model dropdown)</div></div>
-          <div style="display:flex; gap:6px; align-items:center;">
+        <div class="lane-header" style="flex-wrap:wrap; gap:8px;">
+          <div style="min-width:0; flex:1 1 180px;"><div class="lane-title" style="color:#d2a8ff;"><span>🤖 MULTI-AGENT TEAMS</span></div><div class="lane-subtitle">Mix presets (syncs to chat model dropdown)</div></div>
+          <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
             <span id="count-multiagent" style="font-size:10px; font-family:var(--mono); color:#d2a8ff;">0 Teams</span>
-            <button class="btn btn-xs" onclick="triggerImportTeamFile()" style="padding:1px 6px; font-size:10px;" title="Import Team from JSON">📥 Import</button>
-            <button class="btn btn-xs" onclick="openTeamModal()" style="padding:1px 6px; font-size:10px;">+ Add</button>
+            <button class="btn btn-xs" onclick="triggerImportTeamFile()" style="padding:3px 8px; font-size:10.5px;" title="Import Team from JSON">📥 Import</button>
+            <button class="btn btn-xs btn-primary" onclick="openTeamModal()" style="padding:3px 8px; font-size:10.5px;">+ Add</button>
           </div>
         </div>
         <div class="lane-body" id="container-multiagent"></div>
@@ -119,9 +305,9 @@
 
       <!-- Live Issues & Active Cooldowns -->
       <div class="panel live-issues-panel">
-        <div class="panel-head">
+        <div class="panel-head" style="flex-wrap:wrap; gap:6px;">
           <span style="color:var(--danger-text);">🚨 LIVE ISSUES &amp; REASONS</span>
-          <div style="display:flex; gap:6px; align-items:center;">
+          <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
             <button type="button" class="btn btn-xs" id="live-clear-cd-btn" onclick="clearLiveData('cooldowns')" style="display:none;">Clear Cooldowns</button>
             <button type="button" class="btn btn-xs" onclick="clearLiveData('issues')">Clear Issues</button>
           </div>
@@ -419,7 +605,7 @@
     </div>
   </div>
   <!-- Confirm Delete Modal (Pure HTML Modal - Zero Browser Popups) -->
-  <div id="confirm-modal" class="modal" style="z-index: 1001;">
+  <div id="confirm-modal" class="modal" style="z-index: 100001;">
     <div class="modal-box" style="max-width:360px;">
       <div class="modal-title">
         <span id="confirm-modal-title">Confirm Deletion</span>
@@ -475,7 +661,7 @@
     </div>
   </div>
   <!-- 10-Second Undo Toast with Countdown Progress Bar -->
-  <div id="undo-toast" class="undo-toast">
+  <div id="undo-toast" class="undo-toast" style="z-index: 100002;">
     <div class="undo-toast-content">
       <span id="undo-toast-msg">Server deleted</span>
       <button type="button" class="undo-btn" onclick="triggerUndoAction()">↺ Undo</button>
@@ -498,6 +684,439 @@
   <script src="/dashboard.modals_trace-1.js"></script>
   <script src="/dashboard.modals_playground-1.js"></script>
   <script src="/dashboard.live-1.js"></script>
+  <!-- Account Model Lock UI Modal & Logic -->
+  <div class="modal-overlay" id="account-model-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); z-index:9999; justify-content:center; align-items:center;">
+    <div class="modal-card" style="background:#0d1117; border:1px solid #30363d; border-radius:10px; width:92%; max-width:440px; padding:16px; box-shadow:0 8px 24px rgba(0,0,0,0.8);">
+      <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #21262d; padding-bottom:8px;">
+        <h3 id="acc-model-modal-title" style="font-size:14px; margin:0; color:#58a6ff;">Select Models</h3>
+        <button type="button" class="btn btn-xs" onclick="closeAccountModelPicker()">✕</button>
+      </div>
+      <div id="acc-model-modal-body" style="margin-top:12px;"></div>
+      <div style="display:flex; justify-content:flex-end; align-items:center; border-top:1px solid #21262d; margin-top:14px; padding-top:10px;">
+        <button type="button" class="btn btn-xs btn-primary" onclick="closeAccountModelPicker()" style="min-width:70px;">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Account Switch Busy Lock Pop-up Modal with Instruction Guide -->
+  <div class="modal-overlay" id="busy-lock-popup-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); z-index:100005; justify-content:center; align-items:center;">
+    <div class="modal-card" style="background:#0d1117; border:1px solid #d29922; border-radius:10px; width:92%; max-width:460px; padding:18px; box-shadow:0 8px 30px rgba(210,153,34,0.3); display:flex; flex-direction:column; gap:12px;">
+      
+      <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #21262d; padding-bottom:8px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:18px;">⏳</span>
+          <h3 style="font-size:14px; margin:0; color:#e3b341;">Account Switch Waiting</h3>
+        </div>
+        <button type="button" class="btn btn-xs" onclick="closeBusyLockModal()">✕</button>
+      </div>
+
+      <div style="font-size:12px; color:#e6edf3; line-height:1.5;">
+        Another chat is currently busy responding. Google account switch for model <strong id="busy-lock-model-name" style="color:#58a6ff;">-</strong> is queued to protect the active conversation.
+      </div>
+
+      <div style="display:flex; gap:8px;">
+        <button type="button" class="btn btn-sm btn-primary" onclick="triggerForceSwitchFromDashboard()" style="flex:1; padding:8px; font-weight:700; background:#1f6feb; border-color:#388bfd;">⚡ Force Switch Now</button>
+        <button type="button" class="btn btn-sm" onclick="closeBusyLockModal()" style="background:#21262d; color:#c9d1d9;">Wait</button>
+      </div>
+
+      <!-- App Notification Pop-up Setup Guide -->
+      <div style="background:#161b22; border:1px solid #30363d; border-radius:6px; padding:10px; font-size:11px; color:#8b949e; line-height:1.5;">
+        <strong style="color:#58a6ff; display:block; margin-bottom:4px;">💡 How to Enable Floating Pop-up Notifications:</strong>
+        To see this pop-up directly over your screen instead of opening the browser:
+        <ol style="margin:4px 0 0 16px; padding:0;">
+          <li>Go to Android <strong>Settings → Apps → Manage apps</strong></li>
+          <li>Find <strong>AntiGem API</strong> (or Termux:API)</li>
+          <li>Tap <strong>Notifications</strong></li>
+          <li>Turn ON <strong>Floating notifications</strong> (Allow pop-up)</li>
+        </ol>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Redirection Profiles Modal -->
+  <div class="modal-overlay" id="redirection-profiles-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); z-index:9999; justify-content:center; align-items:center;">
+    <div class="modal-card" style="background:#0d1117; border:1px solid #30363d; border-radius:10px; width:94%; max-width:480px; padding:16px; box-shadow:0 8px 24px rgba(0,0,0,0.8); display:flex; flex-direction:column; max-height:85vh;">
+      <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #21262d; padding-bottom:8px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:15px;">🔀</span>
+          <h3 style="font-size:14px; margin:0; color:#58a6ff;">Model Redirection Profiles</h3>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button type="button" class="power-toggle is-on" id="redirection-master-toggle-btn" style="min-width: 68px; padding: 2px 8px; font-size: 10px;" onclick="toggleMasterRedirection()" title="Turn Redirection System ON/OFF">
+            <span class="power-dot"></span>
+            <span class="power-label" id="redirection-master-toggle-label">ON</span>
+          </button>
+          <button type="button" class="btn btn-xs" onclick="closeRedirectionModal()">✕</button>
+        </div>
+      </div>
+      <div style="font-size:11.5px; color:var(--text-muted); margin:8px 0 10px 0;">
+        Redirect any selected model to another model from your bound account profiles:
+      </div>
+      <div id="redirection-profiles-list" style="overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:8px; padding-right:4px;"></div>
+      
+      <!-- New Redirection Creator -->
+      <div style="margin-top:12px; border-top:1px solid #21262d; padding-top:10px; display:flex; flex-direction:column; gap:10px;">
+        <div style="font-size:11px; font-weight:600; color:#e6edf3; display:flex; align-items:center; gap:4px;">
+          <span>+ Create Redirection Profile:</span>
+        </div>
+
+        <div id="redir-undo-bar" style="display:none; justify-content:space-between; align-items:center; gap:8px; background:#1c2432; border:1px solid #388bfd; border-radius:6px; padding:7px 10px; font-size:11.5px; color:#e6edf3;">
+          <span id="redir-undo-msg">Model deleted</span>
+          <button type="button" class="btn btn-xs btn-primary" id="redir-undo-btn" onclick="undoDeleteRedirModel()">↩ Undo (10s)</button>
+        </div>
+
+        <div class="redir-creator-grid" style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+          <div style="flex:1; min-width:160px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:4px;">
+              <label style="font-size:10px; color:var(--text-muted); font-weight:600;">WHEN MODEL IS SELECTED:</label>
+              <div style="display:flex; gap:4px;">
+                <button type="button" class="btn btn-xs" onclick="promptAddRedirModel()" style="padding:1px 6px; font-size:10px; color:#7ee787; border:1px solid #238636;" title="Add New Model">+ Add</button>
+                <button type="button" class="btn btn-xs" onclick="promptEditRedirModel()" style="padding:1px 6px; font-size:10px; color:#79c0ff; border:1px solid #1f6feb;" title="Edit Selected Model">✏️ Edit</button>
+                <button type="button" class="btn btn-xs" onclick="promptDeleteRedirModel()" style="padding:1px 6px; font-size:10px; color:#f85149; border:1px solid #da3633;" title="Delete Selected Model">🗑️</button>
+              </div>
+            </div>
+            <select id="redir-from-select" aria-label="When Model Is Selected" style="width:100%; background:#161b22; border:1px solid #30363d; color:#e6edf3; border-radius:6px; padding:7px 10px; font-size:12px; cursor:pointer; outline:none;"></select>
+          </div>
+          <span class="redir-arrow-icon" style="color:#58a6ff; font-weight:700; margin-bottom:8px; font-size:14px;">➔</span>
+          <div style="flex:1; min-width:160px;">
+            <label style="font-size:10px; color:var(--text-muted); display:block; margin-bottom:4px; font-weight:600;">SWITCH TO ACCOUNT PROFILE:</label>
+            <select id="redir-to-select" aria-label="Switch To Account Profile" style="width:100%; background:#161b22; border:1px solid #30363d; color:#e6edf3; border-radius:6px; padding:7px 10px; font-size:12px; cursor:pointer; outline:none;"></select>
+          </div>
+          <button type="button" class="btn btn-xs btn-primary redir-add-btn" onclick="addRedirectionRule()" style="margin-bottom:1px; padding:7px 14px; font-size:12px; font-weight:600; border-radius:6px;">+ Add Rule</button>
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; align-items:center; border-top:1px solid #21262d; margin-top:12px; padding-top:8px;">
+        <button type="button" class="btn btn-xs btn-primary" onclick="closeRedirectionModal()" style="min-width:70px;">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CUSTOM DARK ACTION DIALOG (Add / Edit / Delete Confirm for Redirection Models) -->
+  <div class="modal-overlay" id="redir-action-modal" style="display:none; position:fixed; inset:0; background:rgba(3,6,12,0.78); backdrop-filter:blur(2px); z-index:100030; justify-content:center; align-items:center; padding:16px;">
+    <div style="background:#0d141e; border:1px solid #2b3c54; border-radius:12px; width:100%; max-width:360px; padding:16px; box-shadow:0 12px 32px rgba(0,0,0,0.75);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <span id="redir-action-title" style="font-size:14px; font-weight:700; color:#f0f6fc;">Model Action</span>
+        <button type="button" onclick="closeRedirActionModal()" style="background:transparent; border:none; color:#8b949e; font-size:16px; cursor:pointer;">✕</button>
+      </div>
+      <div id="redir-action-desc" style="font-size:12px; color:#8b949e; margin-bottom:10px; line-height:1.45;"></div>
+      <input type="text" id="redir-action-input" placeholder="e.g. Claude 4 Sonnet" style="display:none; width:100%; background:#090d14; border:1px solid #30363d; color:#f0f6fc; border-radius:8px; padding:9px 11px; font-size:13px; margin-bottom:14px; outline:none;" />
+      <div style="display:flex; justify-content:flex-end; gap:8px;">
+        <button type="button" class="btn btn-xs" onclick="closeRedirActionModal()" style="padding:7px 14px; font-size:12px;">Cancel</button>
+        <button type="button" class="btn btn-xs btn-primary" id="redir-action-confirm-btn" onclick="confirmRedirActionModal()" style="padding:7px 14px; font-size:12px; font-weight:600;">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- RADIAL DIAL OVERLAY BACKDROP -->
+  <div id="radial-backdrop" class="radial-backdrop" onclick="closeRadialDial()"></div>
+
+  <!-- MOBILE SERVER ACTION BOTTOM SHEET & BACKDROP (SVG Demo 3 Style) -->
+  <div id="server-bottom-sheet-backdrop" class="mobile-bottom-sheet-backdrop" onclick="closeServerBottomSheet()"></div>
+  <div id="server-bottom-sheet" class="mobile-bottom-sheet">
+    <div class="bottom-sheet-handle"></div>
+    <div class="bottom-sheet-header">
+      <div class="bottom-sheet-title">
+        <span class="sheet-avatar" id="sheet-server-avatar">⚡</span>
+        <div>
+          <div id="sheet-server-name" style="font-size:15px; font-weight:700; color:#f0f6fc;">Server Options</div>
+          <div id="sheet-server-subtitle" style="font-size:11px; color:#8b949e;">Priority Route</div>
+        </div>
+      </div>
+      <button type="button" class="bottom-sheet-close" onclick="closeServerBottomSheet()">✕</button>
+    </div>
+
+    <!-- 3-Column Metrics Row (SVG Demo 3) -->
+    <div class="sheet-metrics-row">
+      <div class="sheet-metric-box">
+        <div class="sheet-metric-label">STATUS</div>
+        <div class="sheet-metric-val is-green" id="sheet-metric-status">LIVE</div>
+      </div>
+      <div class="sheet-metric-box">
+        <div class="sheet-metric-label">PROTOCOL</div>
+        <div class="sheet-metric-val is-blue" id="sheet-metric-proto">Anthropic</div>
+      </div>
+      <div class="sheet-metric-box">
+        <div class="sheet-metric-label">MODELS / KEYS</div>
+        <div class="sheet-metric-val" id="sheet-metric-counts">0 / 0</div>
+      </div>
+    </div>
+
+    <div class="bottom-sheet-actions">
+      <div class="sheet-move-grid">
+        <button type="button" class="bottom-sheet-btn sheet-btn-center" id="sheet-btn-move-up" onclick="sheetAction('moveUp')">
+          <span>▲</span>
+          <span>Move Up</span>
+        </button>
+        <button type="button" class="bottom-sheet-btn sheet-btn-center" id="sheet-btn-move-down" onclick="sheetAction('moveDown')">
+          <span>▼</span>
+          <span>Move Down</span>
+        </button>
+      </div>
+      <button type="button" class="bottom-sheet-btn sheet-btn-highlight" onclick="sheetAction('test')">
+        <span>🧪</span>
+        <span>Run Live Health Check &amp; Latency Test</span>
+      </button>
+      <button type="button" class="bottom-sheet-btn" onclick="sheetAction('edit')">
+        <span>✏️</span>
+        <span>Edit Server URL, Key &amp; Default Model</span>
+      </button>
+      <button type="button" class="bottom-sheet-btn" id="sheet-btn-toggle-lane" onclick="sheetAction('toggleLane')">
+        <span id="sheet-lane-icon">💤</span>
+        <span id="sheet-lane-text">Demote to Standby Pool</span>
+      </button>
+      <button type="button" class="bottom-sheet-btn btn-danger-sheet" onclick="sheetAction('delete')">
+        <span>🗑️</span>
+        <span>Delete Server from Config</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- CUSTOM MOBILE SELECT PICKER SHEET (Replaces ugly native Android <select> dialog) -->
+  <div id="custom-select-backdrop" class="mobile-bottom-sheet-backdrop" onclick="closeCustomSelectSheet()"></div>
+  <div id="custom-select-sheet" class="mobile-bottom-sheet custom-select-sheet">
+    <div class="bottom-sheet-handle"></div>
+    <div class="bottom-sheet-header">
+      <div class="bottom-sheet-title">
+        <span>▾</span>
+        <span id="custom-select-title" style="font-size:14px; font-weight:700; color:#f0f6fc;">Select Option</span>
+      </div>
+      <button type="button" class="bottom-sheet-close" onclick="closeCustomSelectSheet()">✕</button>
+    </div>
+    <input type="text" id="custom-select-search" class="custom-select-search" placeholder="Search options..." oninput="filterCustomSelectOptions(this.value)" style="display:none;" />
+    <div id="custom-select-list" class="custom-select-list"></div>
+  </div>
+
+  <!-- RADIAL SPEED DIAL MENU (FAN OUT - SVG Demo 1 Style) -->
+  <div id="radial-dial-wrap" class="radial-dial-wrap">
+    <svg class="radial-connectors" viewBox="-150 -140 300 140" width="300" height="140" aria-hidden="true">
+      <line x1="0" y1="0" x2="-92" y2="-45" stroke="#388bfd" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.65"/>
+      <line x1="0" y1="0" x2="-38" y2="-102" stroke="#3fb950" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.65"/>
+      <line x1="0" y1="0" x2="38" y2="-102" stroke="#d29922" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.65"/>
+      <line x1="0" y1="0" x2="92" y2="-45" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.65"/>
+    </svg>
+    <div class="radial-option opt-key" onclick="handleRadialAction('key')" title="Add API Key">
+      <div class="radial-circle is-blue">🔑</div>
+      <span class="radial-label">Add Key</span>
+    </div>
+    <div class="radial-option opt-server" onclick="handleRadialAction('server')" title="Add Server">
+      <div class="radial-circle is-green">🖥️</div>
+      <span class="radial-label">+ Server</span>
+    </div>
+    <div class="radial-option opt-lock" onclick="handleRadialAction('lock')" title="Account Model Binding">
+      <div class="radial-circle is-amber">🔒</div>
+      <span class="radial-label">Binding</span>
+    </div>
+    <div class="radial-option opt-logs" onclick="handleRadialAction('logs')" title="View Logs">
+      <div class="radial-circle is-purple">📡</div>
+      <span class="radial-label">Logs</span>
+    </div>
+  </div>
+
+  <!-- STICKY BOTTOM NAVIGATION BAR (Curved Notch SVG Style) -->
+  <nav class="sticky-bottom-bar" id="sticky-bottom-bar">
+    <svg class="bottom-bar-notch-bg" viewBox="0 0 390 74" preserveAspectRatio="none" aria-hidden="true">
+      <path d="M 0 14 Q 0 0 14 0 L 142 0 Q 158 0 165 13 Q 178 34 195 34 Q 212 34 225 13 Q 232 0 248 0 L 376 0 Q 390 0 390 14 L 390 74 L 0 74 Z" fill="#0e1520" stroke="#1f2d40" stroke-width="1"/>
+    </svg>
+
+    <!-- C-ROUTER #6 ORIGAMI FOX-MECHA INTERACTIVE ROBOT -->
+    <div id="crouter-bot" class="crouter-bot is-sitting" onclick="triggerBotReaction()" title="C-Router Fox-Mecha">
+      <!-- Soft Ledge Shadow -->
+      <div class="bot-shadow" id="bot-shadow"></div>
+      <div class="bot-flip-wrap" id="bot-flip-wrap">
+        <svg class="bot-svg" viewBox="0 0 80 112" width="34" height="48" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="foxRed" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#ff6b6b"/>
+              <stop offset="100%" stop-color="#8f1d24"/>
+            </linearGradient>
+            <linearGradient id="foxPearl" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#ffffff"/>
+              <stop offset="100%" stop-color="#c9d6e4"/>
+            </linearGradient>
+          </defs>
+
+          <!-- ================= FRONT VIEW (SITTING + 2-PART DANGLING LEGS) ================= -->
+          <g class="bot-view-front">
+            <!-- Fox Ears (with wiggle classes) -->
+            <polygon class="f-ear-l" style="transform-origin:22px 22px;" points="20,24 14,4 32,16" fill="url(#foxRed)" stroke="#ffa198" stroke-width="1.3"/>
+            <polygon class="f-ear-r" style="transform-origin:58px 22px;" points="60,24 66,4 48,16" fill="url(#foxRed)" stroke="#ffa198" stroke-width="1.3"/>
+
+            <!-- Left 2-Part Arm (Upper -> Elbow -> Forearm + Hand) -->
+            <g class="f-arm-l" style="transform-origin:27px 59px;">
+              <line x1="27" y1="59" x2="18" y2="66" stroke="url(#foxPearl)" stroke-width="4.8" stroke-linecap="round"/>
+              <g class="f-forearm-l" style="transform-origin:18px 66px;">
+                <line x1="18" y1="66" x2="14" y2="75" stroke="#dce6f2" stroke-width="4.2" stroke-linecap="round"/>
+                <circle cx="14" cy="76" r="3" fill="#ff7b72"/>
+              </g>
+            </g>
+
+            <!-- Right 2-Part Arm -->
+            <g class="f-arm-r" style="transform-origin:53px 59px;">
+              <line x1="53" y1="59" x2="62" y2="66" stroke="url(#foxPearl)" stroke-width="4.8" stroke-linecap="round"/>
+              <g class="f-forearm-r" style="transform-origin:62px 66px;">
+                <line x1="62" y1="66" x2="66" y2="75" stroke="#dce6f2" stroke-width="4.2" stroke-linecap="round"/>
+                <circle cx="66" cy="76" r="3" fill="#ff7b72"/>
+              </g>
+            </g>
+
+            <!-- Angular Fox-Mecha Head -->
+            <g class="bot-head">
+              <polygon points="18,22 62,22 56,50 40,56 24,50" fill="url(#foxPearl)" stroke="#ff7b72" stroke-width="1.4"/>
+              <polygon points="24,28 56,28 52,44 40,48 28,44" fill="#120a0d"/>
+              <g class="bot-eyes">
+                <polygon points="29,34 36,36 30,39" fill="#58a6ff"/>
+                <polygon points="51,34 44,36 50,39" fill="#58a6ff"/>
+              </g>
+            </g>
+
+            <!-- Torso -->
+            <rect x="27" y="55" width="26" height="23" rx="7" fill="url(#foxRed)" stroke="#ffa198" stroke-width="1.2"/>
+            <polygon points="40,61 44,67 40,73 36,67" fill="#58a6ff"/>
+
+            <!-- Left 2-Part Dangling Leg (Thigh -> Knee -> Shin + Boot) -->
+            <g class="f-thigh-l" style="transform-origin:33px 76px;">
+              <line x1="33" y1="76" x2="31" y2="87" stroke="url(#foxPearl)" stroke-width="5" stroke-linecap="round"/>
+              <g class="f-shin-l" style="transform-origin:31px 87px;">
+                <line x1="31" y1="87" x2="29" y2="100" stroke="#dce6f2" stroke-width="4.4" stroke-linecap="round"/>
+                <polygon points="23,99 35,99 33,105 25,105" fill="#ff7b72"/>
+              </g>
+            </g>
+
+            <!-- Right 2-Part Dangling Leg -->
+            <g class="f-thigh-r" style="transform-origin:47px 76px;">
+              <line x1="47" y1="76" x2="49" y2="87" stroke="#dce6f2" stroke-width="5" stroke-linecap="round"/>
+              <g class="f-shin-r" style="transform-origin:49px 87px;">
+                <line x1="49" y1="87" x2="51" y2="100" stroke="#b8cce4" stroke-width="4.4" stroke-linecap="round"/>
+                <polygon points="45,99 57,99 55,105 47,105" fill="#ff7b72"/>
+              </g>
+            </g>
+          </g>
+
+          <!-- ================= SIDE VIEW (2-PART LIMBS + JETPACK + FLAME) ================= -->
+          <g class="bot-view-side">
+            <!-- Jetpack Thruster Fire (visible only while flying) -->
+            <g class="bot-flames" style="transform-origin:23px 75px;">
+              <path class="flame-outer" d="M19 75 Q23.5 99 28 75 Z" fill="#ff7b00"/>
+              <path class="flame-inner" d="M21 75 Q23.5 90 26 75 Z" fill="#ffe600"/>
+            </g>
+
+            <!-- Mini Jetpack on Back -->
+            <rect x="19" y="57" width="9" height="18" rx="3" fill="#30363d" stroke="#ff7b72" stroke-width="1.1"/>
+
+            <!-- Back 2-Part Leg (Thigh -> Knee -> Shin + Boot) -->
+            <g class="s-thigh-b" style="transform-origin:38px 77px;">
+              <line x1="38" y1="77" x2="36" y2="90" stroke="#9fb3c8" stroke-width="5" stroke-linecap="round"/>
+              <g class="s-shin-b" style="transform-origin:36px 90px;">
+                <line x1="36" y1="90" x2="34" y2="103" stroke="#859bb5" stroke-width="4.4" stroke-linecap="round"/>
+                <polygon points="29,102 41,102 42,107 30,107" fill="#b83232"/>
+              </g>
+            </g>
+
+            <!-- Back 2-Part Arm -->
+            <g class="s-arm-b" style="transform-origin:41px 60px;">
+              <line x1="41" y1="60" x2="47" y2="67" stroke="#9fb3c8" stroke-width="4.5" stroke-linecap="round"/>
+              <g class="s-forearm-b" style="transform-origin:47px 67px;">
+                <line x1="47" y1="67" x2="53" y2="73" stroke="#859bb5" stroke-width="4" stroke-linecap="round"/>
+                <circle cx="54" cy="74" r="2.8" fill="#b83232"/>
+              </g>
+            </g>
+
+            <!-- Side Fox Ear -->
+            <polygon points="34,22 26,4 44,18" fill="url(#foxRed)" stroke="#ffa198" stroke-width="1.2"/>
+
+            <!-- Side Profile Angular Head (Facing Right) -->
+            <polygon points="24,22 56,22 64,38 52,52 26,50" fill="url(#foxPearl)" stroke="#ff7b72" stroke-width="1.4"/>
+            <polygon points="44,28 58,31 54,44 42,44" fill="#120a0d"/>
+            <polygon points="48,34 55,36 49,39" fill="#58a6ff"/>
+
+            <!-- Side Torso -->
+            <rect x="28" y="54" width="22" height="24" rx="7" fill="url(#foxRed)" stroke="#ffa198" stroke-width="1.2"/>
+
+            <!-- Front 2-Part Leg -->
+            <g class="s-thigh-f" style="transform-origin:40px 77px;">
+              <line x1="40" y1="77" x2="42" y2="90" stroke="url(#foxPearl)" stroke-width="5" stroke-linecap="round"/>
+              <g class="s-shin-f" style="transform-origin:42px 90px;">
+                <line x1="42" y1="90" x2="44" y2="103" stroke="#dce6f2" stroke-width="4.4" stroke-linecap="round"/>
+                <polygon points="39,102 52,102 53,107 40,107" fill="#ff7b72"/>
+              </g>
+            </g>
+
+            <!-- Front 2-Part Arm -->
+            <g class="s-arm-f" style="transform-origin:38px 60px;">
+              <line x1="38" y1="60" x2="32" y2="68" stroke="url(#foxPearl)" stroke-width="4.6" stroke-linecap="round"/>
+              <g class="s-forearm-f" style="transform-origin:32px 68px;">
+                <line x1="32" y1="68" x2="27" y2="75" stroke="#dce6f2" stroke-width="4" stroke-linecap="round"/>
+                <circle cx="26" cy="76" r="3" fill="#ff7b72"/>
+              </g>
+            </g>
+          </g>
+
+          <!-- ================= BACK VIEW (FLYING UP FROM BELOW SCREEN) ================= -->
+          <g class="bot-view-back">
+            <!-- Back of Fox Ears -->
+            <polygon points="20,24 14,4 32,16" fill="url(#foxRed)" stroke="#ffa198" stroke-width="1.3"/>
+            <polygon points="60,24 66,4 48,16" fill="url(#foxRed)" stroke="#ffa198" stroke-width="1.3"/>
+            <!-- Back of Arms -->
+            <path d="M27 60 L15 72" stroke="#dce6f2" stroke-width="4.6" stroke-linecap="round"/>
+            <path d="M53 60 L65 72" stroke="#dce6f2" stroke-width="4.6" stroke-linecap="round"/>
+            <!-- Back of Legs (Tucked out to sides so flames shine clearly!) -->
+            <path d="M32 78 L25 91" stroke="#b8cce4" stroke-width="4.6" stroke-linecap="round"/>
+            <polygon points="19,90 29,90 28,96 20,96" fill="#b83232"/>
+            <path d="M48 78 L55 91" stroke="#b8cce4" stroke-width="4.6" stroke-linecap="round"/>
+            <polygon points="51,90 61,90 60,96 52,96" fill="#b83232"/>
+            <!-- Back of Angular Helmet -->
+            <polygon points="18,22 62,22 56,50 40,56 24,50" fill="url(#foxPearl)" stroke="#ff7b72" stroke-width="1.4"/>
+            <polygon points="30,26 50,26 46,46 40,49 34,46" fill="#dce6f2"/>
+            <!-- Back of Torso -->
+            <rect x="27" y="55" width="26" height="23" rx="7" fill="url(#foxRed)" stroke="#ffa198" stroke-width="1.2"/>
+            <!-- Twin-Nozzle Jetpack on Back -->
+            <rect x="28" y="56" width="24" height="19" rx="4" fill="#21262d" stroke="#ff7b72" stroke-width="1.2"/>
+            <rect x="30" y="73" width="7" height="5" rx="1.2" fill="#484f58"/>
+            <rect x="43" y="73" width="7" height="5" rx="1.2" fill="#484f58"/>
+            <circle cx="40" cy="65" r="2.6" fill="#58a6ff"/>
+            <!-- Big Bright Dual Jetpack Thruster Fire (rendered in front so it's unmistakable!) -->
+            <g class="bot-flames-back">
+              <path class="flame-outer" d="M29 77 Q33.5 110 38 77 Z" fill="#ff5500"/>
+              <path class="flame-mid" d="M30.5 77 Q33.5 102 36.5 77 Z" fill="#ff9900"/>
+              <path class="flame-inner" d="M32 77 Q33.5 94 35 77 Z" fill="#fff3a1"/>
+              <path class="flame-outer" d="M42 77 Q46.5 110 51 77 Z" fill="#ff5500"/>
+              <path class="flame-mid" d="M43.5 77 Q46.5 102 49.5 77 Z" fill="#ff9900"/>
+              <path class="flame-inner" d="M45 77 Q46.5 94 48 77 Z" fill="#fff3a1"/>
+            </g>
+          </g>
+        </svg>
+      </div>
+    </div>
+    <div class="bottom-bar-item active" id="bottom-bar-routes" onclick="switchMainTab('console'); switchMobileLane('routed'); updateBottomBar('routes');">
+      <span class="bottom-bar-icon">⚡</span>
+      <span class="bottom-bar-label">Routes</span>
+    </div>
+    <div class="bottom-bar-item" id="bottom-bar-live" onclick="switchMainTab('live'); updateBottomBar('live');">
+      <span class="bottom-bar-icon">📡</span>
+      <span class="bottom-bar-label">Stats</span>
+    </div>
+
+    <!-- Center Floating Action Button (Radial Trigger) -->
+    <div class="bottom-bar-center">
+      <button type="button" class="radial-fab-btn" id="radial-fab-btn" onclick="toggleRadialDial()" aria-label="Quick Actions">
+        <span class="fab-icon-plus">+</span>
+      </button>
+    </div>
+
+    <div class="bottom-bar-item" id="bottom-bar-teams" onclick="switchMainTab('console'); switchMobileLane('multiagent'); updateBottomBar('teams');">
+      <span class="bottom-bar-icon">🤖</span>
+      <span class="bottom-bar-label">Teams</span>
+    </div>
+    <div class="bottom-bar-item" id="bottom-bar-usage" onclick="switchMainTab('usage'); updateBottomBar('usage');">
+      <span class="bottom-bar-icon">📊</span>
+      <span class="bottom-bar-label">Quotas</span>
+    </div>
+  </nav>
+
+  <script src="/dashboard.mobile-1.js"></script>
+  <script src="/account_lock_ui.js?v=9"></script>
   <script src="/dashboard.usage-1.js"></script>
 </body>
 </html>

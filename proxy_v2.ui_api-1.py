@@ -570,3 +570,8 @@ def handle_ui_post(handler, raw_body):
             return True
 
         return False
+
+    # UI API: Account Model Lock endpoints
+    if handler.path == "/api/ui/account-lock":
+        import account_lock_api
+        return account_lock_api.handle_account_lock_post(handler, raw_body)

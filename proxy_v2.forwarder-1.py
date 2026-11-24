@@ -88,6 +88,12 @@ def dispatch_inference(handler, raw_body):
         orig_model = body_obj.get('model', 'unknown')
         body_obj = clean_history_tags(body_obj)
         body_obj = sanitize_anthropic_body(body_obj)
+        # Check and enforce account model binding if enabled
+        try:
+            from account_model_lock import check_and_enforce_binding
+            check_and_enforce_binding(orig_model)
+        except Exception:
+            pass
     except Exception:
         pass
 

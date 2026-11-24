@@ -46,6 +46,7 @@ async function fetchStatus() {
         }
       }
       if (typeof fetchLiveSnapshot === 'function') fetchLiveSnapshot(true);
+      if (typeof syncMobileDashboardUI === 'function') syncMobileDashboardUI();
     }
   } catch(e) {}
 }
@@ -67,6 +68,7 @@ async function loadConfig() {
     renderDropdown();
     renderRecoveryToggle();
     renderSignatureToggle();
+    if (typeof syncMobileDashboardUI === 'function') syncMobileDashboardUI();
   } catch (err) {
     showToast('Config load failure', true);
   }
@@ -280,6 +282,7 @@ function createServerCard(id, p, isRouted, index) {
           <span class="power-dot"></span>
           <span class="power-label">${isEnabled ? 'ON' : 'OFF'}</span>
         </button>
+        <button type="button" class="mobile-card-sheet-btn" title="Quick Actions" onclick="openServerBottomSheet('${id}')">⋯</button>
         <span class="toggle-arrow" onclick="toggleServerCard('${id}')">▶</span>
       </div>
     </div>
@@ -488,4 +491,3 @@ setInterval(() => {
     fetchStatus();
   }
 }, 5000);
-
