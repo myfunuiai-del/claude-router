@@ -161,6 +161,12 @@ function renderLanes() {
   const cRouted = document.getElementById('container-routed');
   const cUnrouted = document.getElementById('container-unrouted');
   if (!cRouted || !cUnrouted) return;
+
+  // Preserve expanded server cards across re-renders
+  const expandedIds = new Set(
+    Array.from(document.querySelectorAll('.server-card.expanded')).map(c => c.dataset.providerId)
+  );
+
   cRouted.innerHTML = '';
   cUnrouted.innerHTML = '';
 
@@ -183,7 +189,9 @@ function renderLanes() {
     cRouted.innerHTML = '<div class="lane-empty">Drag servers here or tap ⚡ to activate failover pipeline</div>';
   } else {
     routed.forEach((id, idx) => {
-      cRouted.appendChild(createServerCard(id, providers[id], true, idx));
+      const card = createServerCard(id, providers[id], true, idx);
+      if (expandedIds.has(id)) card.classList.add('expanded');
+      cRouted.appendChild(card);
     });
   }
 
@@ -191,7 +199,9 @@ function renderLanes() {
     cUnrouted.innerHTML = '<div class="lane-empty">All servers are currently active in pipeline</div>';
   } else {
     unrouted.forEach((id, idx) => {
-      cUnrouted.appendChild(createServerCard(id, providers[id], false, idx));
+      const card = createServerCard(id, providers[id], false, idx);
+      if (expandedIds.has(id)) card.classList.add('expanded');
+      cUnrouted.appendChild(card);
     });
   }
 
@@ -311,6 +321,7 @@ function createServerCard(id, p, isRouted, index) {
   // Collapsible Body
   const body = document.createElement('div');
   body.className = 'server-card-body';
+  body.onclick = (e) => e.stopPropagation();
 
   // Models Section
   const mSec = document.createElement('div');
@@ -361,24 +372,34 @@ function createServerCard(id, p, isRouted, index) {
   (p.keys || []).forEach((k, idx) => {
     const row = document.createElement('div');
     row.className = 'key-line';
+    row.style.cssText = 'display:flex; flex-direction:column; gap:6px; padding:7px 9px; align-items:stretch;';
     const keyName = (p.key_names && p.key_names[k]) ? p.key_names[k] : '';
-    const nameBadge = keyName ? `<span style="color:#ffd166; font-weight:600; margin-right:5px;">🏷️ ${keyName.replace(/</g,'&lt;')}</span>` : '';
+    const nameBadge = keyName
+      ? `<span style="color:#ffd166; font-weight:600; font-size:11px; background:rgba(255,209,102,0.1); border:1px solid rgba(255,209,102,0.28); padding:1px 6px; border-radius:4px;">🏷️ ${keyName.replace(/</g,'&lt;')}</span>`
+      : '';
+    const btnStyle = 'cursor:pointer; padding:2px 6px; border-radius:4px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); font-size:10.5px; display:inline-flex; align-items:center; gap:3px;';
     row.innerHTML = `
-      <span class="key-line-left" style="flex:1; min-width:0; display:flex; align-items:center; flex-wrap:wrap; gap:4px;">
-        <span style="color:#8b949e; font-size:10px;">#${idx+1}</span>
-        ${nameBadge}
-        <span id="key-val-${id}-${idx}" style="color:#79c0ff; font-family:monospace; font-size:10.5px;" data-masked="1">${maskKey(k)}</span>
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; flex-wrap:wrap;">
+        <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; min-width:0;">
+          <span style="color:#8b949e; font-size:10px; font-weight:600;">#${idx+1}</span>
+          ${nameBadge}
+          <span id="key-val-${id}-${idx}" style="color:#79c0ff; font-family:monospace; font-size:10.5px; word-break:break-all;" data-masked="1">${maskKey(k)}</span>
+        </div>
         <span class="key-status" id="key-status-${id}-${idx}"></span>
-      </span>
-      <span style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
-        ${idx > 0 ? `<span class="chip-x" title="Move Up" style="color:#8b949e;" onclick="moveKeyPriority('${id}', ${idx}, 'up')">▲</span>` : ''}
-        ${idx < (p.keys.length - 1) ? `<span class="chip-x" title="Move Down" style="color:#8b949e;" onclick="moveKeyPriority('${id}', ${idx}, 'down')">▼</span>` : ''}
-        <span class="chip-x" title="Show/Hide Key" style="color:#79c0ff;" onclick="toggleShowKey('${id}', ${idx})">👁️</span>
-        <span class="chip-x" title="Copy Key" style="color:#79c0ff;" onclick="copySingleKey('${id}', ${idx})">📋</span>
-        <span class="chip-x" title="Test Key" style="color:#56d364;" onclick="testSingleKey('${id}', ${idx})">⚡</span>
-        <span class="chip-x" title="Rename Key" style="color:#ffd166;" onclick="openRenameKeyModal('${id}', ${idx})">✏️</span>
-        <span class="chip-x" title="Revoke Key" onclick="openConfirmDeleteKey('${id}', ${idx})">✕</span>
-      </span>
+      </div>
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:4px; padding-top:4px; border-top:1px solid rgba(255,255,255,0.05);">
+        <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+          <span style="${btnStyle} color:#79c0ff;" title="Show/Hide Key" onclick="event.stopPropagation(); toggleShowKey('${id}', ${idx})">👁️ Show</span>
+          <span style="${btnStyle} color:#79c0ff;" title="Copy Key" onclick="event.stopPropagation(); copySingleKey('${id}', ${idx})">📋 Copy</span>
+          <span style="${btnStyle} color:#56d364;" title="Test Key" onclick="event.stopPropagation(); testSingleKey('${id}', ${idx})">⚡ Test</span>
+          <span style="${btnStyle} color:#ffd166;" title="Rename Key" onclick="event.stopPropagation(); openRenameKeyModal('${id}', ${idx})">✏️ Name</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
+          ${idx > 0 ? `<span style="${btnStyle} color:#8b949e;" title="Move Up" onclick="event.stopPropagation(); moveKeyPriority('${id}', ${idx}, 'up')">▲</span>` : ''}
+          ${idx < (p.keys.length - 1) ? `<span style="${btnStyle} color:#8b949e;" title="Move Down" onclick="event.stopPropagation(); moveKeyPriority('${id}', ${idx}, 'down')">▼</span>` : ''}
+          <span style="${btnStyle} color:#f85149; border-color:rgba(248,81,73,0.25);" title="Revoke Key" onclick="event.stopPropagation(); openConfirmDeleteKey('${id}', ${idx})">✕</span>
+        </div>
+      </div>
     `;
     kList.appendChild(row);
   });
@@ -457,6 +478,14 @@ function toggleServerCard(id) {
   document.querySelectorAll('.server-card.expanded').forEach(c => c.classList.remove('expanded'));
   if (!isExpanded) card.classList.add('expanded');
 }
+
+// Collapse expanded server card only when clicking outside all cards & modals
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.server-card') || e.target.closest('.modal-overlay') || e.target.closest('.modal') || e.target.closest('.bottom-sheet') || e.target.closest('#toast')) {
+    return;
+  }
+  document.querySelectorAll('.server-card.expanded').forEach(c => c.classList.remove('expanded'));
+});
 
 async function addKey(e) {
   e.preventDefault();
