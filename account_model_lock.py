@@ -219,6 +219,17 @@ def switch_to_account(target_email):
     except Exception as e:
         return False, f"Failed to switch account: {e}"
 
+def is_model_blocked(requested_model, state=None):
+    """Returns True if an active redirection rule explicitly blocks this model."""
+    if state is None:
+        state = load_state()
+    if not state.get("enabled", False):
+        return False
+    if state.get("redirections_enabled", True) is False:
+        return False
+    target = find_bound_account_for_model(requested_model, state)
+    return target == "__BLOCK__"
+
 def check_and_enforce_binding(requested_model):
     state = load_state()
     if not state.get("enabled", False):
@@ -235,6 +246,8 @@ def check_and_enforce_binding(requested_model):
         
     if not target_email:
         return False, f"No bound account for model '{requested_model}' (effective: '{eff_model}')"
+    if target_email == "__BLOCK__":
+        return False, f"BLOCKED: Model '{requested_model}' is blocked by Redirection rule"
     
     swapped, msg = switch_to_account(target_email)
     if redirected:

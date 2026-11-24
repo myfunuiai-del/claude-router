@@ -630,15 +630,16 @@ function renderRedirectionModalContent() {
     fromSelect.value = "GPT-OSS 120B (Medium)";
   }
 
-  // Populate 'Switch To Account Profile' from configured Google Accounts
+  // Populate 'Switch To Account Profile' from configured Google Accounts + Block Request option
   const accounts = accountLockState.accounts || [];
+  const blockOptionHtml = '<option value="__BLOCK__">🚫 Block Request (Do Not Send)</option>';
   if (accounts.length > 0) {
     toSelect.innerHTML = accounts.map(acc => {
       const label = acc.name ? `${acc.name} (${acc.email})` : acc.email;
       return `<option value="${escapeHtml(acc.email)}">${escapeHtml(label)}</option>`;
-    }).join('');
+    }).join('') + blockOptionHtml;
   } else {
-    toSelect.innerHTML = '<option value="">No accounts configured</option>';
+    toSelect.innerHTML = blockOptionHtml;
   }
 
   // Render Existing Redirection Profiles List
@@ -654,16 +655,22 @@ function renderRedirectionModalContent() {
   listContainer.innerHTML = redirections.map((r, idx) => {
     const isEnabled = r.enabled !== false;
     const targetEmail = r.to_account || '';
+    const isBlocked = targetEmail === '__BLOCK__';
     const matchedAcc = accounts.find(a => (a.email || '').toLowerCase() === targetEmail.toLowerCase());
-    const targetDisplay = targetEmail
-      ? `👤 ${matchedAcc && matchedAcc.name ? matchedAcc.name : (r.to_account_name || targetEmail)}`
-      : (r.to_model || 'Unknown');
+    const targetDisplay = isBlocked
+      ? '🚫 BLOCKED'
+      : (targetEmail
+          ? `👤 ${matchedAcc && matchedAcc.name ? matchedAcc.name : (r.to_account_name || targetEmail)}`
+          : (r.to_model || 'Unknown'));
+    const badgeStyle = isBlocked
+      ? 'background:#331416; color:#ff7b72; border:1px solid #da3633;'
+      : 'background:#1c2d20; color:#7ee787; border:1px solid #238636;';
     return `
       <div style="display:flex; justify-content:space-between; align-items:center; background:#161b22; border:1px solid #30363d; border-radius:6px; padding:8px 12px; gap:8px;">
         <div style="display:flex; align-items:center; gap:8px; flex:1; flex-wrap:wrap;">
           <span style="font-size:11px; background:#1f242c; color:#79c0ff; border:1px solid #1f4277; padding:2px 8px; border-radius:4px; font-weight:600;">${escapeHtml(r.from_model)}</span>
           <span style="color:#58a6ff; font-weight:700; font-size:12px;">➔</span>
-          <span style="font-size:11px; background:#1c2d20; color:#7ee787; border:1px solid #238636; padding:2px 8px; border-radius:4px; font-weight:600;" title="${escapeHtml(targetEmail)}">${escapeHtml(targetDisplay)}</span>
+          <span style="font-size:11px; ${badgeStyle} padding:2px 8px; border-radius:4px; font-weight:600;" title="${escapeHtml(isBlocked ? 'Blocks all requests for this model' : targetEmail)}">${escapeHtml(targetDisplay)}</span>
         </div>
         <div style="display:flex; align-items:center; gap:8px;">
           <button type="button" class="btn btn-xs ${isEnabled ? 'btn-success' : ''}" onclick="toggleRedirectionRule('${r.id}')" style="padding:2px 8px; font-size:10px; font-weight:600;">
@@ -691,7 +698,9 @@ async function addRedirectionRule() {
 
   const accounts = accountLockState.accounts || [];
   const matchedAcc = accounts.find(a => (a.email || '').toLowerCase() === toAccount.toLowerCase());
-  const toAccountName = matchedAcc && matchedAcc.name ? matchedAcc.name : toAccount;
+  const toAccountName = toAccount === '__BLOCK__'
+    ? '🚫 BLOCKED'
+    : (matchedAcc && matchedAcc.name ? matchedAcc.name : toAccount);
 
   if (!accountLockState.redirections) {
     accountLockState.redirections = [];

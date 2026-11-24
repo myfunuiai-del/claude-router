@@ -88,9 +88,23 @@ def dispatch_inference(handler, raw_body):
         orig_model = body_obj.get('model', 'unknown')
         body_obj = clean_history_tags(body_obj)
         body_obj = sanitize_anthropic_body(body_obj)
-        # Check and enforce account model binding if enabled
+        # Check and enforce account model binding / blocking if enabled
         try:
-            from account_model_lock import check_and_enforce_binding
+            from account_model_lock import check_and_enforce_binding, is_model_blocked
+            if is_model_blocked(orig_model):
+                err_payload = json.dumps({
+                    "type": "error",
+                    "error": {
+                        "type": "permission_error",
+                        "message": f"Blocked by C-Router Redirection Rule: Model '{orig_model}' is blocked from sending requests."
+                    }
+                }).encode('utf-8')
+                handler.send_response(403)
+                handler.send_header('Content-Type', 'application/json')
+                handler.send_header('Content-Length', str(len(err_payload)))
+                handler.end_headers()
+                handler.wfile.write(err_payload)
+                return
             check_and_enforce_binding(orig_model)
         except Exception:
             pass
