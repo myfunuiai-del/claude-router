@@ -925,7 +925,7 @@
   width: 34px;
   height: 48px;
   margin-left: -17px;
-  z-index: 950;
+  z-index: 2147483647;
   pointer-events: auto;
   cursor: pointer;
   will-change: transform;
