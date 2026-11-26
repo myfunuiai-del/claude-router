@@ -8,7 +8,11 @@ UI_URL="http://127.0.0.1:$PORT/ui"
 
 check_for_updates_cli() {
     python3 -c '
-import updater_release_api, sys
+import os, sys
+router_dir = os.path.expanduser("~/.gemini/claude-router")
+if router_dir not in sys.path:
+    sys.path.insert(0, router_dir)
+import updater_release_api
 info = updater_release_api.check_remote_version()
 print(f"Current version : {info.get(\"current_version\")}")
 print(f"Latest version  : {info.get(\"latest_version\")}")
