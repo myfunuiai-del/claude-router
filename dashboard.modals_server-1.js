@@ -292,28 +292,27 @@ function closeBackupModal() {
   if (modal) modal.classList.remove('active');
 }
 
-function exportConfigBackup() {
-  if (!currentConfig) {
-    showToast('Config not loaded yet', true);
-    return;
-  }
+async function exportConfigBackup() {
   const includeKeys = document.getElementById('backup-include-keys')?.checked !== false;
-  const clone = JSON.parse(JSON.stringify(currentConfig));
-  if (!includeKeys && clone.providers) {
-    Object.values(clone.providers).forEach(p => { p.keys = []; });
+  try {
+    const res = await fetch(`/api/ui/full-backup?include_keys=${includeKeys ? '1' : '0'}`);
+    if (!res.ok) throw new Error('Backup fetch failed');
+    const bundle = await res.json();
+    const jsonStr = JSON.stringify(bundle, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const dateStr = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `claude-router-full-backup-${dateStr}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast(includeKeys ? 'Full backup exported (with keys & accounts)' : 'Backup exported (without keys)');
+  } catch (err) {
+    showToast('Failed to export full backup', true);
   }
-  const jsonStr = JSON.stringify(clone, null, 2);
-  const blob = new Blob([jsonStr], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  const dateStr = new Date().toISOString().slice(0, 10);
-  a.href = url;
-  a.download = `claude-router-backup-${dateStr}.json`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  showToast(includeKeys ? 'Backup exported (with keys)' : 'Backup exported (without keys)');
 }
 
 function handleBackupFileSelect(e) {

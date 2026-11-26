@@ -151,6 +151,113 @@ def handle_commits_get(handler):
         handler.end_headers()
         handler.wfile.write(err)
 
+def handle_full_backup_get(handler):
+    try:
+        from urllib.parse import urlparse, parse_qs
+        qs = parse_qs(urlparse(handler.path).query)
+        include_keys = qs.get("include_keys", ["1"])[0] != "0"
+
+        cfg_path = os.path.join(ROUTER_DIR, "config.json")
+        cfg = {}
+        if os.path.exists(cfg_path):
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+        if not include_keys and isinstance(cfg.get("providers"), dict):
+            for p in cfg["providers"].values():
+                if isinstance(p, dict):
+                    p["keys"] = []
+
+        lock_path = os.path.join(ROUTER_DIR, "account_lock_state.json")
+        lock_state = {}
+        if os.path.exists(lock_path):
+            with open(lock_path, "r", encoding="utf-8") as f:
+                lock_state = json.load(f)
+
+        accounts = {}
+        if include_keys:
+            acc_dir = os.path.expanduser("~/.gemini/antigem-accounts")
+            if os.path.isdir(acc_dir):
+                for fname in sorted(os.listdir(acc_dir)):
+                    if fname.endswith(".json"):
+                        try:
+                            with open(os.path.join(acc_dir, fname), "r", encoding="utf-8") as f:
+                                accounts[fname] = json.load(f)
+                        except Exception:
+                            pass
+
+        bundle = {
+            "crouter_full_backup": True,
+            "version": get_current_version(),
+            "config": cfg,
+            "account_lock_state": lock_state,
+            "antigem_accounts": accounts,
+        }
+        resp = json.dumps(bundle, indent=2, ensure_ascii=False).encode("utf-8")
+        handler.send_response(200)
+        handler.send_header('Content-Type', 'application/json')
+        handler.send_header('Access-Control-Allow-Origin', '*')
+        handler.send_header('Content-Length', str(len(resp)))
+        handler.end_headers()
+        handler.wfile.write(resp)
+    except Exception as e:
+        handler.send_response(500)
+        handler.send_header('Content-Type', 'application/json')
+        handler.send_header('Access-Control-Allow-Origin', '*')
+        err = json.dumps({"status": "error", "message": str(e)}).encode("utf-8")
+        handler.send_header('Content-Length', str(len(err)))
+        handler.end_headers()
+        handler.wfile.write(err)
+
+def handle_full_restore_post(handler, raw_body):
+    if handler.path != "/api/ui/full-restore":
+        return False
+    try:
+        data = json.loads(raw_body.decode("utf-8"))
+        # Support both full-backup bundle and legacy config.json
+        if data.get("crouter_full_backup"):
+            cfg = data.get("config") or {}
+            lock_state = data.get("account_lock_state")
+            accounts = data.get("antigem_accounts") or {}
+        else:
+            cfg = data
+            lock_state = None
+            accounts = {}
+
+        cfg_path = os.path.join(ROUTER_DIR, "config.json")
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+
+        if isinstance(lock_state, dict) and lock_state:
+            lock_path = os.path.join(ROUTER_DIR, "account_lock_state.json")
+            with open(lock_path, "w", encoding="utf-8") as f:
+                json.dump(lock_state, f, indent=2, ensure_ascii=False)
+
+        if isinstance(accounts, dict) and accounts:
+            acc_dir = os.path.expanduser("~/.gemini/antigem-accounts")
+            os.makedirs(acc_dir, exist_ok=True)
+            for fname, acc_data in accounts.items():
+                if fname.endswith(".json") and "/" not in fname and "\\" not in fname:
+                    with open(os.path.join(acc_dir, fname), "w", encoding="utf-8") as f:
+                        json.dump(acc_data, f, indent=2, ensure_ascii=False)
+
+        resp = json.dumps({"status": "ok", "message": "Full backup restored successfully", "config": cfg}).encode("utf-8")
+        handler.send_response(200)
+        handler.send_header('Content-Type', 'application/json')
+        handler.send_header('Access-Control-Allow-Origin', '*')
+        handler.send_header('Content-Length', str(len(resp)))
+        handler.end_headers()
+        handler.wfile.write(resp)
+        return True
+    except Exception as e:
+        handler.send_response(500)
+        handler.send_header('Content-Type', 'application/json')
+        handler.send_header('Access-Control-Allow-Origin', '*')
+        err = json.dumps({"status": "error", "message": str(e)}).encode("utf-8")
+        handler.send_header('Content-Length', str(len(err)))
+        handler.end_headers()
+        handler.wfile.write(err)
+        return True
+
 def handle_version_check_get(handler):
     try:
         info = check_remote_version()

@@ -118,6 +118,8 @@ def handle_ui_post(handler, raw_body):
     import updater_release_api
     if updater_release_api.handle_update_post(handler, raw_body):
         return True
+    if updater_release_api.handle_full_restore_post(handler, raw_body):
+        return True
     if handle_fox_local_installer(handler, raw_body):
         return True
     if handle_fox_brain_post(handler, raw_body) or (hasattr(_fox_brain_mod, "handle_fox_brain_post_alias") and _fox_brain_mod.handle_fox_brain_post_alias(handler, raw_body)):
