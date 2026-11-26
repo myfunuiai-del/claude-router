@@ -919,17 +919,17 @@
    C-ROUTER #6 FOX-MECHA ROBOT (2-PART LIMBS + SHADOW + PHYSICS)
    ======================================================== */
 .crouter-bot {
-  position: absolute;
-  top: -33px;
+  position: fixed;
+  top: 0;
   left: 0;
   width: 34px;
   height: 48px;
   margin-left: -17px;
-  z-index: 6;
+  z-index: 950;
   pointer-events: auto;
   cursor: pointer;
   will-change: transform;
-  transform: translate3d(48px, 0, 0);
+  transform: translate3d(48px, calc(100vh - 93px), 0);
   -webkit-tap-highlight-color: transparent;
 }
 
