@@ -178,6 +178,68 @@ function closeUpdateModal() {
   if (modal) modal.style.display = 'none';
 }
 
+let commitHistoryPage = 1;
+let commitHistoryLoading = false;
+let commitHistoryHasMore = true;
+
+function setupCommitInfiniteScroll() {
+  const container = document.getElementById('commit-scroll-container');
+  if (!container) return;
+  container.onscroll = () => {
+    if (commitHistoryLoading || !commitHistoryHasMore) return;
+    if (container.scrollTop + container.clientHeight >= container.scrollHeight - 30) {
+      loadNextCommitsPage();
+    }
+  };
+}
+
+async function loadNextCommitsPage() {
+  if (commitHistoryLoading || !commitHistoryHasMore) return;
+  commitHistoryLoading = true;
+  const listEl = document.getElementById('commit-history-list');
+  const spinner = document.getElementById('commit-loading-indicator');
+  if (spinner) spinner.style.display = 'block';
+
+  try {
+    const res = await fetch(`/api/ui/commits?page=${commitHistoryPage}&per_page=8`);
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok' || !data.commits || data.commits.length === 0) {
+      commitHistoryHasMore = false;
+      if (spinner) {
+        spinner.textContent = 'End of commit history';
+        spinner.style.color = '#8b949e';
+      }
+      return;
+    }
+
+    commitHistoryPage++;
+    if (spinner) spinner.style.display = 'none';
+
+    data.commits.forEach(c => {
+      const item = document.createElement('div');
+      item.style.cssText = 'padding:7px 0; border-bottom:1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:flex-start; gap:8px; font-size:11.5px;';
+      const dateText = c.date ? new Date(c.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+      item.innerHTML = `
+        <div style="flex:1; min-width:0;">
+          <div style="color:#e6edf3; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${c.title || ''}">${c.title || 'Commit'}</div>
+          <div style="color:#8b949e; font-size:10px; margin-top:1px;">by ${c.author || 'dev'} ${dateText ? '• ' + dateText : ''}</div>
+        </div>
+        <a href="${c.url}" target="_blank" rel="noopener noreferrer" style="font-family:monospace; font-size:10.5px; color:#58a6ff; text-decoration:none; padding:2px 5px; border-radius:4px; background:rgba(56,139,253,0.1); border:1px solid rgba(56,139,253,0.25); flex-shrink:0;">
+          ${c.sha}
+        </a>
+      `;
+      if (listEl) listEl.appendChild(item);
+    });
+  } catch (err) {
+    if (spinner) {
+      spinner.textContent = 'Could not load older commits';
+      spinner.style.color = '#f85149';
+    }
+  } finally {
+    commitHistoryLoading = false;
+  }
+}
+
 async function checkAppUpdate(showModal = false) {
   const modal = document.getElementById('update-modal');
   const body = document.getElementById('update-modal-body');
@@ -205,14 +267,32 @@ async function checkAppUpdate(showModal = false) {
     }
 
     if (showModal && body && acts) {
+      commitHistoryPage = 1;
+      commitHistoryLoading = false;
+      commitHistoryHasMore = true;
+
+      const commitCardHtml = `
+        <div style="margin-top:12px; background:#0d1117; border:1px solid #30363d; border-radius:8px; overflow:hidden;">
+          <div style="padding:7px 10px; background:#161b22; border-bottom:1px solid #30363d; font-size:11px; font-weight:700; color:#8b949e; letter-spacing:0.3px; display:flex; justify-content:space-between; align-items:center;">
+            <span>📜 RECENT UPDATES & COMMITS</span>
+            <span style="font-size:10px; color:#58a6ff;">Scroll for more ↓</span>
+          </div>
+          <div id="commit-scroll-container" style="max-height:165px; overflow-y:auto; padding:0 10px;">
+            <div id="commit-history-list"></div>
+            <div id="commit-loading-indicator" style="padding:8px 0; text-align:center; font-size:11px; color:#58a6ff;">Loading commits...</div>
+          </div>
+        </div>
+      `;
+
       if (data.update_available) {
         body.innerHTML = `
-          <div style="background:rgba(56,139,253,0.1); border:1px solid rgba(56,139,253,0.3); border-radius:8px; padding:12px; margin-bottom:12px;">
+          <div style="background:rgba(56,139,253,0.1); border:1px solid rgba(56,139,253,0.3); border-radius:8px; padding:12px;">
             <div style="font-size:14px; font-weight:700; color:#58a6ff; margin-bottom:4px;">✨ New Version Available!</div>
             <div style="font-size:12px; color:#c9d1d9;">Installed: <code>${data.current_version}</code> ➔ Latest: <b style="color:#3fb950;">${data.latest_version}</b></div>
-            ${data.commit_msg ? `<div style="font-size:11.5px; color:#8b949e; margin-top:6px;">Latest Commit: <i>${data.commit_msg}</i></div>` : ''}
+            ${data.latest_commit ? `<div style="font-size:11.5px; color:#8b949e; margin-top:5px;">Latest Commit: <code>${data.latest_commit}</code></div>` : ''}
           </div>
-          <p style="font-size:12px; color:#8b949e; margin:0;">Updating will pull the latest code, keep your keys/configs untouched, and reload C-Router.</p>
+          ${commitCardHtml}
+          <p style="font-size:11.5px; color:#8b949e; margin:10px 0 0;">Updating will pull the latest code, keep your keys/configs untouched, and reload C-Router.</p>
         `;
         acts.innerHTML = `
           <button type="button" class="btn btn-xs" onclick="closeUpdateModal()">Later</button>
@@ -220,18 +300,22 @@ async function checkAppUpdate(showModal = false) {
         `;
       } else {
         body.innerHTML = `
-          <div style="background:rgba(35,134,54,0.1); border:1px solid rgba(46,160,67,0.3); border-radius:8px; padding:12px; margin-bottom:10px;">
+          <div style="background:rgba(35,134,54,0.1); border:1px solid rgba(46,160,67,0.3); border-radius:8px; padding:12px;">
             <div style="font-size:13.5px; font-weight:700; color:#3fb950; margin-bottom:4px;">✅ You are up to date!</div>
             <div style="font-size:12px; color:#c9d1d9;">Current Version: <b>${data.current_version}</b></div>
             ${data.latest_commit ? `<div style="font-size:11px; color:#8b949e; margin-top:4px;">Latest Commit: <code>${data.latest_commit}</code></div>` : ''}
           </div>
-          <p style="font-size:12px; color:#8b949e; margin:0;">You already have the newest version of C-Router. You can still reinstall/force-update anytime to refresh files.</p>
+          ${commitCardHtml}
+          <p style="font-size:11.5px; color:#8b949e; margin:10px 0 0;">You already have the newest version of C-Router. You can still reinstall/force-update anytime to refresh files.</p>
         `;
         acts.innerHTML = `
           <button type="button" class="btn btn-xs" onclick="closeUpdateModal()">Done</button>
           <button type="button" class="btn btn-xs" onclick="triggerUpdateApply(true)" title="Force sync latest files from GitHub" style="border-color:#388bfd; color:#58a6ff; background:rgba(56,139,253,0.1);">🔄 Force Update / Refresh</button>
         `;
       }
+
+      setupCommitInfiniteScroll();
+      loadNextCommitsPage();
     }
   } catch (err) {
     if (showModal && body) {

@@ -67,6 +67,10 @@ def handle_GET(handler):
         import updater_release_api
         updater_release_api.handle_version_check_get(handler)
         return
+    if clean_p == "/api/ui/commits":
+        import updater_release_api
+        updater_release_api.handle_commits_get(handler)
+        return
     if (clean_p.startswith('/dashboard.') or clean_p == '/account_lock_ui.js') and (clean_p.endswith('.js') or clean_p.endswith('.css')):
         filename = clean_p.lstrip('/')
         filepath = os.path.join(os.path.dirname(__file__), filename)

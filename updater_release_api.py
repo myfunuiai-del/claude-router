@@ -96,6 +96,61 @@ def check_remote_version():
         "update_available": update_available
     }
 
+def fetch_github_commits(page=1, per_page=10):
+    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/commits?page={page}&per_page={per_page}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Claude-Router-Updater"})
+        with urllib.request.urlopen(req, timeout=5) as r:
+            if r.status == 200:
+                raw_commits = json.load(r)
+                result = []
+                for item in raw_commits:
+                    sha = (item.get("sha") or "")[:7]
+                    commit_obj = item.get("commit", {})
+                    msg = commit_obj.get("message") or ""
+                    first_line = msg.split("\n")[0]
+                    author_name = commit_obj.get("author", {}).get("name") or "myfunuiai"
+                    date_str = commit_obj.get("author", {}).get("date") or ""
+                    html_url = item.get("html_url") or f"https://github.com/{REPO_OWNER}/{REPO_NAME}/commit/{sha}"
+                    result.append({
+                        "sha": sha,
+                        "title": first_line,
+                        "author": author_name,
+                        "date": date_str,
+                        "url": html_url
+                    })
+                return True, result
+    except Exception as e:
+        return False, str(e)
+    return False, "Failed to fetch commits"
+
+def handle_commits_get(handler):
+    try:
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(handler.path)
+        qs = parse_qs(parsed.query)
+        page = int(qs.get("page", ["1"])[0])
+        per_page = int(qs.get("per_page", ["8"])[0])
+        ok, data = fetch_github_commits(page=page, per_page=per_page)
+        if ok:
+            resp = json.dumps({"status": "ok", "page": page, "commits": data}).encode("utf-8")
+        else:
+            resp = json.dumps({"status": "error", "message": data, "commits": []}).encode("utf-8")
+        handler.send_response(200)
+        handler.send_header('Content-Type', 'application/json')
+        handler.send_header('Access-Control-Allow-Origin', '*')
+        handler.send_header('Content-Length', str(len(resp)))
+        handler.end_headers()
+        handler.wfile.write(resp)
+    except Exception as e:
+        handler.send_response(500)
+        handler.send_header('Content-Type', 'application/json')
+        handler.send_header('Access-Control-Allow-Origin', '*')
+        err = json.dumps({"status": "error", "message": str(e)}).encode("utf-8")
+        handler.send_header('Content-Length', str(len(err)))
+        handler.end_headers()
+        handler.wfile.write(err)
+
 def handle_version_check_get(handler):
     try:
         info = check_remote_version()
