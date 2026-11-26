@@ -173,6 +173,106 @@ async function toggleAutoStart() {
   }
 }
 
+function closeUpdateModal() {
+  const modal = document.getElementById('update-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function checkAppUpdate(showModal = false) {
+  const modal = document.getElementById('update-modal');
+  const body = document.getElementById('update-modal-body');
+  const acts = document.getElementById('update-modal-actions');
+  const tag = document.getElementById('drawer-version-tag');
+
+  if (showModal && modal) {
+    modal.style.display = 'flex';
+    if (body) body.innerHTML = '<div style="padding:14px 0;text-align:center;color:#8b949e;">📡 Connecting to GitHub to check updates...</div>';
+    if (acts) acts.innerHTML = '<button type="button" class="btn btn-xs" onclick="closeUpdateModal()">Cancel</button>';
+  }
+
+  try {
+    const res = await fetch('/api/ui/version-check');
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') {
+      if (showModal && body) {
+        body.innerHTML = `<div style="color:#f85149;">❌ Failed to check updates: ${data.message || 'Unknown error'}</div>`;
+      }
+      return;
+    }
+
+    if (tag && data.current_version) {
+      tag.textContent = data.current_version;
+    }
+
+    if (showModal && body && acts) {
+      if (data.update_available) {
+        body.innerHTML = `
+          <div style="background:rgba(56,139,253,0.1); border:1px solid rgba(56,139,253,0.3); border-radius:8px; padding:12px; margin-bottom:12px;">
+            <div style="font-size:14px; font-weight:700; color:#58a6ff; margin-bottom:4px;">✨ New Version Available!</div>
+            <div style="font-size:12px; color:#c9d1d9;">Installed: <code>${data.current_version}</code> ➔ Latest: <b style="color:#3fb950;">${data.latest_version}</b></div>
+            ${data.commit_msg ? `<div style="font-size:11.5px; color:#8b949e; margin-top:6px;">Latest Commit: <i>${data.commit_msg}</i></div>` : ''}
+          </div>
+          <p style="font-size:12px; color:#8b949e; margin:0;">Updating will pull the latest code, keep your keys/configs untouched, and reload C-Router.</p>
+        `;
+        acts.innerHTML = `
+          <button type="button" class="btn btn-xs" onclick="closeUpdateModal()">Later</button>
+          <button type="button" class="btn btn-xs btn-primary" onclick="triggerUpdateApply(false)" style="background:#238636; border-color:#2ea043; font-weight:700;">⚡ Update Now</button>
+        `;
+      } else {
+        body.innerHTML = `
+          <div style="background:rgba(35,134,54,0.1); border:1px solid rgba(46,160,67,0.3); border-radius:8px; padding:12px; margin-bottom:10px;">
+            <div style="font-size:13.5px; font-weight:700; color:#3fb950; margin-bottom:4px;">✅ You are up to date!</div>
+            <div style="font-size:12px; color:#c9d1d9;">Current Version: <b>${data.current_version}</b></div>
+            ${data.latest_commit ? `<div style="font-size:11px; color:#8b949e; margin-top:4px;">Latest Commit: <code>${data.latest_commit}</code></div>` : ''}
+          </div>
+          <p style="font-size:12px; color:#8b949e; margin:0;">You already have the newest version of C-Router. You can still reinstall/force-update anytime to refresh files.</p>
+        `;
+        acts.innerHTML = `
+          <button type="button" class="btn btn-xs" onclick="closeUpdateModal()">Done</button>
+          <button type="button" class="btn btn-xs" onclick="triggerUpdateApply(true)" title="Force sync latest files from GitHub" style="border-color:#388bfd; color:#58a6ff; background:rgba(56,139,253,0.1);">🔄 Force Update / Refresh</button>
+        `;
+      }
+    }
+  } catch (err) {
+    if (showModal && body) {
+      body.innerHTML = `<div style="color:#f85149;">❌ Network error checking updates: ${err.message}</div>`;
+    }
+  }
+}
+
+async function triggerUpdateApply(force = false) {
+  const body = document.getElementById('update-modal-body');
+  const acts = document.getElementById('update-modal-actions');
+  if (body) {
+    body.innerHTML = '<div style="padding:14px 0;text-align:center;color:#58a6ff;"><div style="font-size:24px;margin-bottom:6px;">⚡</div>Downloading and applying update from GitHub...<br><span style="font-size:11px;color:#8b949e;">Your keys and configs are preserved safely.</span></div>';
+  }
+  if (acts) acts.innerHTML = '';
+
+  try {
+    const res = await fetch('/api/ui/update-apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ force })
+    });
+    const data = await res.json();
+    if (!res.ok || data.status !== 'ok') {
+      if (body) body.innerHTML = `<div style="color:#f85149;">❌ Update failed: ${data.message || 'Unknown error'}</div>`;
+      if (acts) acts.innerHTML = '<button type="button" class="btn btn-xs" onclick="closeUpdateModal()">Close</button>';
+      return;
+    }
+
+    if (body) {
+      body.innerHTML = '<div style="padding:14px 0;text-align:center;color:#3fb950;"><div style="font-size:28px;margin-bottom:6px;">🎉</div><b>Update applied successfully!</b><br><span style="font-size:12px;color:#c9d1d9;">Restarting C-Router gateway... reloading page in 2s.</span></div>';
+    }
+    setTimeout(() => {
+      window.location.reload();
+    }, 2500);
+  } catch (err) {
+    if (body) body.innerHTML = `<div style="color:#f85149;">❌ Error applying update: ${err.message}</div>`;
+    if (acts) acts.innerHTML = '<button type="button" class="btn btn-xs" onclick="closeUpdateModal()">Close</button>';
+  }
+}
+
 function openUninstallModal() {
   const modal = document.getElementById('uninstall-modal');
   const step1 = document.getElementById('uninstall-step-1');

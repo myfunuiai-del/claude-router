@@ -6,6 +6,74 @@ PORT=8999
 STATUS_URL="http://127.0.0.1:$PORT/status"
 UI_URL="http://127.0.0.1:$PORT/ui"
 
+check_for_updates_cli() {
+    python3 -c '
+import updater_release_api, sys
+info = updater_release_api.check_remote_version()
+print(f"Current version : {info.get(\"current_version\")}")
+print(f"Latest version  : {info.get(\"latest_version\")}")
+if info.get("update_available"):
+    print("✨ New update available! Run: crouter update")
+else:
+    print("✅ C-Router is up to date. You can run: crouter update --force to refresh.")
+' 2>/dev/null || echo "[Claude Router] Could not check updates."
+}
+
+apply_update_cli() {
+    local force="$1"
+    echo "[Claude Router] Checking and applying updates from GitHub..."
+    if [ -d "$ROUTER_DIR/.git" ]; then
+        git -C "$ROUTER_DIR" config --global --add safe.directory "$ROUTER_DIR" 2>/dev/null || true
+        git -C "$ROUTER_DIR" fetch origin main
+        git -C "$ROUTER_DIR" reset --hard origin/main || git -C "$ROUTER_DIR" pull --rebase origin main
+    else
+        local tmp_dir="/data/user/0/ai.antigem/files/usr/tmp/crouter_up_$$"
+        rm -rf "$tmp_dir"
+        git clone --depth 1 "https://github.com/myfunuiai-del/claude-router.git" "$tmp_dir"
+        if [ -d "$tmp_dir" ]; then
+            rsync -a --exclude="config.json" --exclude="*.log" --exclude="*.db" "$tmp_dir"/ "$ROUTER_DIR"/ 2>/dev/null || \
+            cp -a "$tmp_dir"/* "$ROUTER_DIR"/ 2>/dev/null || true
+            rm -rf "$tmp_dir"
+        fi
+    fi
+    chmod +x "$ROUTER_DIR/crouter" "$ROUTER_DIR/install.sh" 2>/dev/null || true
+    echo "[Claude Router] Update downloaded! Restarting service..."
+    stop_router >/dev/null 2>&1 || true
+    start_router
+    echo "[Claude Router] Updated successfully!"
+}
+
+publish_release_cli() {
+    local tag="$1"
+    local msg="$2"
+    if [ -z "$tag" ]; then
+        echo "Usage: crouter release <tag_name> [release_notes]"
+        echo "Example: crouter release v2.1.0 'Initial v2.1.0 release with auto-start & updater'"
+        return 1
+    fi
+    [ -z "$msg" ] && msg="Release $tag"
+
+    echo "[Claude Router] Preparing release $tag..."
+    local repo_dir="$HOME/storage/downloads/AntiGem/crouter-workspace"
+    [ ! -d "$repo_dir" ] && repo_dir="$ROUTER_DIR"
+
+    echo "$tag" > "$ROUTER_DIR/VERSION" 2>/dev/null || true
+    [ -d "$repo_dir" ] && echo "$tag" > "$repo_dir/VERSION" 2>/dev/null || true
+
+    if command -v gh >/dev/null 2>&1; then
+        echo "[Claude Router] Creating GitHub Release using gh CLI..."
+        cd "$repo_dir" 2>/dev/null || cd "$ROUTER_DIR"
+        git add -A 2>/dev/null || true
+        git commit -m "chore(release): bump to $tag" 2>/dev/null || true
+        git tag -a "$tag" -m "$msg" 2>/dev/null || true
+        git push origin main --tags 2>/dev/null || git push origin main 2>/dev/null || true
+        gh release create "$tag" --title "$tag" --notes "$msg" --repo "myfunuiai-del/claude-router" || true
+        echo "✅ Release $tag published successfully to GitHub!"
+    else
+        echo "❌ gh CLI is not available. Please install gh or tag manually."
+    fi
+}
+
 get_autostart_setting() {
     python3 -c '
 import json, os
@@ -403,11 +471,20 @@ case "$1" in
                 ;;
         esac
         ;;
+    check-update)
+        check_for_updates_cli
+        ;;
+    update)
+        apply_update_cli "$2"
+        ;;
+    release)
+        publish_release_cli "$2" "$3"
+        ;;
     uninstall)
         uninstall_router
         ;;
     *)
-        echo "Usage: croute/crouter {start|stop|restart|status|ui|autostart|uninstall}"
+        echo "Usage: croute/crouter {start|stop|restart|status|ui|autostart|check-update|update|release|uninstall}"
         echo "       Default action checks status, starts if offline and opens dashboard."
         if ! is_running; then
             start_router

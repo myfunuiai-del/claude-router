@@ -115,6 +115,9 @@ def sync_autostart_bashrc(enabled):
 
 def handle_ui_post(handler, raw_body):
     """Handle UI dashboard API POST requests. Returns True if handled, False otherwise."""
+    import updater_release_api
+    if updater_release_api.handle_update_post(handler, raw_body):
+        return True
     if handle_fox_local_installer(handler, raw_body):
         return True
     if handle_fox_brain_post(handler, raw_body) or (hasattr(_fox_brain_mod, "handle_fox_brain_post_alias") and _fox_brain_mod.handle_fox_brain_post_alias(handler, raw_body)):
