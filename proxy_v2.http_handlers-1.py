@@ -118,6 +118,14 @@ def handle_GET(handler):
         handler.wfile.write(data)
         return
 
+    if req_clean_path.startswith('/api/fox/'):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('fox_brain', os.path.join(os.path.dirname(__file__), 'proxy_v2.fox_brain-1.py'))
+        fb = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fb)
+        if hasattr(fb, 'handle_fox_brain_get') and fb.handle_fox_brain_get(handler):
+            return
+
     if req_clean_path == "/api/ui/live":
         snap = get_live_snapshot()
         payload = json.dumps(snap, ensure_ascii=False).encode('utf-8')

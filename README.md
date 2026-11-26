@@ -23,6 +23,29 @@ It consolidates multiple AI providers (Google AI Studio, Groq, Mistral, OpenRout
 
 ---
 
+## 📱 Mobile Web Console Preview
+
+<div align="center">
+  <table>
+    <tr>
+      <td align="center" width="33%">
+        <img src="./assets/screenshots/dashboard-pipelines.jpg" alt="Mobile Pipelines Dashboard" width="240" /><br/>
+        <b>⚡ Routed Pipelines & Mascot</b>
+      </td>
+      <td align="center" width="33%">
+        <img src="./assets/screenshots/account-binding.jpg" alt="Account Model Binding" width="240" /><br/>
+        <b>🔒 Account-Model Binding</b>
+      </td>
+      <td align="center" width="33%">
+        <img src="./assets/screenshots/model-redirection.jpg" alt="Model Redirection Profiles" width="240" /><br/>
+        <b>🔀 Redirection Profiles</b>
+      </td>
+    </tr>
+  </table>
+</div>
+
+---
+
 ## 🛠️ Built With / Tech Stack
 
 Claude Router is crafted with a strict **zero external dependency** standard to ensure instant execution across low-resource mobile environments (Android Termux) and modern Linux servers:
@@ -72,7 +95,34 @@ When a long chat hits an upstream firewall/WAF or payload-size block (**HTTP `40
 - **`HTTP 429` (Rate Limit / Daily Quota):** Placed on a **3-minute** cooldown (or **30-minute** cooldown if daily quota exhaustion is detected).
 - **`HTTP 402` (Payment Required / Paid Model):** Only that specific **`(key + model)`** pair is placed on a **5-minute** cooldown.
 
-### 6. 🎨 Bundled Skills & Image Generation Policy Auto-Setup
+### 6. 📱 Mobile-First Gateway UI, Fox-Mecha Mascot & Offline Local Brain
+- **Touch-Optimized Mobile Architecture:** Curved sticky bottom navigation bar (`Routes`, `Stats`, futuristic **Gateway Core SVG** radial FAB, `Teams`, `Quotas`), swipeable horizontal lane pills, slide-out quick-settings drawer, and full **Android hardware Back button** support for closing modals/sheets/drawers.
+- **Custom Dark Bottom-Sheet Pickers & In-UI Modals:** Replaces native browser dropdowns, `prompt()`, and `confirm()` dialogs with sleek dark-mode bottom sheets and action modals.
+- **Interactive Origami Fox-Mecha Mascot & Gravity Physics:**
+  - **Dynamic 2-Part Limbs & Expressions:** Articulated arms, elbows, thighs, shins, and expressive ears with front, side, and back SVG angles.
+  - **Free Touch & Pointer Dragging:** Drag Fox anywhere across the viewport on mobile touch or desktop pointer. Real-time inertia physics tilt his body and realistically swing his limbs and ears left, right, up, and down according to movement velocity.
+  - **Zero-G Float & Wiggle Pose:** Releasing Fox high in the air triggers a ~1-second weightless float where he lies back horizontally and wiggles arms and legs in mid-air.
+  - **Lower Catch-Altitude Jetpack Ignition:** When falling, his back-mounted twin thrusters ignite at the catch altitude with animated flames and sparks, performing gentle lateral stabilization sways.
+  - **Multi-Stage Controlled Descent & Active-Tab Landing:** Descends with progressive acceleration, engages high-thrust reverse braking right above the active bottom tab, touches down softly on foot, stands up, and settles into his signature sitting ledge pose.
+  - **Low-Drop Graceful Walk:** Releasing Fox near the bottom bar avoids unnecessary jetpack flight—he lands directly on foot and casually walks back to the active tab.
+  - **Cursor Follower:** Walks to focused text boxes on desktop/mobile input fields, taps foot impatiently when idle, and walks back when text is cleared.
+- **🦊 Fox-Mecha AI Persona (Online & On-Demand Local LoRA Engine):**
+  - **Online Mode:** Connects to free cloud providers (Google AI Studio, Groq) with intelligent system prompts, dynamic tool action generation, micro-motions, and persistent memory.
+  - **Offline Local LoRA Engine:** Bundled with a custom fine-tuned **`fox_lora.gguf`** (8.3 MB) adapter. On-demand one-click download for base `Qwen2.5-0.5B` (~320 MB) directly from the Web Console settings card.
+  - **Safe Remove & 10-Second Undo:** Easily delete the downloaded local base model file anytime with in-UI confirmation and an interactive 10-second countdown Undo toast.
+
+### 7. 🔑 Full In-Card API Key Management
+- **Key Labeling & Naming:** Assign custom names (e.g., `Personal`, `Work`, `Model 1`) during key entry or rename existing keys directly in-card with instant modal editing.
+- **Compact & Clean 2-Line Row Layout:** Displays key index, custom name badge, masked token, and real-time latency ping on the top row, paired with convenient action buttons below (`👁️ Show`, `📋 Copy`, `⚡ Test`, `✏️ Name`, `▲` / `▼` Priority Reorder, `✕` Revoke).
+- **Persistent Card Expansion:** Full in-card actions (reordering, renaming, pinging) preserve card open state without collapsing.
+- **Scrollable Key Container:** Fixed max-height key section with smooth vertical scrolling keeps server cards tidy even with large key pools.
+
+### 7. 🔒 Account-Model Binding & Model Redirection Profiles
+- **Auto-Detect Local Accounts:** Automatically detects configured AntiGem Google accounts without hardcoding personal credentials.
+- **Model-to-Account Binding:** Bind specific model families to dedicated Google accounts with automatic background token switching.
+- **Redirection Profiles (+Add / Edit / Delete + 10s Undo):** Map any trigger model to a target account profile with custom in-UI dark modals, confirmation dialogs, 10-second live Undo bar, and **Switch-Only (0 Quota)** proxy handling.
+
+### 8. 🎨 Bundled Skills & Image Generation Policy Auto-Setup
 - **Auto-Sync `svg-generator` Skill:** When `crouter` runs, it automatically provisions the `svg-generator` skill into `~/.claude/skills/` and `~/.gemini/config/skills/`.
 - **Image Generation Policy:** Automatically sets the policy across `~/.antigem/memory/global/` and `~/.claude/CLAUDE.md`:
   - Disallows `pollinations.ai`.

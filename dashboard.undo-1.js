@@ -138,6 +138,27 @@ function startTeamDeletion(teamId) {
   showUndoToast(`Deleted team '${teamName}'`);
 }
 
+function startLocalBrainDeletion() {
+  if (pendingDeletion) commitPendingDeletion();
+
+  pendingDeletion = {
+    type: 'fox_local_brain',
+    name: 'Qwen2.5-0.5B Local Brain'
+  };
+
+  // Immediate UI feedback: switch badge and check status
+  const badge = document.getElementById('fox-brain-badge');
+  if (badge) badge.innerText = 'Online';
+  const tag = document.getElementById('fox-local-engine-tag');
+  if (tag) { tag.innerText = 'Removing in 10s...'; tag.style.color = '#f85149'; }
+  const btn = document.getElementById('btn-start-local-download');
+  if (btn) { btn.innerText = '⚡ Download & Setup Local Brain'; btn.disabled = true; }
+  const btnRemove = document.getElementById('btn-remove-local-brain');
+  if (btnRemove) { btnRemove.style.display = 'none'; }
+
+  showUndoToast(`Removed 'Qwen2.5-0.5B Local Brain'`);
+}
+
 function showUndoToast(msg) {
   const toast = document.getElementById('undo-toast');
   const msgEl = document.getElementById('undo-toast-msg');
@@ -228,6 +249,11 @@ function triggerUndoAction() {
     currentConfig.multi_agent_teams[item.teamId] = item.data;
     renderTeamsLane();
     showToast(`↺ Restored Team '${item.name}'`);
+  } else if (item.type === 'fox_local_brain') {
+    showToast(`↺ Restored 'Qwen2.5-0.5B Local Brain'`);
+    if (typeof checkLocalEngineStatus === 'function') {
+      checkLocalEngineStatus();
+    }
   }
 }
 
@@ -253,10 +279,19 @@ async function commitPendingDeletion() {
       url = '/api/ui/multi-agent-teams';
       method = 'POST';
       body = { action: 'delete', id: item.teamId };
+    } else if (item.type === 'fox_local_brain') {
+      url = '/api/ui/fox-local/remove';
+      method = 'POST';
+      body = {};
     }
     const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const data = await res.json();
     if (res.ok) {
+      if (item.type === 'fox_local_brain') {
+        if (typeof checkLocalEngineStatus === 'function') checkLocalEngineStatus();
+        showToast('Local brain model removed successfully');
+        return;
+      }
       currentConfig = data.config;
       renderLanes();
       if (item.type === 'server') renderDropdown();

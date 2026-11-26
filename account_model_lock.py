@@ -14,24 +14,22 @@ STATE_FILE = os.path.expanduser("~/.gemini/claude-router/account_lock_state.json
 ACCOUNTS_DIR = os.path.expanduser("~/.gemini/antigem-accounts")
 LIVE_TOKEN_FILE = os.path.expanduser("~/.gemini/jetski-standalone-oauth-token")
 
-DEFAULT_ACCOUNTS = [
-    {
-        "id": "acc_1",
-        "name": "Work Pro",
-        "email": "aiflowtoolz@gmail.com",
-        "models": ["Gemini 3.8 Flash"]
-    },
-    {
-        "id": "acc_2",
-        "name": "Personal Account",
-        "email": "myfunuiai@gmail.com",
-        "models": []
-    }
-]
+def _build_default_accounts():
+    """Auto-detect available AntiGem accounts on this device instead of hardcoding."""
+    detected = list_available_accounts()
+    accounts = []
+    for idx, email in enumerate(detected, start=1):
+        accounts.append({
+            "id": f"acc_{idx}",
+            "name": f"Account {idx}",
+            "email": email,
+            "models": []
+        })
+    return accounts
 
 def load_state():
     if not os.path.exists(STATE_FILE):
-        st = {"enabled": False, "accounts": DEFAULT_ACCOUNTS, "redirections": []}
+        st = {"enabled": False, "accounts": _build_default_accounts(), "redirections": []}
         save_state(st)
         return st
     try:
@@ -40,12 +38,12 @@ def load_state():
             if "enabled" not in data:
                 data["enabled"] = False
             if "accounts" not in data:
-                data["accounts"] = DEFAULT_ACCOUNTS
+                data["accounts"] = _build_default_accounts()
             if "redirections" not in data:
                 data["redirections"] = []
             return data
     except Exception:
-        return {"enabled": False, "accounts": DEFAULT_ACCOUNTS, "redirections": []}
+        return {"enabled": False, "accounts": _build_default_accounts(), "redirections": []}
 
 def save_state(state):
     try:
@@ -150,14 +148,14 @@ def resolve_effective_model(model_name, state=None):
     
     # Pass 1: Exact / case-insensitive check
     for r in state.get("redirections", []):
-        if r.get("enabled", True):
+        if r.get("enabled", True) and r.get("to_model"):
             from_m = (r.get("from_model") or "").strip().lower()
             if from_m == req_clean:
                 return r.get("to_model"), True
 
     # Pass 2: Family normalized check
     for r in state.get("redirections", []):
-        if r.get("enabled", True):
+        if r.get("enabled", True) and r.get("to_model"):
             if normalize_model_family(r.get("from_model")) == norm_req:
                 return r.get("to_model"), True
 
@@ -221,6 +219,45 @@ def switch_to_account(target_email):
     except Exception as e:
         return False, f"Failed to switch account: {e}"
 
+def handle_redirection_switch_only(requested_model, state=None):
+    """
+    If an active Redirection rule matches requested_model, switches the active
+    Google account immediately and signals the proxy to halt the request (0 quota).
+    Returns: (matched: bool, account_name: str, account_email: str, status_msg: str)
+    """
+    if state is None:
+        state = load_state()
+    if not state.get("enabled", False):
+        return False, "", "", ""
+    if state.get("redirections_enabled", True) is False:
+        return False, "", "", ""
+
+    req_clean = requested_model.strip().lower() if requested_model else ""
+    fam = normalize_model_family(requested_model)
+    matched_rule = None
+
+    for r in state.get("redirections", []):
+        if r.get("enabled", True) and r.get("to_account") and r.get("to_account") != "__BLOCK__":
+            from_m = (r.get("from_model") or "").strip().lower()
+            if from_m == req_clean:
+                matched_rule = r
+                break
+
+    if not matched_rule:
+        for r in state.get("redirections", []):
+            if r.get("enabled", True) and r.get("to_account") and r.get("to_account") != "__BLOCK__":
+                if normalize_model_family(r.get("from_model")) == fam:
+                    matched_rule = r
+                    break
+
+    if not matched_rule:
+        return False, "", "", ""
+
+    target_email = matched_rule.get("to_account", "")
+    target_name = matched_rule.get("to_account_name") or target_email
+    ok, msg = switch_to_account(target_email)
+    return True, target_name, target_email, msg
+
 def check_and_enforce_binding(requested_model):
     state = load_state()
     if not state.get("enabled", False):
@@ -237,6 +274,8 @@ def check_and_enforce_binding(requested_model):
         
     if not target_email:
         return False, f"No bound account for model '{requested_model}' (effective: '{eff_model}')"
+    if target_email == "__BLOCK__":
+        return False, f"BLOCKED: Model '{requested_model}' is blocked by Redirection rule"
     
     swapped, msg = switch_to_account(target_email)
     if redirected:

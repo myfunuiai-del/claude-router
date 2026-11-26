@@ -96,6 +96,13 @@ class UniversalProxyHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         content_length = int(self.headers.get('Content-Length', 0))
         raw_body = self.rfile.read(content_length)
+        if self.path in ('/api/fox/chat', '/api/ui/fox-brain', '/api/fox/mode', '/api/ui/fox-local/set-mode', '/api/ui/fox-local/status', '/api/ui/fox-local/start-install'):
+            import importlib.util
+            spec = importlib.util.spec_from_file_location('fox_brain', os.path.join(os.path.dirname(__file__), 'proxy_v2.fox_brain-1.py'))
+            fb = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(fb)
+            if fb.handle_fox_brain_post(self, raw_body):
+                return
         if handle_ui_post(self, raw_body):
             return
         dispatch_inference(self, raw_body)
