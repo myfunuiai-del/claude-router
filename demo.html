@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#090d13">
+  <title>C-Router &bull; Modern UI Demo</title>
+  <link rel="stylesheet" href="/dashboard.styles-1.css">
+  <link rel="stylesheet" href="/dashboard.usage-1.css">
+  <style>
+    /* Demo Enhancements & Mobile Navigation Bar */
+    :root {
+      --bottom-nav-height: 58px;
+    }
+    body {
+      padding-bottom: calc(var(--bottom-nav-height) + 20px) !important;
+    }
+    .demo-banner {
+      background: linear-gradient(90deg, #1f6feb22 0%, #23863622 100%);
+      border: 1px solid #1f6feb55;
+      border-radius: 8px;
+      padding: 8px 12px;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11.5px;
+    }
+    .demo-tag {
+      background: #1f6feb;
+      color: #fff;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-size: 10px;
+      letter-spacing: 0.5px;
+    }
+
+    /* Fixed Bottom Navigation Bar for Mobile */
+    .mobile-bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: var(--bottom-nav-height);
+      background: rgba(13, 17, 23, 0.96);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-top: 1px solid #30363d;
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      z-index: 1000;
+      padding: 0 4px;
+      box-shadow: 0 -4px 20px rgba(0,0,0,0.5);
+    }
+    .nav-tab-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      flex: 1;
+      height: 100%;
+      background: transparent;
+      border: none;
+      color: #8b949e;
+      font-size: 10.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: color 0.15s ease;
+      touch-action: manipulation;
+    }
+    .nav-tab-item .nav-icon {
+      font-size: 16px;
+      line-height: 1;
+    }
+    .nav-tab-item.active {
+      color: #58a6ff;
+    }
+    .nav-tab-item.active .nav-icon {
+      filter: drop-shadow(0 0 6px rgba(88, 166, 255, 0.6));
+    }
+    .nav-badge {
+      position: absolute;
+      top: 6px;
+      right: calc(50% - 16px);
+      background: #238636;
+      color: #fff;
+      font-size: 9px;
+      padding: 0 4px;
+      border-radius: 8px;
+      font-weight: 700;
+    }
+
+    /* Section Sub-Views for Navigation Switching */
+    .demo-section-view {
+      display: block;
+      animation: fadeIn 0.15s ease-in-out;
+    }
+    .demo-section-view.hidden {
+      display: none !important;
+    }
+
+    /* Quick Filter Chips */
+    .filter-chips-row {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      padding: 4px 0 10px 0;
+      margin-bottom: 8px;
+      scrollbar-width: none;
+    }
+    .filter-chips-row::-webkit-scrollbar { display: none; }
+    .filter-chip {
+      background: #161b22;
+      border: 1px solid #30363d;
+      color: #c9d1d9;
+      padding: 4px 10px;
+      border-radius: 16px;
+      font-size: 11px;
+      font-weight: 500;
+      white-space: nowrap;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .filter-chip.active {
+      background: #1f6feb;
+      border-color: #388bfd;
+      color: #fff;
+    }
+
+    /* Search Bar in Header */
+    .quick-search-box {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+      color: #e6edf3;
+      width: 100%;
+      margin-bottom: 10px;
+      outline: none;
+    }
+    .quick-search-box:focus {
+      border-color: #388bfd;
+    }
+
+    /* Floating Action Button (Quick Add) */
+    .fab-add {
+      position: fixed;
+      bottom: calc(var(--bottom-nav-height) + 16px);
+      right: 16px;
+      background: linear-gradient(135deg, #238636 0%, #2ea043 100%);
+      color: #fff;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+      border: none;
+      cursor: pointer;
+      z-index: 999;
+      transition: transform 0.15s ease;
+    }
+    .fab-add:active {
+      transform: scale(0.92);
+    }
+  </style>
+</head>
+<body>
+  <div class="console-wrapper">
+    
+    <!-- Demo Preview Banner -->
+    <div class="demo-banner">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span class="demo-tag">DEMO UI</span>
+        <span style="color:#e6edf3;"><strong>Frontend Demo:</strong> নতুন Navigation Bar ও সেকশন সুইচিং</span>
+      </div>
+      <a href="/ui" style="color:#58a6ff; text-decoration:none; font-weight:600; font-size:11px;">&larr; Original UI</a>
+    </div>
+
+    <!-- Header -->
+    <header class="top-header">
+      <div class="brand-title">
+        <span class="brand-dot"></span>
+        <span>GATEWAY CONSOLE</span>
+        <span class="route-pill">DEMO PREVIEW</span>
+      </div>
+      <div class="top-header-actions">
+        <button class="btn btn-xs btn-primary" onclick="openTeamModal()" style="background:#8957e5; border-color:#a371f7;">+ Team</button>
+        <button class="btn btn-xs" onclick="openLogsModal()" title="View live proxy logs">Logs</button>
+        <button class="btn btn-xs btn-primary" onclick="openServerModal()">+ Server</button>
+      </div>
+    </header>
+
+    <!-- Top Main Tab Bar (Console / Live / Usage) -->
+    <div class="main-tab-bar" role="tablist">
+      <button type="button" class="main-tab active" id="tab-btn-console" onclick="switchMainTab('console')"><span>⚙ Console</span></button>
+      <button type="button" class="main-tab" id="tab-btn-live" onclick="switchMainTab('live')">
+        <span class="live-pulse-dot" id="live-tab-dot"></span><span>Live Monitor</span><span class="tab-issue-badge" id="tab-issue-badge" style="display:none;">0</span>
+      </button>
+      <button type="button" class="main-tab" id="tab-btn-usage" onclick="switchMainTab('usage')"><span>📊 Usage &amp; Quotas</span></button>
+    </div>
+
+    <!-- VIEW 1: CONSOLE -->
+    <div id="view-console">
+      
+      <!-- Stat Bar -->
+      <div class="live-route-bar">
+        <div class="live-meta">
+          <div class="meta-item"><span style="color:var(--text-muted)">Active Route:</span> <span class="meta-val" id="active-server">Coarena</span></div>
+          <div class="meta-item"><span style="color:var(--text-muted)">Model:</span> <span class="meta-val" id="active-model">gemini-4-carbon</span></div>
+          <div class="meta-item"><span style="color:var(--text-muted)">Account:</span> <span style="font-family:var(--mono);" id="active-account">#1</span></div>
+          <div class="meta-item" id="active-meter-wrap" style="display:none;"><span class="speed-meter-pill" id="active-speed-meter">—</span></div>
+        </div>
+        <div class="live-route-actions">
+          <button type="button" class="power-toggle is-on" id="recovery-toggle-btn" title="5-stage Auto History Recovery on 400/403/413" onclick="toggleAutoRecovery()"><span class="power-dot"></span><span class="power-label">Recovery: ON</span></button>
+          <button type="button" class="power-toggle is-on" id="signature-toggle-btn" title="Append server & model name footer" onclick="toggleModelSignature()"><span class="power-dot"></span><span class="power-label">Tag: ON</span></button>
+          <div class="live-sync-group"><span style="font-size:10px; color:var(--text-muted); font-family:var(--mono);" id="active-updated">&bull;</span><button class="btn btn-xs" onclick="fetchStatus()">Sync</button></div>
+        </div>
+      </div>
+
+      <!-- Quick Filter Chips for Navigation inside Console -->
+      <div class="filter-chips-row">
+        <button class="filter-chip active" id="chip-all" onclick="filterSections('all')">🌐 All Sections</button>
+        <button class="filter-chip" id="chip-binding" onclick="filterSections('binding')">🔒 Account Lock</button>
+        <button class="filter-chip" id="chip-pipeline" onclick="filterSections('pipeline')">⚡ Pipeline (3)</button>
+        <button class="filter-chip" id="chip-standby" onclick="filterSections('standby')">💤 Standby (4)</button>
+        <button class="filter-chip" id="chip-teams" onclick="filterSections('teams')">👥 Teams (4)</button>
+      </div>
+
+      <!-- SECTION: ACCOUNT MODEL BINDING & LOCK -->
+      <div id="sec-account-binding" class="demo-section-view panel" style="border: 1px solid #1f6feb; background: #0d131c;">
+        <div class="panel-head" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #232d3d; padding-bottom: 6px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 14px;">🔒</span>
+            <span style="font-size: 13px; font-weight: 600; color: #58a6ff;">ACCOUNT MODEL BINDING &amp; LOCK</span>
+            <span style="font-size: 11px; color: var(--text-muted); font-weight: normal;">(Auto switches Google account)</span>
+          </div>
+          <div>
+            <button type="button" class="power-toggle is-off" id="account-lock-toggle-btn" style="min-width: 80px;" onclick="toggleAccountLock()">
+              <span class="power-dot"></span>
+              <span class="power-label" id="account-lock-toggle-label">OFF</span>
+            </button>
+          </div>
+        </div>
+        <div id="account-lock-content" style="padding-top: 10px;">
+          <div id="account-lock-items" style="display: flex; flex-direction: column; gap: 8px;"></div>
+        </div>
+      </div>
+
+      <!-- SECTION: QUICK KEY PROVISIONING -->
+      <div id="sec-key-prov" class="demo-section-view panel">
+        <div class="panel-head">Quick Key Provisioning</div>
+        <form class="input-row" onsubmit="addKey(event)">
+          <select id="provider-select" style="max-width:180px;" required></select>
+          <input type="text" id="new-key-val" class="flex-1" placeholder="Paste API Key (sk-..., coa_..., gsk_...)" required autocomplete="off" />
+          <button type="submit" class="btn btn-success">+ Add Key</button>
+        </form>
+      </div>
+
+      <!-- SECTION: TWO POOL LANES -->
+      <div id="sec-pools" class="demo-section-view pools-layout">
+        <!-- LANE 1: ROUTED POOL -->
+        <div class="pool-lane active-lane" id="lane-routed">
+          <div class="lane-header">
+            <div><div class="lane-title" style="color:#56d364;"><span>⚡ ROUTED PIPELINE (ACTIVE)</span></div><div class="lane-subtitle">Top to bottom = Failover priority order</div></div>
+            <span id="count-routed" style="font-size:10px; font-family:var(--mono); color:#56d364;">0 Active</span>
+          </div>
+          <div class="lane-body" id="container-routed"></div>
+        </div>
+        <!-- LANE 2: STANDBY POOL -->
+        <div class="pool-lane" id="lane-unrouted">
+          <div class="lane-header">
+            <div><div class="lane-title" style="color:var(--text-muted);"><span>💤 STANDBY / FREE POOL</span></div><div class="lane-subtitle">Inactive servers (drag or tap ⚡ to route)</div></div>
+            <span id="count-unrouted" style="font-size:10px; font-family:var(--mono); color:var(--text-muted);">0 Standby</span>
+          </div>
+          <div class="lane-body" id="container-unrouted"></div>
+        </div>
+      </div>
+
+      <!-- SECTION: MULTI-AGENT TEAMS -->
+      <div id="sec-teams" class="demo-section-view pool-lane" id="lane-multiagent" style="margin-top:12px; border-color: rgba(137, 87, 229, 0.5);">
+        <div class="lane-header" style="background: linear-gradient(90deg, rgba(137, 87, 229, 0.22) 0%, rgba(18, 14, 28, 0.95) 100%); border-bottom: 1px solid rgba(137, 87, 229, 0.35);">
+          <div>
+            <div class="lane-title" style="color:#d2a8ff;"><span>👥 MULTI-AGENT TEAMS (PRESETS)</span></div>
+            <div class="lane-subtitle">Mix teams (syncs to chat model dropdown)</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span id="count-multiagent" style="font-size:10px; font-family:var(--mono); color:#d2a8ff;">4 Teams</span>
+            <button class="btn btn-xs" onclick="openImportTeamModal()" style="border-color:#a371f7; color:#d2a8ff; font-size:10px; padding:2px 6px;">📥 Import</button>
+            <button class="btn btn-xs btn-primary" onclick="openTeamModal()" style="background:#8957e5; border-color:#a371f7; font-size:10px; padding:2px 7px;">+ Add</button>
+          </div>
+        </div>
+        <div class="lane-body" id="container-multiagent" style="background: linear-gradient(180deg, #110e1c 0%, #07060c 100%);"></div>
+      </div>
+
+    </div><!-- END view-console -->
+
+    <!-- VIEW 2: LIVE MONITOR -->
+    <div id="view-live" style="display:none;"></div>
+
+    <!-- VIEW 3: USAGE & QUOTAS -->
+    <div id="view-usage" style="display:none;"></div>
+
+  </div><!-- END console-wrapper -->
+
+  <!-- Floating Add Button for Quick Access -->
+  <button class="fab-add" onclick="openServerModal()" title="Add Server / Key">+</button>
+
+  <!-- User-Friendly Mobile Bottom Navigation Bar -->
+  <nav class="mobile-bottom-nav">
+    <button class="nav-tab-item active" id="bnav-home" onclick="navToSection('all')">
+      <span class="nav-icon">🏠</span>
+      <span>Home</span>
+    </button>
+    <button class="nav-tab-item" id="bnav-binding" onclick="navToSection('binding')">
+      <span class="nav-icon">🔒</span>
+      <span>Lock</span>
+    </button>
+    <button class="nav-tab-item" id="bnav-pipeline" onclick="navToSection('pipeline')">
+      <span class="nav-icon">⚡</span>
+      <span>Pipeline</span>
+    </button>
+    <button class="nav-tab-item" id="bnav-teams" onclick="navToSection('teams')">
+      <span class="nav-icon">👥</span>
+      <span>Teams</span>
+    </button>
+    <button class="nav-tab-item" id="bnav-live" onclick="switchMainTab('live')">
+      <span class="nav-icon">📊</span>
+      <span>Live</span>
+    </button>
+  </nav>
+
+  <!-- Modals & Scripts included from standard dashboard -->
+  <div id="confirm-modal" class="modal" style="z-index: 2001;">
+    <div class="modal-box" style="max-width:360px;">
+      <div class="modal-title">
+        <span id="confirm-modal-title">Confirm</span>
+        <span style="cursor:pointer; font-size:14px; padding:2px 6px;" onclick="closeConfirmModal()">✕</span>
+      </div>
+      <div id="confirm-modal-body" style="font-size:12.5px; color:var(--text); margin:8px 0 16px 0; line-height:1.5;"></div>
+      <div style="display:flex; justify-content:flex-end; gap:8px;">
+        <button type="button" class="btn btn-xs" onclick="closeConfirmModal()">Cancel</button>
+        <button type="button" class="btn btn-xs btn-danger" style="background:#da3633; color:#fff;" id="confirm-modal-btn">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast">Action logged</div>
+
+  <!-- 10-Second Undo Toast -->
+  <div id="undo-toast" class="undo-toast">
+    <div class="undo-toast-content">
+      <span id="undo-toast-msg">Item deleted</span>
+      <button type="button" class="undo-btn" onclick="triggerUndoAction()">↺ Undo</button>
+    </div>
+    <div class="undo-progress-bar-wrap">
+      <div id="undo-progress-bar" class="undo-progress-bar"></div>
+    </div>
+  </div>
+
+  <!-- Account Model Lock Picker Modal -->
+  <div class="modal-overlay" id="account-model-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); z-index:9999; justify-content:center; align-items:center;">
+    <div class="modal-card" style="background:#0d1117; border:1px solid #30363d; border-radius:10px; width:92%; max-width:440px; padding:16px; box-shadow:0 8px 24px rgba(0,0,0,0.8);">
+      <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #21262d; padding-bottom:8px;">
+        <h3 id="acc-model-modal-title" style="font-size:14px; margin:0; color:#58a6ff;">Select Models</h3>
+        <button type="button" class="btn btn-xs" onclick="closeAccountModelPicker()">✕</button>
+      </div>
+      <div id="acc-model-modal-body" style="margin-top:12px;"></div>
+      <div style="display:flex; justify-content:flex-end; align-items:center; border-top:1px solid #21262d; margin-top:14px; padding-top:10px;">
+        <button type="button" class="btn btn-xs btn-primary" onclick="closeAccountModelPicker()" style="min-width:70px;">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Original Dashboard Scripts -->
+  <script src="/dashboard.drag-1.js"></script>
+  <script src="/dashboard.undo-1.js"></script>
+  <script src="/dashboard.chips-1.js"></script>
+  <script src="/dashboard.workflow_patterns-1.js"></script>
+  <script src="/dashboard.team_picker-1.js"></script>
+  <script src="/dashboard.modals_models-1.js"></script>
+  <script src="/dashboard.modals_team-1.js"></script>
+  <script src="/dashboard.modals_server-1.js"></script>
+  <script src="/dashboard.servers-1.js"></script>
+  <script src="/dashboard.teams-1.js"></script>
+  <script src="/dashboard.modals_trace-1.js"></script>
+  <script src="/dashboard.modals_playground-1.js"></script>
+  <script src="/dashboard.live-1.js"></script>
+  <script src="/account_lock_ui.js"></script>
+  <script src="/dashboard.usage-1.js"></script>
+
+  <!-- Interactive Section Switching Script for Demo -->
+  <script>
+    function navToSection(target) {
+      // Ensure console view is visible
+      switchMainTab('console');
+
+      // Update bottom nav active state
+      document.querySelectorAll('.nav-tab-item').forEach(el => el.classList.remove('active'));
+      const activeBtn = document.getElementById('bnav-' + (target === 'all' ? 'home' : target));
+      if (activeBtn) activeBtn.classList.add('active');
+
+      filterSections(target);
+    }
+
+    function filterSections(target) {
+      // Update filter chips active state
+      document.querySelectorAll('.filter-chip').forEach(el => el.classList.remove('active'));
+      const chip = document.getElementById('chip-' + target);
+      if (chip) chip.classList.add('active');
+
+      const secBinding = document.getElementById('sec-account-binding');
+      const secKey = document.getElementById('sec-key-prov');
+      const secPools = document.getElementById('sec-pools');
+      const laneRouted = document.getElementById('lane-routed');
+      const laneStandby = document.getElementById('lane-unrouted');
+      const secTeams = document.getElementById('sec-teams');
+
+      if (target === 'all') {
+        secBinding.classList.remove('hidden');
+        secKey.classList.remove('hidden');
+        secPools.classList.remove('hidden');
+        laneRouted.style.display = 'flex';
+        laneStandby.style.display = 'flex';
+        secTeams.classList.remove('hidden');
+      } else if (target === 'binding') {
+        secBinding.classList.remove('hidden');
+        secKey.classList.add('hidden');
+        secPools.classList.add('hidden');
+        secTeams.classList.add('hidden');
+      } else if (target === 'pipeline') {
+        secBinding.classList.add('hidden');
+        secKey.classList.add('hidden');
+        secPools.classList.remove('hidden');
+        laneRouted.style.display = 'flex';
+        laneStandby.style.display = 'none';
+        secTeams.classList.add('hidden');
+      } else if (target === 'standby') {
+        secBinding.classList.add('hidden');
+        secKey.classList.add('hidden');
+        secPools.classList.remove('hidden');
+        laneRouted.style.display = 'none';
+        laneStandby.style.display = 'flex';
+        secTeams.classList.add('hidden');
+      } else if (target === 'teams') {
+        secBinding.classList.add('hidden');
+        secKey.classList.add('hidden');
+        secPools.classList.add('hidden');
+        secTeams.classList.remove('hidden');
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,7 +1,11 @@
-# Sensitive configurations with real API keys
+# Sensitive configurations with real API keys / account emails
 config.json
-config.json.bak
+config.json.bak*
+account_lock_state.json
 *backup*.json
+fox_memory.json
+fox_mode.json
+fox_pref.json
 
 # Logs & temp files
 *.log

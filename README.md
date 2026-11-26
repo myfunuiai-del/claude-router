@@ -82,6 +82,12 @@ When a long chat hits an upstream firewall/WAF or payload-size block (**HTTP `40
 
 ## 🚀 Quick Start & CLI Usage
 
+### Install from GitHub (Auto-Start Enabled)
+```bash
+git clone https://github.com/myfunuiai-del/claude-router.git ~/.gemini/claude-router && bash ~/.gemini/claude-router/install.sh
+```
+This automatically links the `crouter` / `croute` CLI commands, provisions bundled skills, enables **Auto-Start on Launch** in `~/.bashrc`, and starts the proxy on port `8999`.
+
 ### Start Claude Router
 ```bash
 crouter start
@@ -97,3 +103,16 @@ crouter status
 ```bash
 crouter stop
 ```
+
+### Toggle Auto-Start on Launch
+```bash
+crouter autostart on    # Enable auto-start in ~/.bashrc
+crouter autostart off   # Disable auto-start
+```
+*(You can also toggle **Auto-Start on Launch** directly from the Dashboard Sidebar under **Quick Config Toggles**.)*
+
+### Uninstall
+```bash
+crouter uninstall
+```
+*(Or tap **🗑️ Uninstall C-Router** at the bottom of the Dashboard Sidebar for a 2-step double-confirmed full removal.)*

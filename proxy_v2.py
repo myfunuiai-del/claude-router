@@ -140,6 +140,11 @@ class ReusableTCPServer(socketserver.ThreadingTCPServer):
 if __name__ == '__main__':
     trim_log_if_needed()
     threading.Thread(target=_log_janitor_loop, daemon=True).start()
+    try:
+        import account_model_listener
+        threading.Thread(target=account_model_listener.run_listener, daemon=True).start()
+    except Exception as _e:
+        sys.stderr.write(f"[Proxy] Warning loading account_model_listener: {_e}\n")
     with ReusableTCPServer(('0.0.0.0', PORT), UniversalProxyHandler) as httpd:
         sys.stderr.write(f"[Proxy] Universal Bulletproof Proxy running on http://127.0.0.1:{PORT}\n")
         try:

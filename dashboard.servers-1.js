@@ -46,6 +46,7 @@ async function fetchStatus() {
         }
       }
       if (typeof fetchLiveSnapshot === 'function') fetchLiveSnapshot(true);
+      if (typeof syncMobileDashboardUI === 'function') syncMobileDashboardUI();
     }
   } catch(e) {}
 }
@@ -67,6 +68,7 @@ async function loadConfig() {
     renderDropdown();
     renderRecoveryToggle();
     renderSignatureToggle();
+    if (typeof syncMobileDashboardUI === 'function') syncMobileDashboardUI();
   } catch (err) {
     showToast('Config load failure', true);
   }
@@ -142,6 +144,94 @@ async function toggleAutoRecovery() {
   }
 }
 
+function renderAutoStartToggle() {
+  const drw = document.getElementById('drawer-switch-autostart');
+  if (!drw || !currentConfig) return;
+  const isOn = currentConfig.auto_start !== false;
+  drw.classList.toggle('is-on', isOn);
+}
+
+async function toggleAutoStart() {
+  if (!currentConfig) return;
+  const nextVal = (currentConfig.auto_start === false);
+  try {
+    const res = await fetch('/api/ui/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ auto_start: nextVal })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.message || 'Settings update failed', true);
+      return;
+    }
+    currentConfig = data.config;
+    renderAutoStartToggle();
+    showToast(data.message || `Auto-Start on Launch: ${nextVal ? 'ON' : 'OFF'}`);
+  } catch (err) {
+    showToast('Failed to update Auto-Start setting', true);
+  }
+}
+
+function openUninstallModal() {
+  const modal = document.getElementById('uninstall-modal');
+  const step1 = document.getElementById('uninstall-step-1');
+  const step2 = document.getElementById('uninstall-step-2');
+  const btn = document.getElementById('confirm-uninstall-btn');
+  if (!modal) return;
+  if (step1) step1.style.display = 'block';
+  if (step2) step2.style.display = 'none';
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = '🗑️ Yes, Permanently Uninstall';
+  }
+  modal.style.display = 'flex';
+}
+
+function closeUninstallModal() {
+  const modal = document.getElementById('uninstall-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+function advanceUninstallStep() {
+  const step1 = document.getElementById('uninstall-step-1');
+  const step2 = document.getElementById('uninstall-step-2');
+  if (step1) step1.style.display = 'none';
+  if (step2) step2.style.display = 'block';
+}
+
+async function confirmFullUninstall() {
+  const btn = document.getElementById('confirm-uninstall-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Uninstalling...';
+  }
+  try {
+    const res = await fetch('/api/ui/uninstall', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast(data.message || 'Uninstall failed', true);
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '🗑️ Yes, Permanently Uninstall';
+      }
+      return;
+    }
+    closeUninstallModal();
+    document.body.innerHTML = '<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0d1117;color:#e6edf3;font-family:system-ui,sans-serif;padding:24px;text-align:center;"><div style="font-size:36px;margin-bottom:12px;">✅</div><h2 style="margin:0 0 8px;color:#f0f6fc;">C-Router Uninstalled</h2><p style="margin:0;color:#8b949e;font-size:14px;max-width:340px;line-height:1.5;">Proxy stopped, Auto-Start removed, and all C-Router files have been deleted. You can close this tab.</p></div>';
+  } catch (err) {
+    showToast('Failed to trigger uninstall', true);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '🗑️ Yes, Permanently Uninstall';
+    }
+  }
+}
+
 function renderDropdown() {
   const sel = document.getElementById('provider-select');
   if (!sel) return;
@@ -159,6 +249,12 @@ function renderLanes() {
   const cRouted = document.getElementById('container-routed');
   const cUnrouted = document.getElementById('container-unrouted');
   if (!cRouted || !cUnrouted) return;
+
+  // Preserve expanded server cards across re-renders
+  const expandedIds = new Set(
+    Array.from(document.querySelectorAll('.server-card.expanded')).map(c => c.dataset.providerId)
+  );
+
   cRouted.innerHTML = '';
   cUnrouted.innerHTML = '';
 
@@ -181,7 +277,9 @@ function renderLanes() {
     cRouted.innerHTML = '<div class="lane-empty">Drag servers here or tap ⚡ to activate failover pipeline</div>';
   } else {
     routed.forEach((id, idx) => {
-      cRouted.appendChild(createServerCard(id, providers[id], true, idx));
+      const card = createServerCard(id, providers[id], true, idx);
+      if (expandedIds.has(id)) card.classList.add('expanded');
+      cRouted.appendChild(card);
     });
   }
 
@@ -189,7 +287,9 @@ function renderLanes() {
     cUnrouted.innerHTML = '<div class="lane-empty">All servers are currently active in pipeline</div>';
   } else {
     unrouted.forEach((id, idx) => {
-      cUnrouted.appendChild(createServerCard(id, providers[id], false, idx));
+      const card = createServerCard(id, providers[id], false, idx);
+      if (expandedIds.has(id)) card.classList.add('expanded');
+      cUnrouted.appendChild(card);
     });
   }
 
@@ -280,6 +380,7 @@ function createServerCard(id, p, isRouted, index) {
           <span class="power-dot"></span>
           <span class="power-label">${isEnabled ? 'ON' : 'OFF'}</span>
         </button>
+        <button type="button" class="mobile-card-sheet-btn" title="Quick Actions" onclick="openServerBottomSheet('${id}')">⋯</button>
         <span class="toggle-arrow" onclick="toggleServerCard('${id}')">▶</span>
       </div>
     </div>
@@ -308,6 +409,7 @@ function createServerCard(id, p, isRouted, index) {
   // Collapsible Body
   const body = document.createElement('div');
   body.className = 'server-card-body';
+  body.onclick = (e) => e.stopPropagation();
 
   // Models Section
   const mSec = document.createElement('div');
@@ -355,15 +457,38 @@ function createServerCard(id, p, isRouted, index) {
   `;
   const kList = document.createElement('div');
   kList.className = 'keys-compact-list';
+  kList.style.cssText = 'max-height: 235px; overflow-y: auto; padding-right: 3px; scrollbar-width: thin;';
   (p.keys || []).forEach((k, idx) => {
     const row = document.createElement('div');
     row.className = 'key-line';
+    row.style.cssText = 'display:flex; flex-direction:column; gap:6px; padding:7px 9px; align-items:stretch;';
+    const keyName = (p.key_names && p.key_names[k]) ? p.key_names[k] : '';
+    const nameBadge = keyName
+      ? `<span style="color:#ffd166; font-weight:600; font-size:11px; background:rgba(255,209,102,0.1); border:1px solid rgba(255,209,102,0.28); padding:1px 6px; border-radius:4px;">🏷️ ${keyName.replace(/</g,'&lt;')}</span>`
+      : '';
+    const btnStyle = 'cursor:pointer; padding:2px 6px; border-radius:4px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); font-size:10.5px; display:inline-flex; align-items:center; gap:3px;';
     row.innerHTML = `
-      <span class="key-line-left">
-        <span style="color:#79c0ff;">#${idx+1} ${maskKey(k)}</span>
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; flex-wrap:wrap;">
+        <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; min-width:0;">
+          <span style="color:#8b949e; font-size:10px; font-weight:600;">#${idx+1}</span>
+          ${nameBadge}
+          <span id="key-val-${id}-${idx}" style="color:#79c0ff; font-family:monospace; font-size:10.5px; word-break:break-all;" data-masked="1">${maskKey(k)}</span>
+        </div>
         <span class="key-status" id="key-status-${id}-${idx}"></span>
-      </span>
-      <span class="chip-x" title="Revoke Key" onclick="openConfirmDeleteKey('${id}', ${idx})">✕</span>
+      </div>
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:4px; padding-top:4px; border-top:1px solid rgba(255,255,255,0.05);">
+        <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+          <span style="${btnStyle} color:#79c0ff;" title="Show/Hide Key" onclick="event.stopPropagation(); toggleShowKey('${id}', ${idx})">👁️ Show</span>
+          <span style="${btnStyle} color:#79c0ff;" title="Copy Key" onclick="event.stopPropagation(); copySingleKey('${id}', ${idx})">📋 Copy</span>
+          <span style="${btnStyle} color:#56d364;" title="Test Key" onclick="event.stopPropagation(); testSingleKey('${id}', ${idx})">⚡ Test</span>
+          <span style="${btnStyle} color:#ffd166;" title="Rename Key" onclick="event.stopPropagation(); openRenameKeyModal('${id}', ${idx})">✏️ Name</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
+          ${idx > 0 ? `<span style="${btnStyle} color:#8b949e;" title="Move Up" onclick="event.stopPropagation(); moveKeyPriority('${id}', ${idx}, 'up')">▲</span>` : ''}
+          ${idx < (p.keys.length - 1) ? `<span style="${btnStyle} color:#8b949e;" title="Move Down" onclick="event.stopPropagation(); moveKeyPriority('${id}', ${idx}, 'down')">▼</span>` : ''}
+          <span style="${btnStyle} color:#f85149; border-color:rgba(248,81,73,0.25);" title="Revoke Key" onclick="event.stopPropagation(); openConfirmDeleteKey('${id}', ${idx})">✕</span>
+        </div>
+      </div>
     `;
     kList.appendChild(row);
   });
@@ -443,23 +568,131 @@ function toggleServerCard(id) {
   if (!isExpanded) card.classList.add('expanded');
 }
 
+// Collapse expanded server card only when clicking outside all cards & modals
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.server-card') || e.target.closest('.modal-overlay') || e.target.closest('.modal') || e.target.closest('.bottom-sheet') || e.target.closest('#toast')) {
+    return;
+  }
+  document.querySelectorAll('.server-card.expanded').forEach(c => c.classList.remove('expanded'));
+});
+
 async function addKey(e) {
   e.preventDefault();
   const pId = document.getElementById('provider-select').value;
   const input = document.getElementById('new-key-val');
+  const nameInput = document.getElementById('new-key-name');
   const val = input.value.trim();
+  const keyName = nameInput ? nameInput.value.trim() : '';
   if (!val) return;
   const res = await fetch('/api/ui/keys', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ provider: pId, key: val })
+    body: JSON.stringify({ provider: pId, key: val, name: keyName })
   });
   const data = await res.json();
   if (res.ok) {
-    showToast('Key added');
+    showToast(keyName ? `Key '${keyName}' added` : 'Key added');
     input.value = '';
+    if (nameInput) nameInput.value = '';
     currentConfig = data.config;
     renderLanes();
+  } else {
+    showToast(data.message || 'Failed to add key', true);
+  }
+}
+
+function toggleShowKey(pId, idx) {
+  const el = document.getElementById(`key-val-${pId}-${idx}`);
+  const k = currentConfig?.providers?.[pId]?.keys?.[idx];
+  if (!el || !k) return;
+  if (el.getAttribute('data-masked') === '1') {
+    el.innerText = k;
+    el.setAttribute('data-masked', '0');
+  } else {
+    el.innerText = maskKey(k);
+    el.setAttribute('data-masked', '1');
+  }
+}
+
+function copySingleKey(pId, idx) {
+  const k = currentConfig?.providers?.[pId]?.keys?.[idx];
+  if (!k) return;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(k).then(() => showToast('API Key copied!')).catch(() => showToast('Copy failed', true));
+  } else {
+    showToast('Clipboard not available', true);
+  }
+}
+
+async function moveKeyPriority(pId, idx, direction) {
+  try {
+    const res = await fetch('/api/ui/keys/move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: pId, index: idx, direction })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      currentConfig = data.config;
+      renderLanes();
+      showToast('Key priority updated');
+    }
+  } catch (e) {
+    showToast('Failed to reorder key', true);
+  }
+}
+
+async function testSingleKey(pId, idx) {
+  const statusEl = document.getElementById(`key-status-${pId}-${idx}`);
+  if (statusEl) {
+    statusEl.innerHTML = '<span style="color:#79c0ff; font-size:10px;">⏳ Testing...</span>';
+  }
+  try {
+    const res = await fetch('/api/ui/keys/test-single', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: pId, index: idx })
+    });
+    const data = await res.json();
+    if (statusEl) {
+      if (data.alive) {
+        statusEl.innerHTML = `<span style="color:#56d364; font-size:10px;">✅ ${data.latency_ms}ms</span>`;
+      } else {
+        statusEl.innerHTML = `<span style="color:#f85149; font-size:10px;">❌ ${data.message}</span>`;
+      }
+    }
+  } catch (e) {
+    if (statusEl) statusEl.innerHTML = '<span style="color:#f85149; font-size:10px;">❌ Error</span>';
+  }
+}
+
+function openRenameKeyModal(pId, idx) {
+  const p = currentConfig?.providers?.[pId];
+  const k = p?.keys?.[idx];
+  if (!k) return;
+  const curName = (p.key_names && p.key_names[k]) ? p.key_names[k] : '';
+  if (typeof openConfirmModal === 'function') {
+    openConfirmModal(
+      'Rename API Key',
+      `<div style="margin-bottom:8px; font-size:11.5px; color:#8b949e;">Key #${idx+1}: <code>${maskKey(k)}</code></div>
+       <input type="text" id="rename-key-input" value="${curName.replace(/"/g, '&quot;')}" placeholder="Enter key name (e.g. Personal, Work)" style="width:100%; padding:8px 10px; border-radius:6px; background:#0d1117; border:1px solid #30363d; color:#e6edf3; font-size:12px;" />`,
+      'Save Name',
+      async () => {
+        const newName = document.getElementById('rename-key-input')?.value?.trim() || '';
+        const res = await fetch('/api/ui/keys/rename', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: pId, index: idx, name: newName })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          currentConfig = data.config;
+          renderLanes();
+          showToast(newName ? `Renamed to '${newName}'` : 'Key name cleared');
+        }
+      }
+    );
+    setTimeout(() => document.getElementById('rename-key-input')?.focus(), 100);
   }
 }
 
@@ -488,4 +721,3 @@ setInterval(() => {
     fetchStatus();
   }
 }, 5000);
-

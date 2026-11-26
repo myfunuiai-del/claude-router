@@ -24,6 +24,8 @@ def _load_module_to_globals(filename, target_globals):
 _config_mod = _load_module_to_globals("proxy_v2.config-1.py", globals())
 _ui_tester_mod = _load_module_to_globals("proxy_v2.ui_tester-1.py", globals())
 _ui_playground_mod = _load_module_to_globals("proxy_v2.ui_playground-1.py", globals())
+_fox_brain_mod = _load_module_to_globals("proxy_v2.fox_brain-1.py", globals())
+_fox_local_mod = _load_module_to_globals("proxy_v2.fox_local-1.py", globals())
 
 def _auto_detect_model_for_server(base_url, p_type="openai", p_wire="default", custom_headers=None, api_key="", p_id=""):
     clean_base = (base_url or "").rstrip("/")
@@ -83,8 +85,40 @@ def _auto_detect_model_for_server(base_url, p_type="openai", p_wire="default", c
 
     return best_fallback, [best_fallback]
 
+def sync_autostart_bashrc(enabled):
+    """Add or remove the managed crouter-autostart block in ~/.bashrc."""
+    import re
+    bashrc = os.path.expanduser("~/.bashrc")
+    try:
+        text = ""
+        if os.path.exists(bashrc):
+            with open(bashrc, "r", encoding="utf-8", errors="ignore") as f:
+                text = f.read()
+        text = re.sub(r"\n?# >>> crouter-autostart >>>.*?# <<< crouter-autostart <<<\n?", "\n", text, flags=re.S)
+        text = re.sub(r"\n?# Auto-start crouter background service if not running\nif \[ -x \"\$HOME/\.local/bin/crouter\" \].*?fi\n?", "\n", text, flags=re.S)
+        text = text.rstrip() + "\n"
+        if enabled:
+            block = (
+                '\n# >>> crouter-autostart >>>\n'
+                'if [ -x "$HOME/.local/bin/crouter" ] && ! pgrep -f "proxy_v2.py" > /dev/null 2>&1; then\n'
+                '    "$HOME/.local/bin/crouter" start > /dev/null 2>&1 &\n'
+                'elif command -v crouter >/dev/null 2>&1 && ! pgrep -f "proxy_v2.py" > /dev/null 2>&1; then\n'
+                '    crouter start > /dev/null 2>&1 &\n'
+                'fi\n'
+                '# <<< crouter-autostart <<<\n'
+            )
+            text = text + block
+        with open(bashrc, "w", encoding="utf-8") as f:
+            f.write(text)
+    except Exception:
+        pass
+
 def handle_ui_post(handler, raw_body):
     """Handle UI dashboard API POST requests. Returns True if handled, False otherwise."""
+    if handle_fox_local_installer(handler, raw_body):
+        return True
+    if handle_fox_brain_post(handler, raw_body) or (hasattr(_fox_brain_mod, "handle_fox_brain_post_alias") and _fox_brain_mod.handle_fox_brain_post_alias(handler, raw_body)):
+        return True
     if handle_ui_tester_post(handler, raw_body):
         return True
     if handle_ui_playground_post(handler, raw_body):
@@ -129,6 +163,9 @@ def handle_ui_post(handler, raw_body):
                 return True
 
             keys.append(key_val)
+            key_name = (data.get("name") or "").strip()
+            if key_name:
+                cfg["providers"][provider].setdefault("key_names", {})[key_val] = key_name
             save_proxy_config(cfg)
             resp = json.dumps({"status": "ok", "message": "Key added successfully", "config": cfg}).encode()
             handler.send_response(200)
@@ -140,6 +177,123 @@ def handle_ui_post(handler, raw_body):
             return True
         except Exception as e:
             handler.send_response(500)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            err = json.dumps({"status": "error", "message": str(e)}).encode()
+            handler.send_header('Content-Length', str(len(err)))
+            handler.end_headers()
+            handler.wfile.write(err)
+            return True
+
+    if handler.path == "/api/ui/keys/rename":
+        try:
+            data = json.loads(raw_body.decode('utf-8'))
+            provider = data.get("provider")
+            idx = int(data.get("index", -1))
+            new_name = (data.get("name") or "").strip()
+            cfg = load_proxy_config()
+            p_obj = cfg.get("providers", {}).get(provider)
+            if not p_obj or idx < 0 or idx >= len(p_obj.get("keys", [])):
+                raise ValueError("Invalid provider or key index")
+            key_val = p_obj["keys"][idx]
+            key_names = p_obj.setdefault("key_names", {})
+            if new_name:
+                key_names[key_val] = new_name
+            else:
+                key_names.pop(key_val, None)
+            save_proxy_config(cfg)
+            resp = json.dumps({"status": "ok", "message": "Key renamed", "config": cfg}).encode()
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            handler.send_header('Content-Length', str(len(resp)))
+            handler.end_headers()
+            handler.wfile.write(resp)
+            return True
+        except Exception as e:
+            handler.send_response(400)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            err = json.dumps({"status": "error", "message": str(e)}).encode()
+            handler.send_header('Content-Length', str(len(err)))
+            handler.end_headers()
+            handler.wfile.write(err)
+            return True
+
+    if handler.path == "/api/ui/keys/move":
+        try:
+            data = json.loads(raw_body.decode('utf-8'))
+            provider = data.get("provider")
+            idx = int(data.get("index", -1))
+            direction = data.get("direction", "")
+            cfg = load_proxy_config()
+            p_obj = cfg.get("providers", {}).get(provider)
+            keys = p_obj.get("keys", []) if p_obj else []
+            if idx < 0 or idx >= len(keys):
+                raise ValueError("Invalid key index")
+            if direction == "up" and idx > 0:
+                keys[idx], keys[idx - 1] = keys[idx - 1], keys[idx]
+            elif direction == "down" and idx < len(keys) - 1:
+                keys[idx], keys[idx + 1] = keys[idx + 1], keys[idx]
+            save_proxy_config(cfg)
+            resp = json.dumps({"status": "ok", "message": "Key priority updated", "config": cfg}).encode()
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            handler.send_header('Content-Length', str(len(resp)))
+            handler.end_headers()
+            handler.wfile.write(resp)
+            return True
+        except Exception as e:
+            handler.send_response(400)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            err = json.dumps({"status": "error", "message": str(e)}).encode()
+            handler.send_header('Content-Length', str(len(err)))
+            handler.end_headers()
+            handler.wfile.write(err)
+            return True
+
+    if handler.path == "/api/ui/keys/test-single":
+        try:
+            data = json.loads(raw_body.decode('utf-8'))
+            provider = data.get("provider")
+            idx = int(data.get("index", -1))
+            cfg = load_proxy_config()
+            p_obj = cfg.get("providers", {}).get(provider)
+            keys = p_obj.get("keys", []) if p_obj else []
+            if not p_obj or idx < 0 or idx >= len(keys):
+                raise ValueError("Invalid provider or key index")
+            key_val = keys[idx]
+            base_url = (p_obj.get("base_url") or "").rstrip("/")
+            p_type = p_obj.get("type", "openai")
+            test_url = f"{base_url}/models" if p_type == "openai" else (f"{base_url}/v1/models" if base_url.endswith("/api") else f"{base_url}/models")
+            headers = {"Authorization": f"Bearer {key_val}", "Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+            t0 = time.time()
+            alive = False
+            msg = ""
+            try:
+                req = urllib.request.Request(test_url, headers=headers)
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    alive = (r.status == 200)
+                    msg = f"HTTP {r.status}"
+            except urllib.error.HTTPError as he:
+                alive = False
+                msg = f"HTTP {he.code}"
+            except Exception as ex:
+                alive = False
+                msg = str(ex)[:40]
+            latency_ms = int((time.time() - t0) * 1000)
+            resp = json.dumps({"status": "ok", "alive": alive, "latency_ms": latency_ms, "message": msg}).encode()
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            handler.send_header('Content-Length', str(len(resp)))
+            handler.end_headers()
+            handler.wfile.write(resp)
+            return True
+        except Exception as e:
+            handler.send_response(400)
             handler.send_header('Content-Type', 'application/json')
             handler.send_header('Access-Control-Allow-Origin', '*')
             err = json.dumps({"status": "error", "message": str(e)}).encode()
@@ -424,6 +578,10 @@ def handle_ui_post(handler, raw_body):
             if "show_model_signature" in data and isinstance(data["show_model_signature"], bool):
                 cfg["show_model_signature"] = data["show_model_signature"]
                 msgs.append(f"Tag with response turned {'ON' if data['show_model_signature'] else 'OFF'}")
+            if "auto_start" in data and isinstance(data["auto_start"], bool):
+                cfg["auto_start"] = data["auto_start"]
+                sync_autostart_bashrc(data["auto_start"])
+                msgs.append(f"Auto-Start on Launch turned {'ON' if data['auto_start'] else 'OFF'}")
             save_proxy_config(cfg)
             resp = json.dumps({
                 "status": "ok",
@@ -436,6 +594,69 @@ def handle_ui_post(handler, raw_body):
             handler.send_header('Content-Length', str(len(resp)))
             handler.end_headers()
             handler.wfile.write(resp)
+            return True
+        except Exception as e:
+            handler.send_response(500)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            err = json.dumps({"status": "error", "message": str(e)}).encode()
+            handler.send_header('Content-Length', str(len(err)))
+            handler.end_headers()
+            handler.wfile.write(err)
+            return True
+    # UI API: Full Uninstall (removes autostart, symlinks, router dir, and stops proxy)
+    if handler.path == "/api/ui/uninstall":
+        try:
+            import subprocess
+            data = json.loads(raw_body.decode('utf-8')) if raw_body else {}
+            if not data.get("confirm"):
+                handler.send_response(400)
+                handler.send_header('Content-Type', 'application/json')
+                handler.send_header('Access-Control-Allow-Origin', '*')
+                err = json.dumps({"status": "error", "message": "Confirmation required"}).encode()
+                handler.send_header('Content-Length', str(len(err)))
+                handler.end_headers()
+                handler.wfile.write(err)
+                return True
+
+            resp = json.dumps({"status": "ok", "message": "C-Router is uninstalling..."}).encode('utf-8')
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Access-Control-Allow-Origin', '*')
+            handler.send_header('Content-Length', str(len(resp)))
+            handler.end_headers()
+            handler.wfile.write(resp)
+            handler.wfile.flush()
+
+            router_dir = os.path.dirname(os.path.abspath(__file__))
+            uninstall_cmd = f"""
+sleep 0.6
+python3 -c '
+import os, re, shutil
+bashrc = os.path.expanduser("~/.bashrc")
+if os.path.exists(bashrc):
+    with open(bashrc, "r", encoding="utf-8", errors="ignore") as f:
+        text = f.read()
+    text = re.sub(r"\\n?# >>> crouter-autostart >>>.*?# <<< crouter-autostart <<<\\n?", "\\n", text, flags=re.S)
+    text = re.sub(r"\\n?# Auto-start crouter background service if not running\\nif \\[ -x \\"\\$HOME/\\.local/bin/crouter\\" \\].*?fi\\n?", "\\n", text, flags=re.S)
+    with open(bashrc, "w", encoding="utf-8") as f:
+        f.write(text.rstrip() + "\\n")
+for d in [os.environ.get("PREFIX", "") + "/bin", os.path.expanduser("~/.local/bin"), "/data/user/0/ai.antigem/files/usr/bin", "/data/user/0/ai.antigem/files/home/.local/bin"]:
+    for name in ("crouter", "croute"):
+        p = os.path.join(d, name)
+        if os.path.lexists(p):
+            try: os.remove(p)
+            except Exception: pass
+shutil.rmtree({json.dumps(router_dir)}, ignore_errors=True)
+'
+pkill -f "proxy_v2.py" 2>/dev/null || true
+"""
+            subprocess.Popen(
+                ["bash", "-c", uninstall_cmd],
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
             return True
         except Exception as e:
             handler.send_response(500)
@@ -570,3 +791,8 @@ def handle_ui_post(handler, raw_body):
             return True
 
         return False
+
+    # UI API: Account Model Lock endpoints
+    if handler.path == "/api/ui/account-lock":
+        import account_lock_api
+        return account_lock_api.handle_account_lock_post(handler, raw_body)
