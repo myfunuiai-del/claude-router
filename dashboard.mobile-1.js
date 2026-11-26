@@ -1032,6 +1032,31 @@ window.addEventListener('keydown', function(e) {
     window.visualViewport.addEventListener('scroll', syncBarToKeyboard);
   }
 
+  // Follow document scroll so if the user scrolls the page while Fox is perched on an input,
+  // Fox stays attached to the input box instead of floating away!
+  window.addEventListener('scroll', () => {
+    if (activeInputEl && isPerchedOnInput && !isDoingFallSequence) {
+      const coords = getInputCursorCoords(activeInputEl);
+      if (coords) {
+        setBotTransform(currentX, coords.y);
+      }
+    }
+  }, { passive: true });
+
+  // Safety Return / Recall: If the user taps anywhere on the bottom navigation bar,
+  // instantly recall Fox back home to sit on the active tab!
+  const bottomBarEl = document.getElementById('sticky-bottom-bar');
+  if (bottomBarEl) {
+    bottomBarEl.addEventListener('click', (e) => {
+      if (e.target && e.target.closest('#crouter-bot')) return;
+      if (isPerchedOnInput || Math.abs(currentY) > 5) {
+        clearInputTimers();
+        isPerchedOnInput = false;
+        flyBotBackToActiveTab();
+      }
+    });
+  }
+
   window.addEventListener('resize', () => {
     if (isDoingFallSequence || isPerchedOnInput || (window.__foxBotBridge && window.__foxBotBridge.isPhysicsActive)) return;
     moveBotToTab(currentTab);
