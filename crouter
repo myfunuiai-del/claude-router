@@ -14,13 +14,16 @@ if router_dir not in sys.path:
     sys.path.insert(0, router_dir)
 import updater_release_api
 info = updater_release_api.check_remote_version()
-print(f"Current version : {info.get(\"current_version\")}")
-print(f"Latest version  : {info.get(\"latest_version\")}")
-if info.get("update_available"):
+cur = info.get("current_version")
+lat = info.get("latest_version")
+upd = info.get("update_available")
+print("Current version : " + str(cur))
+print("Latest version  : " + str(lat))
+if upd:
     print("✨ New update available! Run: crouter update")
 else:
     print("✅ C-Router is up to date. You can run: crouter update --force to refresh.")
-' 2>/dev/null || echo "[Claude Router] Could not check updates."
+' || echo "[Claude Router] Could not check updates."
 }
 
 apply_update_cli() {
