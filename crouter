@@ -490,8 +490,37 @@ case "$1" in
     uninstall)
         uninstall_router
         ;;
+    tools)
+        shift
+        python3 -c '
+import sys, json, os
+sys.path.insert(0, os.path.expanduser("~/.gemini/claude-router"))
+import tool_manager
+
+args = sys.argv[1:]
+if not args or args[0] == "list":
+    tools = tool_manager.list_tools_with_status()
+    print("=== crouter API Tools ===")
+    for t in tools:
+        inst = "Installed" if t["installed"] else "Not Installed"
+        pid_val = t.get("pid")
+        run = f"Running (PID {pid_val})" if t["running"] else "Stopped"
+        tid = t["id"]
+        tname = t["name"]
+        tport = t["default_port"]
+        print(f"- {tid}: {tname} [{inst} | {run}] (Default Port: {tport})")
+elif len(args) >= 2:
+    action = args[0]
+    tool_id = args[1]
+    port = int(args[2]) if len(args) >= 3 and args[2].isdigit() else None
+    res = tool_manager.run_tool_action(tool_id, action, port=port)
+    print(json.dumps(res, indent=2))
+else:
+    print("Usage: crouter tools {list|install|uninstall|start|stop|status|check|update} <tool_id> [port]")
+' "$@"
+        ;;
     *)
-        echo "Usage: croute/crouter {start|stop|restart|status|ui|autostart|check-update|update|release|uninstall}"
+        echo "Usage: croute/crouter {start|stop|restart|status|ui|autostart|check-update|update|release|uninstall|tools}"
         echo "       Default action checks status, starts if offline and opens dashboard."
         if ! is_running; then
             start_router

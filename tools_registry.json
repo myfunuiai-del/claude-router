@@ -1,0 +1,28 @@
+{
+  "tools": [
+    {
+      "id": "g4f-api",
+      "name": "g4f-api (GPT4Free Bridge)",
+      "description": "Lightweight headless OpenAI-compatible API server powered by gpt4free, optimized for Termux with zero heavy GUI.",
+      "repo": "https://github.com/myfunuiai-del/Crouter-Plugin.git",
+      "install_dir": "~/Crouter-Plugin",
+      "plugin_subdir": "g4f-api",
+      "default_port": 1337,
+      "type": "python",
+      "process_pattern": "g4f-api/server.py",
+      "commands": {
+        "install": "if [ -d ~/Crouter-Plugin/.git ]; then cd ~/Crouter-Plugin && git fetch origin main && git checkout origin/main -- g4f-api; else rm -rf ~/Crouter-Plugin && git clone https://github.com/myfunuiai-del/Crouter-Plugin.git ~/Crouter-Plugin; fi && cd ~/Crouter-Plugin/g4f-api && bash install.sh",
+        "start": "nohup python3 ~/Crouter-Plugin/g4f-api/server.py --port {port} >/dev/null 2>&1 &",
+        "stop": "pkill -f 'g4f-api/server.py' 2>/dev/null || pkill -f 'server.py --port' 2>/dev/null || true",
+        "update": "cd ~/Crouter-Plugin && git fetch origin main && git pull origin main",
+        "uninstall": "rm -rf ~/Crouter-Plugin/g4f-api ~/.local/bin/g4fapi"
+      },
+      "provider_template": {
+        "name": "g4f-api",
+        "base_url": "http://127.0.0.1:{port}/v1",
+        "api_key": "g4f-local",
+        "models": ["gpt-4o", "gpt-4", "gpt-3.5-turbo", "claude-3-haiku"]
+      }
+    }
+  ]
+}

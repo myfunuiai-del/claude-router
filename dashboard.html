@@ -65,6 +65,10 @@
         <span class="drawer-nav-icon">📊</span>
         <span class="drawer-nav-text">Token Quotas &amp; Costs</span>
       </button>
+      <button type="button" class="drawer-nav-item" id="drawer-nav-plugins" onclick="switchMainTab('plugins'); closeMobileDrawer();">
+        <span class="drawer-nav-icon">🔌</span>
+        <span class="drawer-nav-text">API Plugins</span>
+      </button>
     </div>
 
     <div class="drawer-divider"></div>
@@ -168,6 +172,7 @@
         <span class="live-pulse-dot" id="live-tab-dot"></span><span>Live Monitor</span><span class="tab-issue-badge" id="tab-issue-badge" style="display:none;">0</span>
       </button>
       <button type="button" class="main-tab" id="tab-btn-usage" onclick="switchMainTab('usage')"><span>📊 Usage &amp; Quotas</span></button>
+      <button type="button" class="main-tab" id="tab-btn-plugins" onclick="switchMainTab('plugins')"><span>🔌 Plugins</span></button>
     </div>
     <!-- VIEW 1: CONSOLE -->
     <div id="view-console">
@@ -348,6 +353,16 @@
     </div><!-- /#view-live -->
     <!-- VIEW 3: USAGE & QUOTAS -->
     <div id="view-usage" style="display:none;"></div>
+    <div id="view-plugins" style="display:none;padding:16px;max-width:1000px;margin:0 auto;padding-bottom:80px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+        <div>
+          <h2 style="margin:0;font-size:18px;color:var(--text-main,#e6edf3);">🔌 API Plugins Manager</h2>
+          <p style="margin:4px 0 0 0;font-size:12px;color:var(--text-dim,#8b949e);">Install, start, stop, and update local OpenAI-compatible API tools directly from Crouter.</p>
+        </div>
+        <button onclick="loadPlugins()" style="background:#30363d;color:#e6edf3;border:1px solid #8b949e44;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;">↻ Refresh</button>
+      </div>
+      <div id="plugins-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;"></div>
+    </div>
   </div>
   <!-- Server Modal (Add / Edit) -->
   <div id="server-modal" class="modal">
@@ -709,6 +724,7 @@
   <script src="/dashboard.modals_trace-1.js"></script>
   <script src="/dashboard.modals_playground-1.js"></script>
   <script src="/dashboard.live-1.js"></script>
+  <script src="/dashboard.plugins-1.js"></script>
   <!-- Account Model Lock UI Modal & Logic -->
   <div class="modal-overlay" id="account-model-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); z-index:9999; justify-content:center; align-items:center;">
     <div class="modal-card" style="background:#0d1117; border:1px solid #30363d; border-radius:10px; width:92%; max-width:440px; padding:16px; box-shadow:0 8px 24px rgba(0,0,0,0.8);">

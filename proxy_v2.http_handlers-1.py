@@ -59,6 +59,29 @@ def handle_GET(handler):
                 handler.wfile.write(f"Error serving demo: {e}".encode())
                 return
 
+    if clean_p == "/api/ui/tools":
+        import tool_manager
+        tools = tool_manager.list_tools_with_status()
+        res = json.dumps({"ok": True, "tools": tools}).encode('utf-8')
+        handler.send_response(200)
+        handler.send_header('Content-Type', 'application/json')
+        handler.send_header('Content-Length', str(len(res)))
+        handler.end_headers()
+        handler.wfile.write(res)
+        return
+
+    if clean_p.startswith("/api/ui/tools/progress/"):
+        import tool_manager
+        tool_id = clean_p.split("/api/ui/tools/progress/")[-1]
+        prog = tool_manager.get_install_progress(tool_id)
+        res = json.dumps(prog).encode('utf-8')
+        handler.send_response(200)
+        handler.send_header('Content-Type', 'application/json')
+        handler.send_header('Content-Length', str(len(res)))
+        handler.end_headers()
+        handler.wfile.write(res)
+        return
+
     if clean_p == "/api/ui/account-lock":
         import account_lock_api
         account_lock_api.handle_account_lock_get(handler)
