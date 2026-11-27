@@ -403,6 +403,15 @@ def handle_ui_post(handler, raw_body):
                 p_entry["rate_limit"] = rl
             elif "rate_limit" in existing_prov:
                 p_entry["rate_limit"] = existing_prov["rate_limit"]
+            for opt_k in (
+                "key_proxies", "sticky_max_requests", "rotation_mode",
+                "min_key_interval_ms", "jitter_ms", "min_proxy_interval_ms",
+                "max_key_concurrency", "max_proxy_concurrency",
+            ):
+                if opt_k in data and data.get(opt_k) is not None:
+                    p_entry[opt_k] = data.get(opt_k)
+                elif opt_k in existing_prov:
+                    p_entry[opt_k] = existing_prov[opt_k]
             providers[p_id] = p_entry
             save_proxy_config(cfg)
             resp = json.dumps({"status": "ok", "message": f"Provider '{name}' saved successfully", "config": cfg}).encode()

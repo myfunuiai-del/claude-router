@@ -25,6 +25,7 @@ _config_mod = _load_module_to_globals("proxy_v2.config-1.py", globals())
 _transform_mod = _load_module_to_globals("proxy_v2.transform-1.py", globals())
 _multi_agent_mod = _load_module_to_globals("proxy_v2.multi_agent-1.py", globals())
 _balancer_mod = _load_module_to_globals("proxy_v2.key_balancer-1.py", globals())
+_egress_mod = _load_module_to_globals("proxy_v2.proxy_egress-1.py", globals())
 _coarena_mod = _load_module_to_globals("proxy_v2.forwarder_coarena-1.py", globals())
 
 def _inject_custom_prompt(body_obj, custom_prompt):
@@ -74,24 +75,75 @@ def _advance_key_idx(p_id, idx, n, on_error=False):
     if n > 0:
         _PROVIDER_KEY_IDX[p_id] = (idx + 1) % n if on_error else (idx % n)
 
-def _select_available_keys(p_id, keys, model=None, start_idx=None, max_count=None):
-    """Return ordered [(orig_idx, key)] using sliding 60s TPM/RPM load balancer & cooldown priority.
-    If all keys are in cooldown, returns all keys in balanced order so provider never hard-locks.
-    """
+def _select_available_keys(p_id, keys, model=None, start_idx=None, max_count=None, p_info=None):
+    """Return ordered [(orig_idx, key)] using bounded sticky (max 5 reqs), per-key rate-limit guard & cooldowns."""
     if not keys:
         return []
+    p_info = p_info or {}
+    rl_cfg = p_info.get("rate_limit")
+    sticky_max = p_info.get("sticky_max_requests", 5)
+    rot_mode = p_info.get("rotation_mode", "sticky")
+    key_idx_map = {k.strip(): i for i, k in enumerate(keys) if isinstance(k, str) and k.strip()}
+    base_cd_fn = globals().get("is_key_in_cooldown")
+
+    def _combined_cd(pid, k, mdl):
+        rem = base_cd_fn(pid, k, mdl) if base_cd_fn else 0
+        if rem > 0:
+            return rem
+        if "resolve_key_proxy" in globals() and "is_proxy_in_cooldown" in globals():
+            try:
+                px = resolve_key_proxy(p_info, k, key_index=key_idx_map.get(k))
+                if px:
+                    return is_proxy_in_cooldown(px)
+            except Exception:
+                pass
+        return 0
+
     if "select_balanced_keys_ordered" in globals():
-        cooldown_fn = globals().get("is_key_in_cooldown")
-        chosen = select_balanced_keys_ordered(p_id, keys, model=model, is_cooldown_fn=cooldown_fn)
+        chosen = select_balanced_keys_ordered(
+            p_id, keys, model=model, is_cooldown_fn=_combined_cd,
+            rate_limit_cfg=rl_cfg, sticky_max=sticky_max, rotation_mode=rot_mode
+        )
     else:
         n = len(keys)
         start = (start_idx or 0) % n
         rotated = [((start + i) % n, keys[(start + i) % n]) for i in range(n)]
-        ready = [(idx, k) for idx, k in rotated if globals().get("is_key_in_cooldown", lambda *_: 0)(p_id, k, model) == 0]
+        ready = [(idx, k) for idx, k in rotated if _combined_cd(p_id, k, model) == 0]
         chosen = ready if ready else rotated
     if max_count is not None:
         chosen = chosen[:max_count]
     return chosen
+
+def _note_dispatch(p_id, key):
+    if "note_key_dispatch" in globals():
+        try:
+            note_key_dispatch(p_id, key)
+        except Exception:
+            pass
+
+def _clear_attempt_cooldown(p_id, key, model, p_info=None, key_index=None):
+    clear_key_cooldown(p_id, key, model)
+    if "resolve_key_proxy" in globals() and "clear_proxy_cooldown" in globals():
+        try:
+            px = resolve_key_proxy(p_info, key, key_index=key_index)
+            if px:
+                clear_proxy_cooldown(px)
+        except Exception:
+            pass
+
+def _mark_attempt_cooldown(p_id, key, code, model, err_txt="", headers=None, p_info=None, key_index=None):
+    ra = headers.get("Retry-After") if headers else None
+    try:
+        mark_key_cooldown(p_id, key, code, model, err_txt, retry_after=ra)
+    except TypeError:
+        mark_key_cooldown(p_id, key, code, model, err_txt)
+    if code in (403, 429, 502, 503, 504) and "resolve_key_proxy" in globals() and "mark_proxy_cooldown" in globals():
+        try:
+            px = resolve_key_proxy(p_info, key, key_index=key_index)
+            if px:
+                mark_proxy_cooldown(px, code, retry_after=ra)
+        except Exception:
+            pass
 
 def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recovery=False, allow_model_fallback=True):
     """Attempts to forward the request to provider p_id.
@@ -108,6 +160,13 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
         sys.stderr.write(f"[Proxy] Provider '{p_id}' is OFF (disabled). Skipping.\n")
         return False
 
+    if "is_provider_rate_limited" in globals():
+        is_throttled, refill_s, reason = is_provider_rate_limited(p_id, p_info.get("rate_limit"))
+        if is_throttled:
+            handler._last_http_error = 429
+            sys.stderr.write(f"[Proxy RateLimit] '{p_id}' quota reached ({reason}). Refills in {refill_s}s. Skipping.\n")
+            return False
+
     # Inject provider-level custom system prompt if configured
     custom_prompt = (p_info.get("custom_prompt") or "").strip()
     if custom_prompt and body_obj is not None:
@@ -122,7 +181,10 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
         ar_base = p_info.get("base_url", "https://agentrouter.org/v1").rstrip("/")
         ar_url = f"{ar_base}/messages"
 
-        ar_candidates = _select_available_keys("agentrouter", ar_keys, ar_model, max_count=(2 if is_recovery else None))
+        ar_candidates = _select_available_keys("agentrouter", ar_keys, ar_model, max_count=(2 if is_recovery else None), p_info=p_info)
+        if not ar_candidates:
+            handler._last_http_error = 429
+            return False
         for attempt, key in ar_candidates:
             req_id = getattr(handler, "_live_req_id", None)
             stage_lbl = getattr(handler, "_live_stage", "Original")
@@ -148,27 +210,31 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
             req = urllib.request.Request(ar_url, data=ar_body, headers=ar_headers, method='POST')
             req_t0 = time.time()
             try:
-                with urllib.request.urlopen(req, timeout=30) as resp:
-                    resp_data = resp.read()
-                    clear_key_cooldown("agentrouter", key, ar_model)
-                    p_name = p_info.get("name", "AgentRouter")
-                    _record_winner_usage(handler, "agentrouter", p_name, ar_model, f"Key #{attempt+1}", resp_data, req_t0, key=key)
-                    resp_data = append_signature_to_response(resp_data, p_name, ar_model)
-                    handler.send_response(resp.status)
-                    for k, val in resp.headers.items():
-                        if k.lower() not in ['transfer-encoding', 'content-encoding', 'content-length', 'connection']:
-                            handler.send_header(k, val)
-                    handler.send_header('Content-Length', str(len(resp_data)))
-                    handler.end_headers()
-                    handler.wfile.write(resp_data)
-                    return True
+                with egress_guard("agentrouter", p_info=p_info, key=key, key_index=attempt):
+                    _note_dispatch("agentrouter", key)
+                    with urlopen_for_key(req, p_info=p_info, key=key, key_index=attempt, timeout=30) as resp:
+                        resp_data = resp.read()
+                        resp_status = resp.status
+                        resp_hdrs = dict(resp.headers.items())
+                _clear_attempt_cooldown("agentrouter", key, ar_model, p_info=p_info, key_index=attempt)
+                p_name = p_info.get("name", "AgentRouter")
+                _record_winner_usage(handler, "agentrouter", p_name, ar_model, f"Key #{attempt+1}", resp_data, req_t0, key=key)
+                resp_data = append_signature_to_response(resp_data, p_name, ar_model)
+                handler.send_response(resp_status)
+                for k, val in resp_hdrs.items():
+                    if k.lower() not in ['transfer-encoding', 'content-encoding', 'content-length', 'connection']:
+                        handler.send_header(k, val)
+                handler.send_header('Content-Length', str(len(resp_data)))
+                handler.end_headers()
+                handler.wfile.write(resp_data)
+                return True
             except urllib.error.HTTPError as e:
                 handler._last_http_error = e.code
                 try:
                     err_txt = e.read().decode('utf-8', errors='ignore')[:200]
                 except Exception:
                     err_txt = ""
-                mark_key_cooldown("agentrouter", key, e.code, ar_model, err_txt)
+                _mark_attempt_cooldown("agentrouter", key, e.code, ar_model, err_txt, headers=e.headers, p_info=p_info, key_index=attempt)
                 record_live_issue("agentrouter", p_info.get("name", "AgentRouter"), ar_model, f"Key #{attempt+1}", e.code, err_txt)
                 sys.stderr.write(f"[Proxy] AgentRouter attempt #{attempt+1} HTTP error {e.code}\n")
                 if e.code in (400, 413):
@@ -242,7 +308,10 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                 else:
                     fwd_body = raw_body
 
-                p_candidates = _select_available_keys(p_id, p_keys, target_model, max_count=(2 if is_recovery else None))
+                p_candidates = _select_available_keys(p_id, p_keys, target_model, max_count=(2 if is_recovery else None), p_info=p_info)
+                if not p_candidates:
+                    handler._last_http_error = 429
+                    return False
                 for attempt, key in p_candidates:
                     req_id = getattr(handler, "_live_req_id", None)
                     stage_lbl = getattr(handler, "_live_stage", "Original")
@@ -263,21 +332,25 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                     req = urllib.request.Request(fwd_url, data=fwd_body, headers=fwd_headers, method='POST')
                     req_t0 = time.time()
                     try:
-                        with urllib.request.urlopen(req, timeout=30) as resp:
-                            resp_data = resp.read()
-                            _advance_key_idx(p_id, attempt, len(p_keys), on_error=False)
-                            clear_key_cooldown(p_id, key, target_model)
-                            p_name = p_info.get("name", p_id)
-                            _record_winner_usage(handler, p_id, p_name, target_model, f"Key #{attempt+1}", resp_data, req_t0, key=key)
-                            resp_data = append_signature_to_response(resp_data, p_name, target_model)
-                            handler.send_response(resp.status)
-                            for k, val in resp.headers.items():
-                                if k.lower() not in ['transfer-encoding', 'content-encoding', 'content-length', 'connection']:
-                                    handler.send_header(k, val)
-                            handler.send_header('Content-Length', str(len(resp_data)))
-                            handler.end_headers()
-                            handler.wfile.write(resp_data)
-                            return True
+                        with egress_guard(p_id, p_info=p_info, key=key, key_index=attempt):
+                            _note_dispatch(p_id, key)
+                            with urlopen_for_key(req, p_info=p_info, key=key, key_index=attempt, timeout=30) as resp:
+                                resp_data = resp.read()
+                                resp_status = resp.status
+                                resp_hdrs = dict(resp.headers.items())
+                        _advance_key_idx(p_id, attempt, len(p_keys), on_error=False)
+                        _clear_attempt_cooldown(p_id, key, target_model, p_info=p_info, key_index=attempt)
+                        p_name = p_info.get("name", p_id)
+                        _record_winner_usage(handler, p_id, p_name, target_model, f"Key #{attempt+1}", resp_data, req_t0, key=key)
+                        resp_data = append_signature_to_response(resp_data, p_name, target_model)
+                        handler.send_response(resp_status)
+                        for k, val in resp_hdrs.items():
+                            if k.lower() not in ['transfer-encoding', 'content-encoding', 'content-length', 'connection']:
+                                handler.send_header(k, val)
+                        handler.send_header('Content-Length', str(len(resp_data)))
+                        handler.end_headers()
+                        handler.wfile.write(resp_data)
+                        return True
                     except urllib.error.HTTPError as e:
                         handler._last_http_error = e.code
                         try:
@@ -286,7 +359,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                             err_txt = ""
                         if e.code in (401, 402, 429):
                             _advance_key_idx(p_id, attempt, len(p_keys), on_error=True)
-                        mark_key_cooldown(p_id, key, e.code, target_model, err_txt)
+                        _mark_attempt_cooldown(p_id, key, e.code, target_model, err_txt, headers=e.headers, p_info=p_info, key_index=attempt)
                         record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", e.code, err_txt)
                         if e.code == 429:
                             sys.stderr.write(f"[Proxy Auto-Retry] {p_id} ({target_model}) Key #{attempt+1} hit 429/Quota! Instantly switching to next key...\n")
@@ -317,7 +390,10 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                 else:
                     fwd_url = f"{clean_base}/chat/completions"
 
-                p_candidates = _select_available_keys(p_id, p_keys, target_model, max_count=(2 if is_recovery else None))
+                p_candidates = _select_available_keys(p_id, p_keys, target_model, max_count=(2 if is_recovery else None), p_info=p_info)
+                if not p_candidates:
+                    handler._last_http_error = 429
+                    return False
                 for attempt, key in p_candidates:
                     req_id = getattr(handler, "_live_req_id", None)
                     stage_lbl = getattr(handler, "_live_stage", "Original")
@@ -338,40 +414,43 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                     req = urllib.request.Request(fwd_url, data=fwd_body, headers=fwd_headers, method='POST')
                     req_t0 = time.time()
                     try:
-                        with urllib.request.urlopen(req, timeout=90) as resp:
-                            resp_data = resp.read()
-                            _advance_key_idx(p_id, attempt, len(p_keys), on_error=False)
-                            clear_key_cooldown(p_id, key, target_model)
-                            p_name = p_info.get("name", p_id)
-                            text = resp_data.decode('utf-8', errors='ignore')
-                            if is_stream or "data:" in text or "event:" in text:
-                                anth_resp = convert_openai_stream_to_anthropic(text, p_name, target_model)
+                        with egress_guard(p_id, p_info=p_info, key=key, key_index=attempt):
+                            _note_dispatch(p_id, key)
+                            with urlopen_for_key(req, p_info=p_info, key=key, key_index=attempt, timeout=90) as resp:
+                                resp_data = resp.read()
+                                resp_status = resp.status
+                        _advance_key_idx(p_id, attempt, len(p_keys), on_error=False)
+                        _clear_attempt_cooldown(p_id, key, target_model, p_info=p_info, key_index=attempt)
+                        p_name = p_info.get("name", p_id)
+                        text = resp_data.decode('utf-8', errors='ignore')
+                        if is_stream or "data:" in text or "event:" in text:
+                            anth_resp = convert_openai_stream_to_anthropic(text, p_name, target_model)
+                            _record_winner_usage(handler, p_id, p_name, target_model, f"Key #{attempt+1}", anth_resp, req_t0, key=key)
+                            handler.send_response(200)
+                            handler.send_header('Content-Type', 'text/event-stream; charset=utf-8')
+                            handler.send_header('Content-Length', str(len(anth_resp)))
+                            handler.end_headers()
+                            handler.wfile.write(anth_resp)
+                            return True
+                        else:
+                            try:
+                                o_json = json.loads(text)
+                                anth_resp = convert_openai_json_to_anthropic(o_json, p_name, target_model)
                                 _record_winner_usage(handler, p_id, p_name, target_model, f"Key #{attempt+1}", anth_resp, req_t0, key=key)
                                 handler.send_response(200)
-                                handler.send_header('Content-Type', 'text/event-stream; charset=utf-8')
+                                handler.send_header('Content-Type', 'application/json')
                                 handler.send_header('Content-Length', str(len(anth_resp)))
                                 handler.end_headers()
                                 handler.wfile.write(anth_resp)
                                 return True
-                            else:
-                                try:
-                                    o_json = json.loads(text)
-                                    anth_resp = convert_openai_json_to_anthropic(o_json, p_name, target_model)
-                                    _record_winner_usage(handler, p_id, p_name, target_model, f"Key #{attempt+1}", anth_resp, req_t0, key=key)
-                                    handler.send_response(200)
-                                    handler.send_header('Content-Type', 'application/json')
-                                    handler.send_header('Content-Length', str(len(anth_resp)))
-                                    handler.end_headers()
-                                    handler.wfile.write(anth_resp)
-                                    return True
-                                except Exception:
-                                    pass
-                            _record_winner_usage(handler, p_id, p_name, target_model, f"Key #{attempt+1}", resp_data, req_t0, key=key)
-                            handler.send_response(resp.status)
-                            handler.send_header('Content-Length', str(len(resp_data)))
-                            handler.end_headers()
-                            handler.wfile.write(resp_data)
-                            return True
+                            except Exception:
+                                pass
+                        _record_winner_usage(handler, p_id, p_name, target_model, f"Key #{attempt+1}", resp_data, req_t0, key=key)
+                        handler.send_response(resp_status)
+                        handler.send_header('Content-Length', str(len(resp_data)))
+                        handler.end_headers()
+                        handler.wfile.write(resp_data)
+                        return True
                     except urllib.error.HTTPError as e:
                         handler._last_http_error = e.code
                         try:
@@ -380,7 +459,7 @@ def try_forward_provider(handler, p_id, raw_body, body_obj, orig_model, is_recov
                             err_txt = ""
                         if e.code in (401, 402, 429):
                             _advance_key_idx(p_id, attempt, len(p_keys), on_error=True)
-                        mark_key_cooldown(p_id, key, e.code, target_model, err_txt)
+                        _mark_attempt_cooldown(p_id, key, e.code, target_model, err_txt, headers=e.headers, p_info=p_info, key_index=attempt)
                         record_live_issue(p_id, p_info.get("name", p_id), target_model, f"Key #{attempt+1}", e.code, err_txt)
                         if e.code == 429:
                             sys.stderr.write(f"[Proxy Auto-Retry] {p_id} ({target_model}) Key #{attempt+1} hit 429/Quota! Instantly switching to next key...\n")

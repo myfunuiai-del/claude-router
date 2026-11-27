@@ -14,7 +14,9 @@ if "_claude_router_cooldown_store" not in sys.modules:
     class _CooldownStore:
         def __init__(self):
             self.lock = threading.Lock()
-            self.entries = {}  # (p_id, key_sig, scope_model) -> {"until": ts, "code": int}
+            self.entries = {}        # (p_id, key_sig, scope_model) -> {"until": ts, "code": int}
+            self.strikes = {}        # (p_id, key_sig) -> int
+            self.proxy_entries = {}  # proxy_id -> {"until": ts, "code": int, "strikes": int}
     sys.modules["_claude_router_cooldown_store"] = _CooldownStore()
 
 _COOLDOWN_STORE = sys.modules["_claude_router_cooldown_store"]
@@ -28,21 +30,51 @@ def _is_daily_quota_429(detail=""):
     d = (detail or "").lower()
     return any(tok in d for tok in ("insufficient_quota", "used up", "daily", "resets at"))
 
-def mark_key_cooldown(p_id, key, code, model=None, detail=""):
-    """Put a key (or key+model for 402) into temporary cooldown:
-    401 -> 10m (600s); 429 daily quota -> 30m (1800s); 429 rate limit -> 3m (180s); 402 -> 5m (300s) per model.
-    """
-    if code == 401:
-        dur, scope = 600, "*"
-    elif code == 429:
-        dur = 1800 if _is_daily_quota_429(detail) else 180
-        scope = "*"
-    elif code == 402:
-        dur, scope = 300, (model or "*")
-    else:
-        return
+def parse_retry_after_seconds(val):
+    """Parse numeric Retry-After header seconds (clamped to 1..3600) or return None."""
+    if val is None:
+        return None
+    try:
+        secs = int(float(str(val).strip()))
+        return max(1, min(3600, secs)) if secs > 0 else None
+    except Exception:
+        return None
+
+def _proxy_id(proxy_url):
+    if not proxy_url:
+        return ""
+    try:
+        from urllib.parse import urlparse
+        p = urlparse(proxy_url)
+        host = p.hostname or ""
+        port = f":{p.port}" if p.port else ""
+        return f"{p.scheme}://{host}{port}" if host else str(proxy_url)
+    except Exception:
+        return str(proxy_url)
+
+def mark_key_cooldown(p_id, key, code, model=None, detail="", retry_after=None):
+    """Put a key (or key+model for 402) into temporary cooldown with exponential 429 backoff."""
     sig = _key_sig(key)
+    ra_secs = parse_retry_after_seconds(retry_after)
     with _COOLDOWN_STORE.lock:
+        if not hasattr(_COOLDOWN_STORE, "strikes"):
+            _COOLDOWN_STORE.strikes = {}
+        strikes = _COOLDOWN_STORE.strikes.get((p_id, sig), 0)
+        if code == 401:
+            dur, scope = 600, "*"
+        elif code == 429:
+            scope = "*"
+            if _is_daily_quota_429(detail):
+                dur = max(1800, ra_secs or 0)
+            else:
+                # Exponential backoff: 60s -> 120s -> 240s -> 480s -> 960s -> 1800s
+                backoff = min(1800, 60 * (2 ** min(strikes, 5)))
+                dur = max(backoff, ra_secs or 0)
+            _COOLDOWN_STORE.strikes[(p_id, sig)] = strikes + 1
+        elif code == 402:
+            dur, scope = 300, (model or "*")
+        else:
+            return
         _COOLDOWN_STORE.entries[(p_id, sig, scope)] = {"until": time.time() + dur, "code": code}
     scope_lbl = f" (model={scope})" if scope != "*" else ""
     sys.stderr.write(f"[Proxy Cooldown] {p_id} key {sig}{scope_lbl} put on {dur}s cooldown (HTTP {code}).\n")
@@ -63,11 +95,54 @@ def is_key_in_cooldown(p_id, key, model=None):
     return 0
 
 def clear_key_cooldown(p_id, key, model=None):
-    """Clear cooldown entries when a key succeeds or passes manual test."""
+    """Clear cooldown entries and backoff strikes when a key succeeds or passes manual test."""
     sig = _key_sig(key)
     with _COOLDOWN_STORE.lock:
+        if hasattr(_COOLDOWN_STORE, "strikes"):
+            _COOLDOWN_STORE.strikes.pop((p_id, sig), None)
         for scope in ("*", model) if model else ("*",):
             _COOLDOWN_STORE.entries.pop((p_id, sig, scope), None)
+
+def mark_proxy_cooldown(proxy_url, code=429, retry_after=None):
+    """Put a sticky egress proxy IP on temporary exponential backoff cooldown."""
+    pid = _proxy_id(proxy_url)
+    if not pid or code not in (403, 429, 502, 503, 504):
+        return
+    ra_secs = parse_retry_after_seconds(retry_after)
+    with _COOLDOWN_STORE.lock:
+        if not hasattr(_COOLDOWN_STORE, "proxy_entries"):
+            _COOLDOWN_STORE.proxy_entries = {}
+        prev = _COOLDOWN_STORE.proxy_entries.get(pid) or {}
+        strikes = int(prev.get("strikes", 0))
+        base = 60 if code == 429 else 30
+        dur = max(min(900, base * (2 ** min(strikes, 4))), ra_secs or 0)
+        _COOLDOWN_STORE.proxy_entries[pid] = {"until": time.time() + dur, "code": code, "strikes": strikes + 1}
+    sys.stderr.write(f"[Proxy IP Cooldown] {pid} put on {dur}s cooldown (HTTP {code}).\n")
+
+def is_proxy_in_cooldown(proxy_url):
+    """Return remaining cooldown seconds (>0) if proxy IP is cooling down, else 0."""
+    pid = _proxy_id(proxy_url)
+    if not pid:
+        return 0
+    now = time.time()
+    with _COOLDOWN_STORE.lock:
+        entries = getattr(_COOLDOWN_STORE, "proxy_entries", {})
+        info = entries.get(pid)
+        if info:
+            rem = info["until"] - now
+            if rem > 0:
+                return int(rem)
+            del entries[pid]
+    return 0
+
+def clear_proxy_cooldown(proxy_url):
+    """Reset cooldown and backoff strikes for a proxy IP after a successful request."""
+    pid = _proxy_id(proxy_url)
+    if not pid:
+        return
+    with _COOLDOWN_STORE.lock:
+        entries = getattr(_COOLDOWN_STORE, "proxy_entries", {})
+        entries.pop(pid, None)
 
 def get_active_cooldowns():
     """Return active cooldown summaries (pruning expired entries)."""

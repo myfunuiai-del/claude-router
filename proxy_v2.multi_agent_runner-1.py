@@ -26,6 +26,7 @@ def _load_module_to_globals(filename, target_globals):
 _config_mod = _load_module_to_globals("proxy_v2.config-1.py", globals())
 _transform_mod = _load_module_to_globals("proxy_v2.transform-1.py", globals())
 _balancer_mod = _load_module_to_globals("proxy_v2.key_balancer-1.py", globals())
+_egress_mod = _load_module_to_globals("proxy_v2.proxy_egress-1.py", globals())
 def get_multi_agent_team(team_id_or_model, cfg=None):
     """Resolve a multi_agent_team from either 'team:<id>', '<id>', or model name."""
     if not team_id_or_model:
@@ -164,7 +165,7 @@ def _execute_member_turn(handler, pid, p_obj, target_model, body_obj, role_promp
 
             req = urllib.request.Request(fwd_url, data=payload, headers=hdrs, method='POST')
             try:
-                with urllib.request.urlopen(req, timeout=45) as resp:
+                with urlopen_for_key(req, p_info=p_obj, key=key, timeout=45) as resp:
                     data = resp.read()
                     clear_key_cooldown(pid, key, target_model)
                     in_t, out_t = extract_anthropic_usage(data)
@@ -213,7 +214,7 @@ def _execute_member_turn(handler, pid, p_obj, target_model, body_obj, role_promp
 
             req = urllib.request.Request(fwd_url, data=payload, headers=hdrs, method='POST')
             try:
-                with urllib.request.urlopen(req, timeout=45) as resp:
+                with urlopen_for_key(req, p_info=p_obj, key=key, timeout=45) as resp:
                     resp_data = resp.read()
                     clear_key_cooldown(pid, key, target_model)
                     text = resp_data.decode('utf-8', errors='ignore')

@@ -8,6 +8,7 @@ from collections import deque
 
 WINDOW_SECONDS = 60.0
 MAX_TRACK_WINDOW = 86400.0  # Retain up to 24 hours for customizable hourly/window quotas
+DEFAULT_STICKY_MAX_REQUESTS = 5
 
 def _key_sig(key):
     if not key or not isinstance(key, str):
@@ -28,6 +29,7 @@ if "_claude_router_key_usage" not in sys.modules:
             self.usage = {}
             self.round_robin_idx = {}
             self.upstream_resets = {}  # p_id -> float (timestamp when upstream quota resets)
+            self.sticky_state = {}     # p_id -> {"key_sig": str, "count": int, "last_ts": float}
     sys.modules["_claude_router_key_usage"] = _KeyBalancerStore()
 
 _BALANCER_STORE = sys.modules["_claude_router_key_usage"]
@@ -85,13 +87,80 @@ def get_key_window_stats(p_id, key, now=None):
             "total_tokens": entry.get("total_tokens", 0)
         }
 
-def select_balanced_keys_ordered(p_id, keys, model=None, is_cooldown_fn=None):
+def _parse_pos_int(val):
+    try:
+        if val is not None and str(val).strip().isdigit():
+            iv = int(val)
+            return iv if iv > 0 else None
+    except Exception:
+        pass
+    return None
+
+def get_key_rate_limit_status(p_id, key, rate_limit_cfg=None, now=None):
+    """Checks per-key RPM and window request limits against configured rate_limit_cfg.
+    Returns (is_limited: bool, reason: str, key_rpm: int, key_win_reqs: int).
     """
-    Returns an ordered list of (orig_idx, key) tuples based on:
-      1. Cooldown priority: Non-cooling keys come first; cooling-down keys come last.
-      2. Sliding 60s RPM load (fewest requests in past 60s).
-      3. Sliding 60s TPM load (fewest tokens consumed in past 60s).
-      4. Least Recently Used (oldest last_used timestamp, never-used keys get absolute priority).
+    now = now or time.time()
+    rl = rate_limit_cfg or {}
+    key_rpm_limit = _parse_pos_int(rl.get("per_key_rpm") or rl.get("key_rpm") or rl.get("rpm"))
+    key_win_limit = _parse_pos_int(rl.get("per_key_max_requests") or rl.get("key_max_requests"))
+    try:
+        win_hours = max(0.1, float(rl.get("window_hours", 1)))
+    except (ValueError, TypeError):
+        win_hours = 1.0
+    win_seconds = win_hours * 3600.0
+
+    ksig = _key_sig(key)
+    with _BALANCER_STORE.lock:
+        entry = _BALANCER_STORE.usage.get((p_id, ksig))
+        if not entry:
+            return False, "", 0, 0
+        _prune_entry(entry, now)
+        reqs = entry["requests"]
+        cutoff_60 = now - WINDOW_SECONDS
+        cutoff_win = now - win_seconds
+        key_rpm = sum(1 for r in reqs if r[0] >= cutoff_60)
+        key_win = sum(1 for r in reqs if r[0] >= cutoff_win)
+
+    if key_rpm_limit and key_rpm >= key_rpm_limit:
+        return True, "key_rpm", key_rpm, key_win
+    if key_win_limit and key_win >= key_win_limit:
+        return True, "key_window", key_rpm, key_win
+    return False, "", key_rpm, key_win
+
+def is_key_rate_limited(p_id, key, rate_limit_cfg=None, now=None):
+    """Returns (is_limited, reason) if this key has reached its configured rate limit."""
+    limited, reason, _, _ = get_key_rate_limit_status(p_id, key, rate_limit_cfg, now=now)
+    return limited, reason
+
+def note_key_dispatch(p_id, key, now=None):
+    """Tracks consecutive dispatches per provider key for bounded sticky rotation."""
+    if not p_id or not key:
+        return 0
+    now = now or time.time()
+    ksig = _key_sig(key)
+    with _BALANCER_STORE.lock:
+        if not hasattr(_BALANCER_STORE, "sticky_state"):
+            _BALANCER_STORE.sticky_state = {}
+        st = _BALANCER_STORE.sticky_state.get(p_id)
+        if st and st.get("key_sig") == ksig:
+            st["count"] = st.get("count", 0) + 1
+            st["last_ts"] = now
+        else:
+            st = {"key_sig": ksig, "count": 1, "last_ts": now}
+            _BALANCER_STORE.sticky_state[p_id] = st
+        return st["count"]
+
+def select_balanced_keys_ordered(
+    p_id, keys, model=None, is_cooldown_fn=None,
+    rate_limit_cfg=None, sticky_max=DEFAULT_STICKY_MAX_REQUESTS, rotation_mode="sticky"
+):
+    """
+    Returns an ordered list of (orig_idx, key) tuples using:
+      1. Rate-Limit Guard: Keys that reached configured per-key RPM/window limits are excluded.
+      2. Bounded Sticky (max `sticky_max`, default 5): Sticks to current active key up to 5
+         consecutive dispatches as long as it is healthy and under its rate limit.
+      3. Rotation on 5-req cap / cooldown / rate-limit: Rotates to the least-loaded healthy key.
     """
     if not keys:
         return []
@@ -100,13 +169,16 @@ def select_balanced_keys_ordered(p_id, keys, model=None, is_cooldown_fn=None):
     if not deduped:
         return []
     indexed_keys = list(enumerate(deduped))
-    if len(deduped) == 1:
-        return indexed_keys
-
     now = time.time()
 
-    def _eval_key(idx_k):
-        orig_idx, k = idx_k
+    try:
+        sticky_cap = max(1, int(sticky_max if sticky_max is not None else DEFAULT_STICKY_MAX_REQUESTS))
+    except (ValueError, TypeError):
+        sticky_cap = DEFAULT_STICKY_MAX_REQUESTS
+
+    eligible = []
+    cooling_fallback = []
+    for orig_idx, k in indexed_keys:
         cooling = 0
         if is_cooldown_fn:
             try:
@@ -114,29 +186,60 @@ def select_balanced_keys_ordered(p_id, keys, model=None, is_cooldown_fn=None):
             except Exception:
                 cooling = 0
 
+        is_limited, _ = is_key_rate_limited(p_id, k, rate_limit_cfg, now=now)
+        if is_limited:
+            # Strictly exclude keys that hit their configured rate limit to prevent upstream bans
+            continue
+
         stats = get_key_window_stats(p_id, k, now)
-        rpm = stats["rpm"]
-        tpm = stats["tpm"]
-        last_used = stats["last_used"]
+        sort_tuple = (cooling, stats["rpm"], stats["tpm"], stats["last_used"], orig_idx)
+        item = (orig_idx, k, _key_sig(k), sort_tuple)
+        if cooling == 0:
+            eligible.append(item)
+        else:
+            cooling_fallback.append(item)
 
-        # Sort criteria tuple:
-        # (cooling, rpm, tpm, last_used, orig_idx)
-        # - cooling: 0 before 1 (healthy keys tried first)
-        # - rpm: 0 before 1 before 2 (least requests in last 60s)
-        # - tpm: least tokens in last 60s
-        # - last_used: oldest used first (0.0 means never used)
-        return (cooling, rpm, tpm, last_used, orig_idx)
+    if not eligible:
+        # All non-rate-limited keys are in cooldown (or all keys are rate-limited -> empty)
+        cooling_fallback.sort(key=lambda x: x[3])
+        return [(idx, k) for idx, k, _, _ in cooling_fallback]
 
-    return sorted(indexed_keys, key=_eval_key)
+    if rotation_mode == "round_robin" or len(eligible) == 1:
+        eligible.sort(key=lambda x: x[3])
+        cooling_fallback.sort(key=lambda x: x[3])
+        return [(idx, k) for idx, k, _, _ in (eligible + cooling_fallback)]
 
-def select_balanced_key(p_id, keys, model=None, is_cooldown_fn=None):
-    """Selects the single best key using the balanced ordered algorithm."""
-    ordered = select_balanced_keys_ordered(p_id, keys, model=model, is_cooldown_fn=is_cooldown_fn)
+    with _BALANCER_STORE.lock:
+        sticky_map = getattr(_BALANCER_STORE, "sticky_state", {})
+        st = sticky_map.get(p_id) or {}
+        active_sig = st.get("key_sig")
+        active_cnt = int(st.get("count", 0))
+
+    active_item = next((it for it in eligible if it[2] == active_sig), None)
+    if active_item and active_cnt < sticky_cap:
+        # Continue bounded sticky streak on active key
+        rest = sorted((it for it in eligible if it[2] != active_sig), key=lambda x: x[3])
+        ordered_eligible = [active_item] + rest
+    else:
+        # Rotate away from active_sig (hit 5-req cap, cooldown, or rate limit)
+        others = sorted((it for it in eligible if it[2] != active_sig), key=lambda x: x[3])
+        ordered_eligible = others + ([active_item] if active_item else [])
+
+    cooling_fallback.sort(key=lambda x: x[3])
+    return [(idx, k) for idx, k, _, _ in (ordered_eligible + cooling_fallback)]
+
+def select_balanced_key(p_id, keys, model=None, is_cooldown_fn=None, rate_limit_cfg=None, sticky_max=DEFAULT_STICKY_MAX_REQUESTS):
+    """Selects the single best key using the bounded sticky & rate-limited algorithm."""
+    ordered = select_balanced_keys_ordered(
+        p_id, keys, model=model, is_cooldown_fn=is_cooldown_fn,
+        rate_limit_cfg=rate_limit_cfg, sticky_max=sticky_max
+    )
     if not ordered:
         return "auto"
     best_key = ordered[0][1]
 
-    # Pre-register initial touch so back-to-back concurrent requests don't all pick the same key
+    # Pre-register initial touch & sticky count so concurrent requests advance accurately
+    note_key_dispatch(p_id, best_key)
     record_key_usage(p_id, best_key, in_tok=0, out_tok=0)
     return best_key
 

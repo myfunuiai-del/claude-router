@@ -142,3 +142,39 @@ All files across the entire repository are strictly under the 400-500 line limit
   2. Native Android Intent Receiver (`TermuxOpenReceiver` via `am broadcast --user 0`) ensuring opening directly inside AntiGem's internal web browser view.
   3. System fallback (`termux-open-url` / `xdg-open`).
 - **File Length & Safety:** `crouter` CLI stands at 223 lines (< 500 max limit).
+
+---
+
+### [Phase 10 - Step 1] Bounded Sticky Key Rotation (Max 5 Reqs) & Rate-Limit Pre-Check (Completed)
+- **Bounded Sticky Selection (`proxy_v2.key_balancer-1.py`):**
+  - Sticks to the active healthy key for at most `sticky_max_requests` (`5` by default) consecutive dispatches via `note_key_dispatch()` and `select_balanced_keys_ordered()`.
+  - Automatically rotates to the next eligible key on reaching 5 consecutive dispatches, cooldown (`is_key_in_cooldown`), or per-key rate-limit (`is_key_rate_limited` checking `per_key_rpm`/`rpm` and `per_key_max_requests`).
+  - Strictly excludes keys that reached configured rate limits (`[]` if all keys exhausted) so upstream quota/IP bans are prevented.
+- **Forwarder Integration (`proxy_v2.forwarder_loop-1.py`, `proxy_v2.forwarder_coarena-1.py`):**
+  - Added provider-level `is_provider_rate_limited` pre-check inside `try_forward_provider` (returns `False` with `429` status).
+  - Passed provider config `p_info` into `_select_available_keys` and recorded `note_key_dispatch(p_id, key)` before each upstream attempt across AgentRouter, Anthropic, OpenAI, and Coarena forwarders.
+
+### [Phase 10 - Step 2] Optional Per-Key Sticky Egress Proxy (`key_proxies` & `urlopen_for_key`) (Completed)
+- **Egress Proxy Module (`proxy_v2.proxy_egress-1.py`):**
+  - Optional `key_proxies` resolution (`resolve_key_proxy`) supporting dict lookup (`full key`, `key[-6:]`, `str(index)`, `'default'`) and list lookup by key index, falling back to direct connection when unconfigured.
+  - Pure-stdlib HTTP/HTTPS (`ProxyHandler`) and SOCKS5/SOCKS5h (`_Socks5HTTPHandler` / `_Socks5HTTPSHandler` with optional RFC 1929 auth) opener cache (`build_opener_for_proxy` & `urlopen_for_key`).
+- **Forwarder & UI Persistence (`proxy_v2.forwarder_loop-1.py`, `proxy_v2.forwarder_coarena-1.py`, `proxy_v2.multi_agent_runner-1.py`, `proxy_v2.ui_api-1.py`):**
+  - Routed upstream calls through `urlopen_for_key(req, p_info=..., key=..., key_index=..., timeout=...)`.
+  - Preserved `key_proxies`, `sticky_max_requests`, and `rotation_mode` on provider saves in `proxy_v2.ui_api-1.py`.
+
+### [Phase 10 - Step 3] Per-Key Interval/Jitter, Exponential Backoff & Concurrency Guard (Completed)
+- **Backoff & Per-Proxy Cooldown (`proxy_v2.config_live-1.py`):**
+  - Added `parse_retry_after_seconds()` and exponential 429 backoff strikes (`60s -> 120s -> 240s -> ...`) in `mark_key_cooldown()`, reset on success by `clear_key_cooldown()`.
+  - Added `mark_proxy_cooldown()`, `is_proxy_in_cooldown()`, and `clear_proxy_cooldown()` to isolate flagged sticky proxy IPs.
+- **Pacing & Concurrency Guard (`proxy_v2.proxy_egress-1.py`):**
+  - Added `egress_guard()` enforcing per-key & per-proxy `BoundedSemaphore` concurrency (`max_key_concurrency=2`, `max_proxy_concurrency=2`) and minimum dispatch interval + random jitter (`min_key_interval_ms=400`, `min_proxy_interval_ms=300`, `jitter_ms=250`).
+- **Forwarder Wiring (`proxy_v2.forwarder_loop-1.py`, `proxy_v2.forwarder_coarena-1.py`):**
+  - Combined key + proxy cooldown filtering in `_select_available_keys()`, wrapped upstream attempts in `egress_guard()`, and forwarded `Retry-After` headers into key/proxy cooldowns.
+
+### [Phase 10 - Step 4] End-to-End Verification & Integration Audit (Completed)
+- **Full Pipeline E2E Verification (`ALL_PHASE4_E2E_INTEGRATION_TESTS_PASSED`):**
+  1. **5-Request Bounded Sticky + Proxy Isolation:** Requests 1–5 routed to `Key A + proxy1`, requests 6–7 rotated cleanly to `Key B + proxy2`.
+  2. **`per_key_rpm` Early Rotation & Block Guard:** With `per_key_rpm=3, rpm=6`, rotated after 3 requests per key and blocked the 7th request pre-flight (`429`) without hitting upstream.
+  3. **429 `Retry-After` Backoff + Instant Failover:** `429` with `Retry-After: 90` placed both key and sticky proxy IP on `90s` cooldown and failed over immediately to the healthy key + proxy within the same request.
+  4. **SOCKS5 Tunnel Auth:** Verified RFC 1928/1929 `socks5h://u:p@...` forwarding through a live local SOCKS5 mock server.
+- **Line-Limit & Syntax Audit:** All modified modules compile cleanly and remain under the 500-line modular limit.

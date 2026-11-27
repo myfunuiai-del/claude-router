@@ -22,6 +22,12 @@ def forward_coarena(handler, raw_body, body_obj, orig_model, is_recovery, allow_
     apply_engine_mode_to_anthropic_body = globals_dict["apply_engine_mode_to_anthropic_body"]
     MODEL_FALLBACKS = globals_dict.get("MODEL_FALLBACKS", {})
 
+    _note_dispatch = globals_dict.get("_note_dispatch")
+    urlopen_for_key = globals_dict.get("urlopen_for_key")
+    egress_guard = globals_dict.get("egress_guard")
+    _clear_attempt_cooldown = globals_dict.get("_clear_attempt_cooldown")
+    _mark_attempt_cooldown = globals_dict.get("_mark_attempt_cooldown")
+
     coa_def = p_info.get("default_model", "gemini-4-carbon")
     coa_sup = ("gemini-4-carbon", "gemini-3-8-flash", "deepseek-v4-1-flash-1017")
     c_tail = orig_model.split("/")[-1] if "/" in orig_model else orig_model
@@ -70,7 +76,10 @@ def forward_coarena(handler, raw_body, body_obj, orig_model, is_recovery, allow_
         else:
             body = raw_body
 
-        key_candidates = _select_available_keys("coarena", coarena_keys, coarena_model, start_idx=current_coarena_idx, max_count=max_key_attempts)
+        key_candidates = _select_available_keys("coarena", coarena_keys, coarena_model, start_idx=current_coarena_idx, max_count=max_key_attempts, p_info=p_info)
+        if not key_candidates:
+            handler._last_http_error = 429
+            return False
         for idx, key in key_candidates:
             req_id = getattr(handler, "_live_req_id", None)
             stage_lbl = getattr(handler, "_live_stage", "Original")
@@ -87,26 +96,38 @@ def forward_coarena(handler, raw_body, body_obj, orig_model, is_recovery, allow_
             req = urllib.request.Request(upstream_url, data=body, headers=req_headers, method='POST')
             req_t0 = time.time()
             try:
-                with urllib.request.urlopen(req, timeout=35) as resp:
-                    resp_data = resp.read()
-                    if resp.headers.get('Content-Encoding', '').lower() == 'gzip':
-                        try:
-                            resp_data = gzip.decompress(resp_data)
-                        except Exception:
-                            pass
-                    globals_dict["current_coarena_idx"] = idx
+                from contextlib import nullcontext
+                guard_cm = egress_guard("coarena", p_info=p_info, key=key, key_index=idx) if egress_guard else nullcontext()
+                with guard_cm:
+                    if _note_dispatch:
+                        _note_dispatch("coarena", key)
+                    _open_cm = urlopen_for_key(req, p_info=p_info, key=key, key_index=idx, timeout=35) if urlopen_for_key else urllib.request.urlopen(req, timeout=35)
+                    with _open_cm as resp:
+                        resp_data = resp.read()
+                        resp_status = resp.status
+                        resp_hdrs = dict(resp.headers.items())
+                        resp_enc = resp.headers.get('Content-Encoding', '').lower()
+                if resp_enc == 'gzip':
+                    try:
+                        resp_data = gzip.decompress(resp_data)
+                    except Exception:
+                        pass
+                globals_dict["current_coarena_idx"] = idx
+                if _clear_attempt_cooldown:
+                    _clear_attempt_cooldown("coarena", key, coarena_model, p_info=p_info, key_index=idx)
+                else:
                     clear_key_cooldown("coarena", key, coarena_model)
-                    p_name = p_info.get("name", "Coarena")
-                    _record_winner_usage(handler, "coarena", p_name, coarena_model, f"Key #{idx+1}", resp_data, req_t0, key=key)
-                    resp_data = append_signature_to_response(resp_data, p_name, coarena_model)
-                    handler.send_response(resp.status)
-                    for k, val in resp.headers.items():
-                        if k.lower() not in ['transfer-encoding', 'content-encoding', 'content-length', 'connection']:
-                            handler.send_header(k, val)
-                    handler.send_header('Content-Length', str(len(resp_data)))
-                    handler.end_headers()
-                    handler.wfile.write(resp_data)
-                    return True
+                p_name = p_info.get("name", "Coarena")
+                _record_winner_usage(handler, "coarena", p_name, coarena_model, f"Key #{idx+1}", resp_data, req_t0, key=key)
+                resp_data = append_signature_to_response(resp_data, p_name, coarena_model)
+                handler.send_response(resp_status)
+                for k, val in resp_hdrs.items():
+                    if k.lower() not in ['transfer-encoding', 'content-encoding', 'content-length', 'connection']:
+                        handler.send_header(k, val)
+                handler.send_header('Content-Length', str(len(resp_data)))
+                handler.end_headers()
+                handler.wfile.write(resp_data)
+                return True
             except urllib.error.HTTPError as e:
                 handler._last_http_error = e.code
                 err_body = ""
@@ -114,7 +135,10 @@ def forward_coarena(handler, raw_body, body_obj, orig_model, is_recovery, allow_
                     err_body = e.read().decode('utf-8', errors='ignore')
                 except Exception:
                     pass
-                mark_key_cooldown("coarena", key, e.code, coarena_model, err_body)
+                if _mark_attempt_cooldown:
+                    _mark_attempt_cooldown("coarena", key, e.code, coarena_model, err_body, headers=e.headers, p_info=p_info, key_index=idx)
+                else:
+                    mark_key_cooldown("coarena", key, e.code, coarena_model, err_body)
                 record_live_issue("coarena", p_info.get("name", "Coarena"), coarena_model, f"Key #{idx+1}", e.code, err_body[:200])
                 sys.stderr.write(f"[Proxy] Coarena key #{idx+1} HTTP error {e.code}: {err_body[:300]}. URL: {upstream_url}. Model: {coarena_model}.\n")
                 if e.code in (400, 413):
