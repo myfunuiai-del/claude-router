@@ -35,7 +35,7 @@ def get_current_version():
             return f"commit-{res.stdout.strip()}"
     except Exception:
         pass
-    return "v2.1.0"
+    return "v2.2.0"
 
 def check_remote_version():
     cur = get_current_version()
