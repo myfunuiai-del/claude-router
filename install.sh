@@ -5,6 +5,45 @@ set -e
 ROUTER_DIR="$HOME/.gemini/claude-router"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+echo "=== Claude Router Dependency Matrix (What Breaks If Missing) ==="
+echo "  * python               [MANDATORY] : Without python, proxy_v2 server cannot start."
+echo "  * rust (rustc + cargo) [MANDATORY] : Required for 'router-stats' & Rust Core tools."
+echo "                                       Without it, fast log analytics will not work."
+echo "  * jql                  [OPTIONAL]  : Without jql, fast CLI JSON inspection is disabled."
+echo "================================================================="
+
+if ! command -v rustc >/dev/null 2>&1 || ! command -v cargo >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
+    echo "[!] Mandatory dependencies (rust / python) are missing."
+    read -r -p "Install rust, python, and jql now? (y/N): " resp
+    case "$resp" in
+        [yY][eE][sS]|[yY])
+            if command -v pkg >/dev/null 2>&1; then
+                pkg install -y rust python jql
+            elif command -v apt-get >/dev/null 2>&1; then
+                sudo apt-get install -y rustc cargo python3
+            fi
+            ;;
+        *)
+            echo "[ERROR] Mandatory dependencies (rust/python) missing. Aborting."
+            exit 1
+            ;;
+    esac
+fi
+
+if ! command -v router-stats >/dev/null 2>&1; then
+    CORE_DIR="$HOME/antigem-skills"
+    if [ ! -d "$CORE_DIR" ]; then
+        git clone https://github.com/myfunuiai-del/antigem-skills.git "$CORE_DIR" --depth 1
+    fi
+    if [ -f "$CORE_DIR/tools/Cargo.toml" ]; then
+        cargo build --release -p router-stats --manifest-path "$CORE_DIR/tools/Cargo.toml"
+        BIN_DIR="${PREFIX:-/data/user/0/ai.antigem/files/usr}/bin"
+        mkdir -p "$BIN_DIR"
+        cp "$CORE_DIR/tools/target/release/router-stats" "$BIN_DIR/router-stats"
+        chmod +x "$BIN_DIR/router-stats"
+    fi
+fi
+
 echo "🚀 Installing Claude Router to $ROUTER_DIR..."
 mkdir -p "$ROUTER_DIR"
 
