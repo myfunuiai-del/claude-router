@@ -85,33 +85,7 @@ def _auto_detect_model_for_server(base_url, p_type="openai", p_wire="default", c
 
     return best_fallback, [best_fallback]
 
-def sync_autostart_bashrc(enabled):
-    """Add or remove the managed crouter-autostart block in ~/.bashrc."""
-    import re
-    bashrc = os.path.expanduser("~/.bashrc")
-    try:
-        text = ""
-        if os.path.exists(bashrc):
-            with open(bashrc, "r", encoding="utf-8", errors="ignore") as f:
-                text = f.read()
-        text = re.sub(r"\n?# >>> crouter-autostart >>>.*?# <<< crouter-autostart <<<\n?", "\n", text, flags=re.S)
-        text = re.sub(r"\n?# Auto-start crouter background service if not running\nif \[ -x \"\$HOME/\.local/bin/crouter\" \].*?fi\n?", "\n", text, flags=re.S)
-        text = text.rstrip() + "\n"
-        if enabled:
-            block = (
-                '\n# >>> crouter-autostart >>>\n'
-                'if [ -x "$HOME/.local/bin/crouter" ] && ! pgrep -f "proxy_v2.py" > /dev/null 2>&1; then\n'
-                '    "$HOME/.local/bin/crouter" start > /dev/null 2>&1 &\n'
-                'elif command -v crouter >/dev/null 2>&1 && ! pgrep -f "proxy_v2.py" > /dev/null 2>&1; then\n'
-                '    crouter start > /dev/null 2>&1 &\n'
-                'fi\n'
-                '# <<< crouter-autostart <<<\n'
-            )
-            text = text + block
-        with open(bashrc, "w", encoding="utf-8") as f:
-            f.write(text)
-    except Exception:
-        pass
+# ==========================================
 
 def handle_ui_post(handler, raw_body):
     """Handle UI dashboard API POST requests. Returns True if handled, False otherwise."""
@@ -615,10 +589,6 @@ def handle_ui_post(handler, raw_body):
             if "show_model_signature" in data and isinstance(data["show_model_signature"], bool):
                 cfg["show_model_signature"] = data["show_model_signature"]
                 msgs.append(f"Tag with response turned {'ON' if data['show_model_signature'] else 'OFF'}")
-            if "auto_start" in data and isinstance(data["auto_start"], bool):
-                cfg["auto_start"] = data["auto_start"]
-                sync_autostart_bashrc(data["auto_start"])
-                msgs.append(f"Auto-Start on Launch turned {'ON' if data['auto_start'] else 'OFF'}")
             save_proxy_config(cfg)
             resp = json.dumps({
                 "status": "ok",

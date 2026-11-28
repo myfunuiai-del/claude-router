@@ -86,10 +86,6 @@
         <span class="drawer-toggle-label">Tag Model Footer</span>
         <span class="drawer-switch is-on" id="drawer-switch-signature"><span class="drawer-switch-knob"></span></span>
       </div>
-      <div class="drawer-toggle-row" onclick="toggleAutoStart()">
-        <span class="drawer-toggle-label">Auto-Start on Launch</span>
-        <span class="drawer-switch is-on" id="drawer-switch-autostart"><span class="drawer-switch-knob"></span></span>
-      </div>
     </div>
 
     <div class="drawer-divider"></div>
@@ -736,42 +732,6 @@
       <div style="display:flex; justify-content:flex-end; align-items:center; border-top:1px solid #21262d; margin-top:14px; padding-top:10px;">
         <button type="button" class="btn btn-xs btn-primary" onclick="closeAccountModelPicker()" style="min-width:70px;">Done</button>
       </div>
-    </div>
-  </div>
-
-  <!-- Account Switch Busy Lock Pop-up Modal with Instruction Guide -->
-  <div class="modal-overlay" id="busy-lock-popup-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); z-index:100005; justify-content:center; align-items:center;">
-    <div class="modal-card" style="background:#0d1117; border:1px solid #d29922; border-radius:10px; width:92%; max-width:460px; padding:18px; box-shadow:0 8px 30px rgba(210,153,34,0.3); display:flex; flex-direction:column; gap:12px;">
-      
-      <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #21262d; padding-bottom:8px;">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:18px;">⏳</span>
-          <h3 style="font-size:14px; margin:0; color:#e3b341;">Account Switch Waiting</h3>
-        </div>
-        <button type="button" class="btn btn-xs" onclick="closeBusyLockModal()">✕</button>
-      </div>
-
-      <div style="font-size:12px; color:#e6edf3; line-height:1.5;">
-        Another chat is currently busy responding. Google account switch for model <strong id="busy-lock-model-name" style="color:#58a6ff;">-</strong> is queued to protect the active conversation.
-      </div>
-
-      <div style="display:flex; gap:8px;">
-        <button type="button" class="btn btn-sm btn-primary" onclick="triggerForceSwitchFromDashboard()" style="flex:1; padding:8px; font-weight:700; background:#1f6feb; border-color:#388bfd;">⚡ Force Switch Now</button>
-        <button type="button" class="btn btn-sm" onclick="closeBusyLockModal()" style="background:#21262d; color:#c9d1d9;">Wait</button>
-      </div>
-
-      <!-- App Notification Pop-up Setup Guide -->
-      <div style="background:#161b22; border:1px solid #30363d; border-radius:6px; padding:10px; font-size:11px; color:#8b949e; line-height:1.5;">
-        <strong style="color:#58a6ff; display:block; margin-bottom:4px;">💡 How to Enable Floating Pop-up Notifications:</strong>
-        To see this pop-up directly over your screen instead of opening the browser:
-        <ol style="margin:4px 0 0 16px; padding:0;">
-          <li>Go to Android <strong>Settings → Apps → Manage apps</strong></li>
-          <li>Find <strong>AntiGem API</strong> (or Termux:API)</li>
-          <li>Tap <strong>Notifications</strong></li>
-          <li>Turn ON <strong>Floating notifications</strong> (Allow pop-up)</li>
-        </ol>
-      </div>
-
     </div>
   </div>
 

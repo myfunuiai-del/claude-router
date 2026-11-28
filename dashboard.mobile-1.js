@@ -214,11 +214,6 @@ function syncMobileDashboardUI() {
   const drwSig = document.getElementById('drawer-switch-signature');
   if (drwSig) drwSig.classList.toggle('is-on', sigOn);
 
-  // Sync Auto-Start on Launch
-  const autoStartOn = (typeof currentConfig !== 'undefined' && currentConfig) ? (currentConfig.auto_start !== false) : true;
-  const drwAutoStart = document.getElementById('drawer-switch-autostart');
-  if (drwAutoStart) drwAutoStart.classList.toggle('is-on', autoStartOn);
-
   // Sync Account Lock
   const lockBtn = document.getElementById('account-lock-toggle-btn');
   const lockOn = lockBtn ? lockBtn.classList.contains('is-on') : false;

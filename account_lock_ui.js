@@ -30,8 +30,6 @@ let allKnownModels = [...EXACT_ANTIGEM_MODELS];
 // Undo state specific to Account Model Binding
 let accModelPendingDeletion = null;
 
-let busyLockDismissedByUser = false;
-
 async function fetchAccountLock() {
   try {
     const res = await fetch('/api/ui/account-lock');
@@ -43,31 +41,10 @@ async function fetchAccountLock() {
       currentLiveEmail = data.current_email || '';
       renderAccountLockUI();
       updateRedirectionBadge();
-      handleBusyLockPopup(data.busy_info);
     }
   } catch (e) {
     console.error('Failed to load account lock status:', e);
   }
-}
-
-function handleBusyLockPopup(busyInfo) {
-  const modal = document.getElementById('busy-lock-popup-modal');
-  const modelSpan = document.getElementById('busy-lock-model-name');
-  if (!modal) return;
-
-  if (busyInfo && busyInfo.busy && !busyLockDismissedByUser) {
-    if (modelSpan) modelSpan.textContent = busyInfo.model || 'New Model';
-    modal.style.display = 'flex';
-  } else if (!busyInfo || !busyInfo.busy) {
-    busyLockDismissedByUser = false;
-    modal.style.display = 'none';
-  }
-}
-
-function closeBusyLockModal() {
-  const modal = document.getElementById('busy-lock-popup-modal');
-  if (modal) modal.style.display = 'none';
-  busyLockDismissedByUser = true;
 }
 
 async function triggerForceSwitchFromDashboard() {
@@ -78,7 +55,6 @@ async function triggerForceSwitchFromDashboard() {
       body: JSON.stringify({ action: 'force_switch' })
     });
     if (res.ok) {
-      closeBusyLockModal();
       if (typeof showToast === 'function') {
         showToast('⚡ Force Switch sent! Swapping account now...');
       }

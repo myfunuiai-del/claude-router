@@ -178,3 +178,15 @@ All files across the entire repository are strictly under the 400-500 line limit
   3. **429 `Retry-After` Backoff + Instant Failover:** `429` with `Retry-After: 90` placed both key and sticky proxy IP on `90s` cooldown and failed over immediately to the healthy key + proxy within the same request.
   4. **SOCKS5 Tunnel Auth:** Verified RFC 1928/1929 `socks5h://u:p@...` forwarding through a live local SOCKS5 mock server.
 - **Line-Limit & Syntax Audit:** All modified modules compile cleanly and remain under the 500-line modular limit.
+
+---
+
+### [Phase 11] Deprecation & Removal of Active-Chat Busy Lock and Auto-Start (Completed)
+- **Busy Option Completely Removed:**
+  - Removed `BUSY_NOTIF_ID`, `BUSY_INFO_FILE`, `show_busy_notification()`, and `is_other_chat_busy()` from `account_model_listener.py`. Model binding enforcement runs instantly without blocking or false-positive busy loops.
+  - Removed `get_busy_status()` and `busy_info` payload from `account_lock_api.py`.
+  - Removed `handleBusyLockPopup()`, `closeBusyLockModal()`, and `#busy-lock-popup-modal` UI dialog from `account_lock_ui.js` and `dashboard.html`.
+- **Auto-Start Hook & Controls Removed:**
+  - Removed `auto_start` toggle row and modal switcher from `dashboard.html`, `dashboard.servers-1.js`, and `dashboard.mobile-1.js`.
+  - Removed `sync_autostart_bashrc()` and setting handlers from `proxy_v2.ui_api-1.py`.
+  - Removed `autostart` subcommands and `~/.bashrc` script injection hooks from `crouter` CLI. Existing managed blocks in `~/.bashrc` cleaned up.

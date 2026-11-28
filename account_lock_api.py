@@ -23,18 +23,6 @@ EXACT_MODELS = [
     "Orchestrator (Argon)"
 ]
 
-def get_busy_status():
-    busy_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".busy_switch_info.json")
-    if os.path.exists(busy_file):
-        try:
-            with open(busy_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if data.get("busy") and (time.time() - data.get("time", 0)) < 60:
-                    return data
-        except Exception:
-            pass
-    return {"busy": False}
-
 def handle_account_lock_get(handler):
     """Handles GET /api/ui/account-lock"""
     try:
@@ -44,8 +32,7 @@ def handle_account_lock_get(handler):
             "state": state,
             "current_email": account_model_lock.get_current_live_email(),
             "available_accounts": account_model_lock.list_available_accounts(),
-            "models": EXACT_MODELS,
-            "busy_info": get_busy_status()
+            "models": EXACT_MODELS
         }
         resp = json.dumps(resp_payload).encode('utf-8')
         handler.send_response(200)

@@ -81,80 +81,6 @@ publish_release_cli() {
     fi
 }
 
-get_autostart_setting() {
-    python3 -c '
-import json, os
-p = os.path.expanduser("~/.gemini/claude-router/config.json")
-if os.path.exists(p):
-    try:
-        with open(p) as f:
-            print("true" if json.load(f).get("auto_start", True) else "false")
-            raise SystemExit(0)
-    except Exception:
-        pass
-print("true")
-' 2>/dev/null || echo "true"
-}
-
-set_autostart_setting() {
-    local val="$1"
-    python3 -c '
-import json, os, sys
-val = sys.argv[1] == "true"
-p = os.path.expanduser("~/.gemini/claude-router/config.json")
-os.makedirs(os.path.dirname(p), exist_ok=True)
-cfg = {}
-if os.path.exists(p):
-    try:
-        with open(p) as f:
-            cfg = json.load(f)
-    except Exception:
-        cfg = {}
-cfg["auto_start"] = val
-with open(p, "w") as f:
-    json.dump(cfg, f, indent=2)
-' "$val" 2>/dev/null
-    sync_autostart_hook
-}
-
-sync_autostart_hook() {
-    local bashrc="$HOME/.bashrc"
-    local enabled
-    enabled="$(get_autostart_setting)"
-    touch "$bashrc" 2>/dev/null || return 0
-
-    python3 -c '
-import os, re, sys
-bashrc = os.path.expanduser("~/.bashrc")
-enabled = sys.argv[1] == "true"
-try:
-    with open(bashrc, "r", encoding="utf-8", errors="ignore") as f:
-        text = f.read()
-except Exception:
-    text = ""
-
-# Remove existing managed block and legacy manual block
-text = re.sub(r"\n?# >>> crouter-autostart >>>.*?# <<< crouter-autostart <<<\n?", "\n", text, flags=re.S)
-text = re.sub(r"\n?# Auto-start crouter background service if not running\nif \[ -x \"\$HOME/\.local/bin/crouter\" \].*?fi\n?", "\n", text, flags=re.S)
-text = text.rstrip() + "\n"
-
-if enabled:
-    block = """
-# >>> crouter-autostart >>>
-if [ -x "$HOME/.local/bin/crouter" ] && ! pgrep -f "proxy_v2.py" > /dev/null 2>&1; then
-    "$HOME/.local/bin/crouter" start > /dev/null 2>&1 &
-elif command -v crouter >/dev/null 2>&1 && ! pgrep -f "proxy_v2.py" > /dev/null 2>&1; then
-    crouter start > /dev/null 2>&1 &
-fi
-# <<< crouter-autostart <<<
-"""
-    text = text + block
-
-with open(bashrc, "w", encoding="utf-8") as f:
-    f.write(text)
-' "$enabled" 2>/dev/null
-}
-
 uninstall_router() {
     echo "⚠️  WARNING: This will completely uninstall Claude Router:"
     echo "   - Stop the running proxy server (port $PORT)"
@@ -232,9 +158,6 @@ ensure_cli_environment() {
 
     # Ensure bundled skills and policies are set up
     setup_bundled_skills_and_policies
-
-    # Ensure ~/.bashrc auto-start hook matches config (enabled by default)
-    sync_autostart_hook
 }
 
 setup_bundled_skills_and_policies() {
@@ -462,22 +385,6 @@ case "$1" in
             open_browser "$UI_URL"
         fi
         ;;
-    autostart)
-        case "$2" in
-            on|enable)
-                set_autostart_setting "true"
-                echo "[Claude Router] Auto-Start is now ON."
-                ;;
-            off|disable)
-                set_autostart_setting "false"
-                echo "[Claude Router] Auto-Start is now OFF."
-                ;;
-            *)
-                echo "[Claude Router] Auto-Start is currently: $(get_autostart_setting)"
-                echo "Usage: crouter autostart {on|off|status}"
-                ;;
-        esac
-        ;;
     check-update)
         check_for_updates_cli
         ;;
@@ -520,7 +427,7 @@ else:
 ' "$@"
         ;;
     *)
-        echo "Usage: croute/crouter {start|stop|restart|status|ui|autostart|check-update|update|release|uninstall|tools}"
+        echo "Usage: croute/crouter {start|stop|restart|status|ui|check-update|update|release|uninstall|tools}"
         echo "       Default action checks status, starts if offline and opens dashboard."
         if ! is_running; then
             start_router

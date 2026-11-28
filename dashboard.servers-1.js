@@ -144,35 +144,6 @@ async function toggleAutoRecovery() {
   }
 }
 
-function renderAutoStartToggle() {
-  const drw = document.getElementById('drawer-switch-autostart');
-  if (!drw || !currentConfig) return;
-  const isOn = currentConfig.auto_start !== false;
-  drw.classList.toggle('is-on', isOn);
-}
-
-async function toggleAutoStart() {
-  if (!currentConfig) return;
-  const nextVal = (currentConfig.auto_start === false);
-  try {
-    const res = await fetch('/api/ui/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ auto_start: nextVal })
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      showToast(data.message || 'Settings update failed', true);
-      return;
-    }
-    currentConfig = data.config;
-    renderAutoStartToggle();
-    showToast(data.message || `Auto-Start on Launch: ${nextVal ? 'ON' : 'OFF'}`);
-  } catch (err) {
-    showToast('Failed to update Auto-Start setting', true);
-  }
-}
-
 function closeUpdateModal() {
   const modal = document.getElementById('update-modal');
   if (modal) modal.style.display = 'none';
