@@ -113,6 +113,20 @@ function renderPlugins(tools) {
           <div style="font-size:12px;color:#8b949e;">Endpoint: <code style="color:#79c0ff;background:rgba(121,192,255,0.1);padding:2px 6px;border-radius:4px;">http://127.0.0.1:<span id="ep-${t.id}">${activePort}</span>/v1</code></div>
         </div>
 
+        <!-- Token Engine Quick Access Bar (If installed) -->
+        ${(t.installed && !isPendingRemove && !isInstalling)
+          ? `
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:rgba(31,111,235,0.08);border:1px solid rgba(31,111,235,0.3);padding:8px 12px;border-radius:8px;">
+              <div style="font-size:12px;color:#79c0ff;font-weight:600;display:flex;align-items:center;gap:6px;">
+                <span>🔑 Token Engine</span>
+                <span style="font-size:10px;background:rgba(255,255,255,0.1);padding:1px 6px;border-radius:10px;color:#c9d1d9;">Hybrid (token/ & free/)</span>
+              </div>
+              <button onclick="openTokenConfigModal('${t.id}', ${activePort})" style="background:#1f6feb;color:#fff;border:none;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;">⚙ Configure Tokens</button>
+            </div>
+          `
+          : ''
+        }
+
         <!-- Progress & Live Log Container -->
         <div id="prog-wrap-${t.id}" style="display:${isInstalling ? 'flex' : 'none'};flex-direction:column;gap:8px;background:rgba(0,0,0,0.3);padding:12px;border-radius:8px;border:1px solid #30363d;">
           <div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;">
@@ -143,6 +157,144 @@ function renderPlugins(tools) {
       </div>
     `;
   }).join('');
+}
+
+// Token Configuration Modal
+let currentTokenPort = 1337;
+
+async function openTokenConfigModal(toolId, port) {
+  currentTokenPort = port || 1337;
+  let cfg = { enabled: true, providers: { deepseek: { tokens: [] }, chatgpt: { tokens: [] } } };
+  try {
+    const res = await fetch(`http://127.0.0.1:${currentTokenPort}/v1/tokens`);
+    const data = await res.json();
+    if (data.ok && data.config) cfg = data.config;
+  } catch (e) {
+    // ignore
+  }
+
+  const dsTokens = (cfg.providers?.deepseek?.raw_tokens || []).join('\n');
+  const gptTokens = (cfg.providers?.chatgpt?.raw_tokens || []).join('\n');
+  const isEnabled = cfg.enabled !== false;
+
+  const modalHtml = `
+    <div id="token-modal-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;">
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;width:100%;max-width:480px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 8px 24px rgba(0,0,0,0.5);">
+        
+        <!-- Header -->
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid #30363d;">
+          <div style="font-size:15px;font-weight:700;color:#e6edf3;">🔑 Token Engine Configuration</div>
+          <button onclick="closeTokenModal()" style="background:transparent;border:none;color:#8b949e;cursor:pointer;font-size:18px;">✕</button>
+        </div>
+
+        <!-- Body -->
+        <div style="padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;">
+          
+          <!-- Master Toggle -->
+          <div style="display:flex;align-items:center;justify-content:space-between;background:#0d1117;padding:10px 14px;border-radius:8px;border:1px solid #30363d;">
+            <div>
+              <div style="font-size:13px;font-weight:600;color:#e6edf3;">Token Engine Master Switch</div>
+              <div style="font-size:11px;color:#8b949e;">Enable token pool rotation for token/ models</div>
+            </div>
+            <label style="position:relative;display:inline-block;width:40px;height:22px;">
+              <input type="checkbox" id="token-master-switch" ${isEnabled ? 'checked' : ''} style="opacity:0;width:0;height:0;">
+              <span onclick="this.previousElementSibling.checked = !this.previousElementSibling.checked;" style="position:absolute;cursor:pointer;inset:0;background:#30363d;border-radius:22px;transition:0.3s;" id="switch-slider"></span>
+            </label>
+          </div>
+
+          <!-- DeepSeek Tokens -->
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <label style="font-size:12px;font-weight:600;color:#79c0ff;">DeepSeek Web Tokens (1 per line):</label>
+              <span style="font-size:10px;color:#8b949e;">Rotation & Failover</span>
+            </div>
+            <textarea id="ds-tokens-input" placeholder="Paste userToken(s) here, one per line..." rows="3" style="width:100%;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3;padding:8px;font-size:11px;font-family:monospace;resize:vertical;">${dsTokens}</textarea>
+            <div style="font-size:10px;color:#8b949e;">Models enabled: <code style="color:#3fb950;">token/deepseek-chat</code>, <code style="color:#3fb950;">token/deepseek-reasoner</code></div>
+          </div>
+
+          <!-- ChatGPT Tokens -->
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <label style="font-size:12px;font-weight:600;color:#79c0ff;">ChatGPT Web Tokens (1 per line):</label>
+              <span style="font-size:10px;color:#8b949e;">Rotation & Failover</span>
+            </div>
+            <textarea id="gpt-tokens-input" placeholder="Paste ChatGPT access_token(s) here, one per line..." rows="3" style="width:100%;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3;padding:8px;font-size:11px;font-family:monospace;resize:vertical;">${gptTokens}</textarea>
+            <div style="font-size:10px;color:#8b949e;">Models enabled: <code style="color:#3fb950;">token/gpt-4o</code>, <code style="color:#3fb950;">token/o3-mini</code></div>
+          </div>
+
+          <div id="token-modal-msg" style="display:none;font-size:12px;padding:8px;border-radius:6px;"></div>
+        </div>
+
+        <!-- Footer -->
+        <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid #30363d;background:#0d1117;border-radius:0 0 12px 12px;">
+          <button onclick="closeTokenModal()" style="background:#21262d;color:#e6edf3;border:1px solid #30363d;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px;">Cancel</button>
+          <button onclick="saveTokenConfig('${toolId}')" style="background:#238636;color:#fff;border:none;padding:7px 16px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">Save Tokens</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const old = document.getElementById('token-modal-overlay');
+  if (old) old.remove();
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+function closeTokenModal() {
+  const modal = document.getElementById('token-modal-overlay');
+  if (modal) modal.remove();
+}
+
+async function saveTokenConfig(toolId) {
+  const isEnabled = document.getElementById('token-master-switch')?.checked ?? true;
+  const dsRaw = document.getElementById('ds-tokens-input')?.value || '';
+  const gptRaw = document.getElementById('gpt-tokens-input')?.value || '';
+  const msgEl = document.getElementById('token-modal-msg');
+
+  const dsTokens = dsRaw.split('\n').map(t => t.trim()).filter(Boolean);
+  const gptTokens = gptRaw.split('\n').map(t => t.trim()).filter(Boolean);
+
+  if (msgEl) {
+    msgEl.style.display = 'block';
+    msgEl.style.background = 'rgba(255,255,255,0.05)';
+    msgEl.style.color = '#e6edf3';
+    msgEl.textContent = 'Saving token configuration...';
+  }
+
+  try {
+    const res = await fetch(`http://127.0.0.1:${currentTokenPort}/v1/tokens`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        enabled: isEnabled,
+        providers: {
+          deepseek: { tokens: dsTokens },
+          chatgpt: { tokens: gptTokens }
+        }
+      })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      if (msgEl) {
+        msgEl.style.color = '#3fb950';
+        msgEl.textContent = 'Saved! Refreshing models...';
+      }
+      setTimeout(() => {
+        closeTokenModal();
+        loadPlugins();
+        // Trigger model refresh in crouter if applicable
+        if (typeof openModelsSelector === 'function') {
+          openModelsSelector(toolId);
+        }
+      }, 700);
+    } else {
+      throw new Error(data.error || 'Failed to save');
+    }
+  } catch (err) {
+    if (msgEl) {
+      msgEl.style.color = '#f85149';
+      msgEl.textContent = `Error: ${err.message}`;
+    }
+  }
 }
 
 // 1. Pre-install check & Confirmation Modal
@@ -369,8 +521,8 @@ async function connectPluginToCrouter(toolId, toolName) {
         type: 'openai',
         base_url: `http://127.0.0.1:${port}/v1`,
         keys: ['g4f-local'],
-        default_model: 'gpt-4o',
-        models: ['gpt-4o', 'gpt-4', 'gpt-3.5-turbo', 'claude-3-haiku']
+        default_model: 'token/deepseek-chat',
+        models: ['token/deepseek-chat', 'token/deepseek-reasoner', 'free/gpt-4o', 'free/gpt-3.5-turbo', 'free/deepseek-chat', 'gpt-4o', 'gpt-3.5-turbo']
       })
     });
     const data = await res.json();
@@ -422,8 +574,8 @@ async function updatePluginPortInCrouter(toolId, toolName) {
         type: existing.type || 'openai',
         base_url: `http://127.0.0.1:${port}/v1`,
         keys: existing.keys || ['g4f-local'],
-        default_model: existing.default_model || 'gpt-4o',
-        models: existing.models || ['gpt-4o', 'gpt-4', 'gpt-3.5-turbo', 'claude-3-haiku']
+        default_model: existing.default_model || 'token/deepseek-chat',
+        models: existing.models || ['token/deepseek-chat', 'token/deepseek-reasoner', 'free/gpt-4o', 'free/gpt-3.5-turbo', 'free/deepseek-chat', 'gpt-4o', 'gpt-3.5-turbo']
       })
     });
     const data = await res.json();
