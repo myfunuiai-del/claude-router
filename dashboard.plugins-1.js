@@ -166,11 +166,16 @@ async function openTokenConfigModal(toolId, port) {
   currentTokenPort = port || 1337;
   let cfg = { enabled: true, providers: { deepseek: { tokens: [] }, chatgpt: { tokens: [] } } };
   try {
-    const res = await fetch(`http://127.0.0.1:${currentTokenPort}/v1/tokens`);
+    const res = await fetch('/api/ui/tools/tokens');
     const data = await res.json();
     if (data.ok && data.config) cfg = data.config;
   } catch (e) {
-    // ignore
+    // fallback direct port
+    try {
+      const res = await fetch(`http://127.0.0.1:${currentTokenPort}/v1/tokens`);
+      const data = await res.json();
+      if (data.ok && data.config) cfg = data.config;
+    } catch (err) {}
   }
 
   const dsTokens = (cfg.providers?.deepseek?.raw_tokens || []).join('\n');
@@ -261,7 +266,7 @@ async function saveTokenConfig(toolId) {
   }
 
   try {
-    const res = await fetch(`http://127.0.0.1:${currentTokenPort}/v1/tokens`, {
+    const res = await fetch('/api/ui/tools/tokens', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

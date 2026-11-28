@@ -70,6 +70,17 @@ def handle_GET(handler):
         handler.wfile.write(res)
         return
 
+    if clean_p.startswith("/api/ui/tools/tokens"):
+        import tool_manager
+        cfg = tool_manager.get_tool_tokens()
+        res = json.dumps({"ok": True, "config": cfg}).encode('utf-8')
+        handler.send_response(200)
+        handler.send_header('Content-Type', 'application/json')
+        handler.send_header('Content-Length', str(len(res)))
+        handler.end_headers()
+        handler.wfile.write(res)
+        return
+
     if clean_p.startswith("/api/ui/tools/progress/"):
         import tool_manager
         tool_id = clean_p.split("/api/ui/tools/progress/")[-1]

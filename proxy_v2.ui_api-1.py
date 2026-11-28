@@ -103,6 +103,26 @@ def handle_ui_post(handler, raw_body):
     if handle_ui_playground_post(handler, raw_body):
         return True
 
+    if handler.path == "/api/ui/tools/tokens":
+        try:
+            import tool_manager
+            data = json.loads(raw_body.decode('utf-8'))
+            res_data = tool_manager.save_tool_tokens(data)
+            res = json.dumps(res_data).encode('utf-8')
+            handler.send_response(200)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Content-Length', str(len(res)))
+            handler.end_headers()
+            handler.wfile.write(res)
+        except Exception as e:
+            err = json.dumps({"ok": False, "error": str(e)}).encode('utf-8')
+            handler.send_response(500)
+            handler.send_header('Content-Type', 'application/json')
+            handler.send_header('Content-Length', str(len(err)))
+            handler.end_headers()
+            handler.wfile.write(err)
+        return True
+
     if handler.path == "/api/ui/tools/action":
         try:
             import tool_manager

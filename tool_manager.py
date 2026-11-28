@@ -418,3 +418,60 @@ def run_tool_action(tool_id, action, port=None):
         return {"ok": True, "message": f"{tool_id} updated successfully!", "output": res.stdout[-300:]}
 
     return {"ok": False, "error": f"Unknown action: {action}"}
+
+
+def get_tool_tokens(tool_id="g4f-api"):
+    """Fetch tokens directly from plugin's tokens.json without cross-origin issues."""
+    tokens_file = os.path.expanduser("~/Crouter-Plugin/g4f-api/tokens.json")
+    if not os.path.exists(tokens_file):
+        return {"enabled": True, "providers": {}}
+    try:
+        with open(tokens_file, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        safe_cfg = {
+            "enabled": cfg.get("enabled", True),
+            "providers": {}
+        }
+        for pid, pdata in cfg.get("providers", {}).items():
+            tokens = pdata.get("tokens", [])
+            safe_cfg["providers"][pid] = {
+                "name": pdata.get("name", pid),
+                "models": pdata.get("models", []),
+                "count": len(tokens),
+                "tokens": [t[:8] + "..." + t[-4:] if len(t) > 14 else "***" for t in tokens],
+                "raw_tokens": tokens
+            }
+        return safe_cfg
+    except Exception:
+        return {"enabled": True, "providers": {}}
+
+
+def save_tool_tokens(payload, tool_id="g4f-api"):
+    """Save tokens directly to plugin's tokens.json."""
+    tokens_file = os.path.expanduser("~/Crouter-Plugin/g4f-api/tokens.json")
+    os.makedirs(os.path.dirname(tokens_file), exist_ok=True)
+    cfg = {"enabled": True, "providers": {}}
+    if os.path.exists(tokens_file):
+        try:
+            with open(tokens_file, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+        except Exception:
+            pass
+
+    cfg["enabled"] = bool(payload.get("enabled", True))
+    providers = payload.get("providers", {})
+    for pid, pdata in providers.items():
+        if pid not in cfg.setdefault("providers", {}):
+            cfg["providers"][pid] = {
+                "name": pid,
+                "models": [],
+                "tokens": []
+            }
+        if isinstance(pdata, dict) and "tokens" in pdata:
+            cfg["providers"][pid]["tokens"] = [t.strip() for t in pdata["tokens"] if isinstance(t, str) and t.strip()]
+        elif isinstance(pdata, list):
+            cfg["providers"][pid]["tokens"] = [t.strip() for t in pdata if isinstance(t, str) and t.strip()]
+
+    with open(tokens_file, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+    return {"ok": True, "message": "Tokens saved successfully."}
