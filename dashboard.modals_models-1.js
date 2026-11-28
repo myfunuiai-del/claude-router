@@ -154,6 +154,7 @@ async function testKeys(pId) {
 }
 
 function getFallbackPresets(pId) {
+  if (pId === 'g4f-api') return [];
   const p = currentConfig?.providers?.[pId];
   const type = p?.type || '';
   if (type === 'openai') return ['openai/gpt-oss-120b', 'gpt-4o', 'gpt-4o-mini', 'o3-mini'];
@@ -164,6 +165,11 @@ async function openModelsSelector(pId) {
   activeModalProvider = pId;
   onlyWorkingModelsFilter = false;
   modalTestRunId++;
+
+  // Invalidate ping cache for this provider so stale green results don't show
+  if (modelPingCache[pId]) {
+    delete modelPingCache[pId];
+  }
   const modal = document.getElementById('models-modal');
   const title = document.getElementById('models-modal-title');
   const customInput = document.getElementById('custom-model-input');
@@ -192,7 +198,12 @@ async function openModelsSelector(pId) {
     });
     const data = await res.json();
     const discovered = data.all_discovered || [];
-    activeDiscoveredModels = Array.from(new Set([...existing, ...discovered, ...presets]));
+    if (pId === 'g4f-api' && discovered.length > 0) {
+      // For g4f-api, show exactly what the server currently serves (token/ or free/)
+      activeDiscoveredModels = Array.from(new Set(discovered));
+    } else {
+      activeDiscoveredModels = Array.from(new Set([...existing, ...discovered, ...presets]));
+    }
   } catch (e) {
     activeDiscoveredModels = Array.from(new Set([...existing, ...presets]));
   }

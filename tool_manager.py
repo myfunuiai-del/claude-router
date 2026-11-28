@@ -474,4 +474,16 @@ def save_tool_tokens(payload, tool_id="g4f-api"):
 
     with open(tokens_file, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
+
+    # Auto restart running g4f-api process so new tokens & models reload immediately
+    try:
+        was_running, _ = _is_running("server.py")
+        if was_running:
+            state = _load_tools_state().get(tool_id, {})
+            port = state.get("port", 1337)
+            run_tool_action(tool_id, "stop")
+            run_tool_action(tool_id, "start", port=port)
+    except Exception:
+        pass
+
     return {"ok": True, "message": "Tokens saved successfully."}
