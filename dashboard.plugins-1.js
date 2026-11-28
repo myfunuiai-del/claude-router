@@ -196,15 +196,15 @@ async function openTokenConfigModal(toolId, port) {
         <div style="padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;">
           
           <!-- Master Toggle -->
-          <div style="display:flex;align-items:center;justify-content:space-between;background:#0d1117;padding:10px 14px;border-radius:8px;border:1px solid #30363d;">
+          <div style="display:flex;align-items:center;justify-content:space-between;background:#0d1117;padding:10px 14px;border-radius:8px;border:1px solid #30363d;cursor:pointer;" onclick="toggleTokenMasterSwitch()">
             <div>
               <div style="font-size:13px;font-weight:600;color:#e6edf3;">Token Engine Master Switch</div>
               <div style="font-size:11px;color:#8b949e;">Enable token pool rotation for token/ models</div>
             </div>
-            <label style="position:relative;display:inline-block;width:40px;height:22px;">
-              <input type="checkbox" id="token-master-switch" ${isEnabled ? 'checked' : ''} style="opacity:0;width:0;height:0;">
-              <span onclick="this.previousElementSibling.checked = !this.previousElementSibling.checked;" style="position:absolute;cursor:pointer;inset:0;background:#30363d;border-radius:22px;transition:0.3s;" id="switch-slider"></span>
-            </label>
+            <span class="drawer-switch ${isEnabled ? 'is-on' : ''}" id="token-switch-ui" style="display:inline-block;cursor:pointer;">
+              <span class="drawer-switch-knob"></span>
+            </span>
+            <input type="checkbox" id="token-master-switch" ${isEnabled ? 'checked' : ''} style="display:none;">
           </div>
 
           <!-- DeepSeek Tokens -->
@@ -242,6 +242,18 @@ async function openTokenConfigModal(toolId, port) {
   const old = document.getElementById('token-modal-overlay');
   if (old) old.remove();
   document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+function toggleTokenMasterSwitch() {
+  const chk = document.getElementById('token-master-switch');
+  const ui = document.getElementById('token-switch-ui');
+  if (chk) {
+    chk.checked = !chk.checked;
+    if (ui) {
+      if (chk.checked) ui.classList.add('is-on');
+      else ui.classList.remove('is-on');
+    }
+  }
 }
 
 function closeTokenModal() {
