@@ -152,6 +152,11 @@ if __name__ == '__main__':
         threading.Thread(target=account_model_listener.run_listener, daemon=True).start()
     except Exception as _e:
         sys.stderr.write(f"[Proxy] Warning loading account_model_listener: {_e}\n")
+    try:
+        import tool_manager
+        threading.Thread(target=tool_manager.auto_start_enabled_tools, daemon=True).start()
+    except Exception as _e:
+        sys.stderr.write(f"[Proxy] Warning auto-starting tools: {_e}\n")
     with ReusableTCPServer(('0.0.0.0', PORT), UniversalProxyHandler) as httpd:
         sys.stderr.write(f"[Proxy] Universal Bulletproof Proxy running on http://127.0.0.1:{PORT}\n")
         try:

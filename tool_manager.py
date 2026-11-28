@@ -7,10 +7,47 @@ import time
 
 ROUTER_DIR = os.path.dirname(os.path.abspath(__file__))
 REGISTRY_PATH = os.path.join(ROUTER_DIR, "tools_registry.json")
+STATE_PATH = os.path.join(ROUTER_DIR, "tools_state.json")
 
 # In-memory tracker for async installations
 _INSTALL_JOBS = {}
 _JOBS_LOCK = threading.Lock()
+
+
+def _load_state():
+    if not os.path.exists(STATE_PATH):
+        return {}
+    try:
+        with open(STATE_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_state(state):
+    try:
+        with open(STATE_PATH, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+    except Exception:
+        pass
+
+
+def _set_tool_autostart(tool_id, enabled, port=None):
+    state = _load_state()
+    entry = state.get(tool_id, {})
+    entry["auto_start"] = bool(enabled)
+    if port is not None:
+        entry["port"] = int(port)
+    state[tool_id] = entry
+    _save_state(state)
+
+
+def auto_start_enabled_tools():
+    state = _load_state()
+    for tool_id, info in state.items():
+        if info.get("auto_start"):
+            port = info.get("port")
+            run_tool_action(tool_id, "start", port=port)
 
 
 def _expand(path_str):
@@ -320,6 +357,7 @@ def run_tool_action(tool_id, action, port=None):
         if not cmd:
             return {"ok": False, "error": "No uninstall command defined."}
         res = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        _set_tool_autostart(tool_id, False)
         if res.returncode == 0:
             return {"ok": True, "message": f"{tool_id} uninstalled successfully."}
         return {"ok": False, "error": res.stderr[-500:]}
@@ -329,6 +367,7 @@ def run_tool_action(tool_id, action, port=None):
             return {"ok": False, "error": f"{tool_id} is not installed. Please install it first."}
         running, pid = _is_running(tool.get("process_pattern", tool_id))
         if running:
+            _set_tool_autostart(tool_id, True, port=target_port)
             return {"ok": True, "message": f"{tool_id} is already running (PID: {pid}).", "pid": pid}
         cmd = cmds.get("start", "").replace("{port}", str(target_port))
         if not cmd:
@@ -337,6 +376,7 @@ def run_tool_action(tool_id, action, port=None):
         time.sleep(1.5)
         running, pid = _is_running(tool.get("process_pattern", tool_id))
         if running:
+            _set_tool_autostart(tool_id, True, port=target_port)
             return {"ok": True, "message": f"{tool_id} started on port {target_port}.", "pid": pid, "port": target_port}
         return {"ok": False, "error": f"Failed to start {tool_id}."}
 
@@ -345,6 +385,7 @@ def run_tool_action(tool_id, action, port=None):
         if not cmd:
             return {"ok": False, "error": "No stop command defined."}
         subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        _set_tool_autostart(tool_id, False)
         return {"ok": True, "message": f"{tool_id} stopped."}
 
     if action == "check":

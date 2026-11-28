@@ -327,6 +327,7 @@ start_router() {
     for _ in {1..30}; do
         if is_running; then
             echo "[Claude Router] Started successfully! Web UI: http://127.0.0.1:$PORT/ui"
+            python3 -c 'import sys, os; sys.path.insert(0, os.path.expanduser("~/.gemini/claude-router")); import tool_manager; tool_manager.auto_start_enabled_tools()' >/dev/null 2>&1 &
             if [ -t 1 ]; then
                 open_browser "$UI_URL"
             fi
